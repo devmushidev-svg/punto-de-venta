@@ -1,0 +1,705 @@
+import { Eraser, Plus, Save, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
+import { parseVolumePricesJson } from "../lib/volumePrice";
+import { Button, Field, Input, Modal, Select, Textarea } from "./ui";
+import type { Product, Supplier } from "../types";
+
+const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
+
+type FormTab = "product" | "prices" | "notes" | "kit";
+
+type KitRow = { componentId: string; sku: string; name: string; qty: string };
+
+type VolumeTierRow = { minQty: string; price: string };
+
+const emptyForm = {
+  sku: "",
+  name: "",
+  description: "",
+  unit: "UNIDAD",
+  price: "",
+  price2: "",
+  price3: "",
+  price4: "",
+  cost: "",
+  taxPercent: "15",
+  stock: "0",
+  minStock: "0",
+  category: "",
+  barcode: "",
+  quickCode: "",
+  location: "GENERAL",
+  brand: "",
+  imageUrl: "",
+  productType: "PRODUCTO",
+  supplierId: "",
+  esGranel: false,
+  volumeTiers: [] as VolumeTierRow[],
+};
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  /** Si está definido, el modal carga y actualiza ese producto (PATCH). */
+  existingProductId?: string | null;
+  /** Se llama con el producto creado (respuesta del POST). */
+  onSaved?: (product: Product) => void;
+  /** Se llama tras PATCH exitoso (p. ej. refrescar líneas de venta). */
+  onUpdated?: (product: Product) => void;
+};
+
+function productFromApiToForm(p: Product) {
+  return {
+    sku: p.sku,
+    name: p.name,
+    description: p.description ?? "",
+    unit: p.unit,
+    price: String(p.price),
+    price2: p.price2 != null ? String(p.price2) : "",
+    price3: p.price3 != null ? String(p.price3) : "",
+    price4: p.price4 != null ? String(p.price4) : "",
+    cost: String(p.cost),
+    taxPercent: String(p.taxPercent),
+    stock: String(p.stock),
+    minStock: String(p.minStock),
+    category: p.category ?? "",
+    barcode: p.barcode ?? "",
+    quickCode: p.quickCode ?? "",
+    location: p.location ?? "GENERAL",
+    brand: p.brand ?? "",
+    imageUrl: p.imageUrl ?? "",
+    productType: (p.productType || "PRODUCTO") as (typeof PRODUCT_TYPES)[number],
+    supplierId: p.supplierId ?? "",
+    esGranel: Boolean(p.esGranel),
+    volumeTiers: parseVolumePricesJson(p.volumePricesJson).map((t) => ({
+      minQty: String(t.minQty),
+      price: String(t.price),
+    })),
+  };
+}
+
+function kitRowsFromProduct(p: Product): KitRow[] {
+  if (p.productType !== "KIT" || !p.kitLines?.length) return [];
+  return p.kitLines.map((kl) => ({
+    componentId: kl.componentProductId,
+    sku: kl.component.sku,
+    name: kl.component.name,
+    qty: String(kl.qty),
+  }));
+}
+
+function fieldsetClass(title: string) {
+  return (
+    <legend className="px-1 text-[11px] font-bold uppercase tracking-wide text-pf-text-tertiary">{title}</legend>
+  );
+}
+
+export function NewProductModal({ open, onClose, existingProductId = null, onSaved, onUpdated }: Props) {
+  const { token } = useAuth();
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [formTab, setFormTab] = useState<FormTab>("product");
+  const [form, setForm] = useState(emptyForm);
+  const [kitRows, setKitRows] = useState<KitRow[]>([]);
+  const [kitPickSearch, setKitPickSearch] = useState("");
+  const [kitPickHits, setKitPickHits] = useState<Product[]>([]);
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loadingProduct, setLoadingProduct] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<Supplier[]>("/api/suppliers", { token }).then(setSuppliers).catch(() => setSuppliers([]));
+  }, [token]);
+
+  useEffect(() => {
+    if (!open || !token) return;
+    if (!existingProductId) {
+      setForm(emptyForm);
+      setKitRows([]);
+      setKitPickSearch("");
+      setKitPickHits([]);
+      setFormTab("product");
+      setErr("");
+      setLoadingProduct(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingProduct(true);
+    setErr("");
+    setKitPickSearch("");
+    setKitPickHits([]);
+    setFormTab("product");
+    apiFetch<Product>(`/api/products/${existingProductId}`, { token })
+      .then((full) => {
+        if (cancelled) return;
+        setForm({ ...emptyForm, ...productFromApiToForm(full) });
+        setKitRows(kitRowsFromProduct(full));
+      })
+      .catch((e) => {
+        if (!cancelled) setErr(e instanceof Error ? e.message : "No se pudo cargar el producto");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProduct(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, existingProductId, token]);
+
+  useEffect(() => {
+    if (formTab === "kit" && form.productType !== "KIT") setFormTab("product");
+  }, [form.productType, formTab]);
+
+  const runKitPickSearch = useCallback(async () => {
+    if (!token || !kitPickSearch.trim()) {
+      setKitPickHits([]);
+      return;
+    }
+    try {
+      const data = await apiFetch<Product[]>(`/api/products?q=${encodeURIComponent(kitPickSearch.trim())}`, { token });
+      setKitPickHits(
+        data
+          .filter(
+            (p) =>
+              p.active &&
+              p.productType === "PRODUCTO" &&
+              p.id !== existingProductId &&
+              !kitRows.some((r) => r.componentId === p.id)
+          )
+          .slice(0, 14)
+      );
+    } catch {
+      setKitPickHits([]);
+    }
+  }, [token, kitPickSearch, kitRows, existingProductId]);
+
+  useEffect(() => {
+    const t = setTimeout(runKitPickSearch, 200);
+    return () => clearTimeout(t);
+  }, [runKitPickSearch]);
+
+  function clearForm() {
+    setErr("");
+    if (!existingProductId) {
+      setForm(emptyForm);
+      setKitRows([]);
+      setKitPickSearch("");
+      setKitPickHits([]);
+      setFormTab("product");
+      return;
+    }
+    if (!token) return;
+    setLoadingProduct(true);
+    apiFetch<Product>(`/api/products/${existingProductId}`, { token })
+      .then((full) => {
+        setForm({ ...emptyForm, ...productFromApiToForm(full) });
+        setKitRows(kitRowsFromProduct(full));
+        setKitPickSearch("");
+        setKitPickHits([]);
+        setFormTab("product");
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : "No se pudo recargar"))
+      .finally(() => setLoadingProduct(false));
+  }
+
+  async function save() {
+    if (!token) return;
+    setErr("");
+    if (form.productType === "KIT") {
+      if (kitRows.length === 0) {
+        setErr("Agregue al menos un producto al combo (tipo PRODUCTO).");
+        return;
+      }
+      for (const r of kitRows) {
+        const q = Number(r.qty);
+        if (!Number.isFinite(q) || q <= 0) {
+          setErr("Cada componente debe tener cantidad mayor a cero.");
+          return;
+        }
+      }
+    }
+    const payload = {
+      sku: form.sku.trim(),
+      name: form.name.trim(),
+      description: form.description || undefined,
+      unit: form.unit || "UND",
+      price: Number(form.price),
+      price2: form.price2 === "" ? undefined : Number(form.price2),
+      price3: form.price3 === "" ? undefined : Number(form.price3),
+      price4: form.price4 === "" ? undefined : Number(form.price4),
+      cost: Number(form.cost),
+      taxPercent: Number(form.taxPercent),
+      stock: Number(form.stock),
+      minStock: Number(form.minStock),
+      category: form.category || undefined,
+      barcode: form.barcode || undefined,
+      quickCode: form.quickCode || undefined,
+      location: form.location || undefined,
+      brand: form.brand || undefined,
+      imageUrl: form.imageUrl || undefined,
+      productType: form.productType,
+      supplierId: form.supplierId || null,
+      esGranel: form.esGranel,
+      volumePricesJson: JSON.stringify(
+        form.volumeTiers
+          .map((r) => ({ minQty: Number(r.minQty), price: Number(r.price) }))
+          .filter(
+            (t) =>
+              Number.isFinite(t.minQty) && t.minQty > 0 && Number.isFinite(t.price) && t.price >= 0
+          )
+          .sort((a, b) => a.minQty - b.minQty)
+      ),
+      ...(form.productType === "KIT"
+        ? {
+            kitLines: kitRows.map((r) => ({
+              productId: r.componentId,
+              qty: Number(r.qty),
+            })),
+          }
+        : {}),
+    };
+    setSaving(true);
+    try {
+      if (existingProductId) {
+        const updated = await apiFetch<Product>(`/api/products/${existingProductId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+          token,
+        });
+        onUpdated?.(updated);
+      } else {
+        const created = await apiFetch<Product>("/api/products", {
+          method: "POST",
+          body: JSON.stringify(payload),
+          token,
+        });
+        onSaved?.(created);
+      }
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error al guardar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const tabBtn = (id: FormTab, label: string) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => setFormTab(id)}
+      className={`-mb-px px-3 py-2 text-xs font-semibold uppercase tracking-wide sm:text-sm rounded-t-md transition-colors ${
+        formTab === id
+          ? "border-b-2 border-pf-primary text-pf-text bg-pf-primary-soft/40"
+          : "text-pf-muted hover:bg-pf-primary-soft/25 hover:text-pf-text"
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  const modalTitle = existingProductId
+    ? `Editar producto${form.name ? ` — ${form.name}` : ""}`
+    : "Nuevo producto";
+
+  return (
+    <Modal
+      open={open}
+      title={modalTitle}
+      onClose={onClose}
+      wide
+      maxWidthClass="sm:max-w-5xl lg:max-w-6xl"
+    >
+      {loadingProduct ? (
+        <p className="mb-4 text-sm text-pf-muted">Cargando datos del producto…</p>
+      ) : null}
+      <nav className="mb-4 flex flex-wrap gap-0.5 border-b border-pf-border" aria-label="Secciones">
+        {tabBtn("product", "Producto")}
+        {tabBtn("prices", "Precios")}
+        {form.productType === "KIT" ? tabBtn("kit", "Kits o paquetes") : null}
+        {tabBtn("notes", "Notas")}
+      </nav>
+
+      {loadingProduct ? null : formTab === "product" ? (
+        <div className="grid gap-4 lg:grid-cols-3 lg:gap-5">
+          <div className="space-y-4 lg:col-span-2">
+            <fieldset className="rounded-xl border border-pf-border bg-pf-surface-elevated/50 px-3 py-3 sm:px-4">
+              {fieldsetClass("Producto")}
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <Field label="Código del producto (SKU)">
+                  <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} />
+                </Field>
+                <Field label="Código de barra">
+                  <Input value={form.barcode} onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))} />
+                </Field>
+                <Field label="Código rápido">
+                  <Input value={form.quickCode} onChange={(e) => setForm((f) => ({ ...f, quickCode: e.target.value }))} />
+                </Field>
+                <Field label="Tipo de producto">
+                  <Select
+                    value={form.productType}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((f) => ({
+                        ...f,
+                        productType: v,
+                        stock: v === "KIT" ? "0" : f.stock,
+                        esGranel: v === "KIT" ? false : f.esGranel,
+                      }));
+                      if (v !== "KIT") setKitRows([]);
+                    }}
+                  >
+                    {PRODUCT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Nombre del producto / servicio" className="sm:col-span-2">
+                  <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                </Field>
+                <Field label="Costo">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={form.cost}
+                    onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
+                  />
+                </Field>
+                <Field label="ISV %">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={form.taxPercent}
+                    onChange={(e) => setForm((f) => ({ ...f, taxPercent: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Precio de venta (lista 1)">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={form.price}
+                    onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                  />
+                </Field>
+              </div>
+            </fieldset>
+
+            <fieldset className="rounded-xl border border-pf-border bg-pf-surface-elevated/50 px-3 py-3 sm:px-4">
+              {fieldsetClass("Existencia almacén")}
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <Field label="Existencia inicial">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={form.productType === "KIT" ? "0" : form.stock}
+                    readOnly={form.productType === "KIT"}
+                    className={form.productType === "KIT" ? "bg-pf-primary-soft/40 text-pf-muted" : undefined}
+                    onChange={(e) => setForm((f) => ({ ...f, stock: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Existencia mínima">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={form.minStock}
+                    onChange={(e) => setForm((f) => ({ ...f, minStock: e.target.value }))}
+                  />
+                </Field>
+              </div>
+              {form.productType !== "KIT" ? (
+                <label className="mt-3 flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.esGranel}
+                    onChange={(e) => setForm((f) => ({ ...f, esGranel: e.target.checked }))}
+                    className="h-4 w-4 rounded border-pf-border"
+                  />
+                  <span className="text-sm font-medium text-pf-text-secondary">Venta a granel (cantidades decimales)</span>
+                </label>
+              ) : (
+                <p className="mt-2 text-xs text-pf-muted">
+                  KIT: el inventario se descuenta por componentes (pestaña «Kits o paquetes»).
+                </p>
+              )}
+            </fieldset>
+          </div>
+
+          <div className="space-y-4">
+            <fieldset className="rounded-xl border border-pf-border bg-pf-surface-elevated/50 px-3 py-3 sm:px-4">
+              {fieldsetClass("Imagen")}
+              <div className="mt-2">
+                <Field label="URL de imagen">
+                  <Input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} />
+                </Field>
+                <div className="mt-2 flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-pf-border bg-pf-primary-soft/20 p-2">
+                  {form.imageUrl ? (
+                    <img src={form.imageUrl} alt="" className="max-h-28 max-w-full object-contain" />
+                  ) : (
+                    <span className="text-xs text-pf-muted">Sin imagen</span>
+                  )}
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset className="rounded-xl border border-pf-border bg-pf-surface-elevated/50 px-3 py-3 sm:px-4">
+              {fieldsetClass("Categorías")}
+              <div className="mt-2 space-y-3">
+                <Field label="Unidad de medida">
+                  <Input value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} />
+                </Field>
+                <Field label="Categoría">
+                  <Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
+                </Field>
+                <Field label="Ubicación en bodega">
+                  <Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} />
+                </Field>
+                <Field label="Marca del producto">
+                  <Input value={form.brand} onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))} />
+                </Field>
+                <Field label="Proveedor">
+                  <Select value={form.supplierId} onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}>
+                    <option value="">— Ninguno —</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+      ) : null}
+
+      {loadingProduct ? null : formTab === "prices" ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Precio 1 (principal)">
+              <Input
+                type="number"
+                step="any"
+                value={form.price}
+                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+              />
+            </Field>
+            <Field label="Precio 2">
+              <Input
+                type="number"
+                step="any"
+                value={form.price2}
+                onChange={(e) => setForm((f) => ({ ...f, price2: e.target.value }))}
+              />
+            </Field>
+            <Field label="Precio 3">
+              <Input
+                type="number"
+                step="any"
+                value={form.price3}
+                onChange={(e) => setForm((f) => ({ ...f, price3: e.target.value }))}
+              />
+            </Field>
+            <Field label="Precio 4">
+              <Input
+                type="number"
+                step="any"
+                value={form.price4}
+                onChange={(e) => setForm((f) => ({ ...f, price4: e.target.value }))}
+              />
+            </Field>
+          </div>
+          <div className="rounded-xl border border-pf-border bg-pf-primary-soft/15 p-3 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-pf-text">Precios por volumen (opcional)</p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-9 text-xs"
+                onClick={() => setForm((f) => ({ ...f, volumeTiers: [...f.volumeTiers, { minQty: "", price: "" }] }))}
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                Añadir tramo
+              </Button>
+            </div>
+            {form.volumeTiers.length === 0 ? (
+              <p className="text-xs text-pf-muted">Sin tramos adicionales.</p>
+            ) : (
+              <ul className="space-y-2">
+                {form.volumeTiers.map((row, idx) => (
+                  <li key={idx} className="flex flex-wrap items-end gap-2">
+                    <Field label="Cant. mínima" className="min-w-[120px] flex-1">
+                      <Input
+                        type="number"
+                        step="any"
+                        min={1}
+                        value={row.minQty}
+                        onChange={(e) =>
+                          setForm((f) => {
+                            const next = [...f.volumeTiers];
+                            next[idx] = { ...next[idx], minQty: e.target.value };
+                            return { ...f, volumeTiers: next };
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="Precio unitario" className="min-w-[120px] flex-1">
+                      <Input
+                        type="number"
+                        step="any"
+                        min={0}
+                        value={row.price}
+                        onChange={(e) =>
+                          setForm((f) => {
+                            const next = [...f.volumeTiers];
+                            next[idx] = { ...next[idx], price: e.target.value };
+                            return { ...f, volumeTiers: next };
+                          })
+                        }
+                      />
+                    </Field>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-10 shrink-0 text-red-600 hover:bg-red-50"
+                      aria-label="Quitar tramo"
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          volumeTiers: f.volumeTiers.filter((_, j) => j !== idx),
+                        }))
+                      }
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {loadingProduct ? null : formTab === "kit" ? (
+        <div className="space-y-3">
+          <p className="text-sm text-pf-muted">
+            Por cada unidad vendida del combo se descuenta del inventario la cantidad indicada de cada componente (solo
+            productos tipo PRODUCTO).
+          </p>
+          <Field label="Buscar producto">
+            <Input
+              value={kitPickSearch}
+              onChange={(e) => setKitPickSearch(e.target.value)}
+              placeholder="Nombre o SKU…"
+            />
+          </Field>
+          {kitPickHits.length > 0 ? (
+            <ul className="max-h-36 divide-y divide-pf-border overflow-y-auto rounded-lg border border-pf-border text-sm">
+              {kitPickHits.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    className="flex w-full justify-between gap-2 px-3 py-2 text-left hover:bg-pf-primary-soft/50"
+                    onClick={() => {
+                      setKitRows((rows) => [...rows, { componentId: p.id, sku: p.sku, name: p.name, qty: "1" }]);
+                      setKitPickSearch("");
+                      setKitPickHits([]);
+                    }}
+                  >
+                    <span className="truncate font-medium">{p.name}</span>
+                    <span className="shrink-0 font-mono text-xs text-pf-muted">{p.sku}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {kitRows.length === 0 ? (
+            <p className="text-xs text-pf-muted">Agregue componentes con la búsqueda.</p>
+          ) : (
+            <ul className="space-y-2">
+              {kitRows.map((row, idx) => (
+                <li
+                  key={row.componentId}
+                  className="flex flex-wrap items-end gap-2 rounded-lg border border-pf-border bg-pf-primary-soft/10 p-2"
+                >
+                  <div className="min-w-[160px] flex-1">
+                    <p className="text-xs text-pf-muted">Componente</p>
+                    <p className="text-sm font-medium">
+                      {row.sku} — {row.name}
+                    </p>
+                  </div>
+                  <Field label="Cant. por kit" className="w-32">
+                    <Input
+                      type="number"
+                      step="any"
+                      min={0.0001}
+                      value={row.qty}
+                      onChange={(e) =>
+                        setKitRows((rows) => {
+                          const next = [...rows];
+                          next[idx] = { ...next[idx], qty: e.target.value };
+                          return next;
+                        })
+                      }
+                    />
+                  </Field>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="min-h-10 shrink-0 text-red-600"
+                    aria-label="Quitar"
+                    onClick={() => setKitRows((rows) => rows.filter((_, j) => j !== idx))}
+                  >
+                    <Trash2 className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {loadingProduct ? null : formTab === "notes" ? (
+        <Field label="Descripción / notas">
+          <Textarea
+            rows={6}
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+          />
+        </Field>
+      ) : null}
+
+      {err ? <p className="mt-3 text-sm font-medium text-red-600">{err}</p> : null}
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-pf-border pt-4">
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-11 gap-2"
+          onClick={() => void clearForm()}
+          disabled={saving || loadingProduct}
+        >
+          <Eraser className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+          Limpiar
+        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving || loadingProduct}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            className="min-h-11 gap-2"
+            onClick={() => void save()}
+            disabled={saving || loadingProduct}
+          >
+            <Save className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+            Guardar y cerrar
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

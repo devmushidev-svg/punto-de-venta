@@ -1,0 +1,46 @@
+## Dependencies
+node_modules/
+apps/*/node_modules/
+
+## Build output
+dist/
+build/
+apps/*/dist/
+apps/*/build/
+.vite/
+coverage/
+
+## Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+## Environment / secrets
+.env
+.env.*
+!.env.example
+!.env*.example
+
+## Local databases and generated artifacts
+*.db
+*.sqlite
+*.sqlite3
+*.tsbuildinfo
+
+## Caches
+.cache/
+.turbo/
+.parcel-cache/
+
+## OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.cursor/
+
+## Misc
+tmp/
+temp/
