@@ -127,15 +127,15 @@ export default function App() {
         />
         <Route path="pedidos-proveedor" element={<SupplierOrdersPage />} />
         <Route path="traslados" element={<StockTransfersPage />} />
-        <Route path="ventas" element={<SalesHubLayout />}>
-          <Route index element={<SalesPage />} />
-          <Route path="preventas" element={<QuotesListPage variant="preventas" />} />
+        <Route path="ventas" element={<SalesPage />} />
+        <Route path="ventas/preventas" element={<SalesHubLayout />}>
+          <Route index element={<QuotesListPage variant="preventas" />} />
           <Route
-            path="preventas/nueva"
+            path="nueva"
             element={<NewQuotePage backTo="/ventas/preventas" titleNew="Nueva PreVenta" />}
           />
           <Route
-            path="preventas/:quoteId/editar"
+            path=":quoteId/editar"
             element={
               <NewQuotePage backTo="/ventas/preventas" titleNew="Nueva PreVenta" titleEdit="Editar PreVenta" />
             }

@@ -184,6 +184,7 @@ function tabFromPath(pathname: string): TabId {
 }
 
 function saleDocumentTabLabel(pathname: string): string {
+  if (pathname === "/ventas") return "Ventas";
   if (/^\/ventas\/[^/]+\/editar$/.test(pathname)) return "Editar venta";
   if (pathname === "/venta/buscar-producto") return "Buscar producto";
   return "Venta";
@@ -194,7 +195,7 @@ const MAIN_TAB_ROW_AFTER_SALE_DOC: TabId[] = ["administracion", "empresa"];
 
 const TAB_DEFAULT_PATH: Record<TabId, string> = {
   inicio: "/",
-  facturacion: "/ventas",
+  facturacion: "/productos",
   administracion: "/caja",
   empresa: "/empresa",
 };

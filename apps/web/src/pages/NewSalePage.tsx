@@ -170,6 +170,13 @@ export function NewSalePage() {
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [productSearchErr, setProductSearchErr] = useState("");
   const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "print" } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "print") => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutAmountReceived, setCheckoutAmountReceived] = useState("");
   const [checkoutOpts, setCheckoutOpts] = useState<{ destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }>({ destination: "ticket" });
@@ -602,17 +609,44 @@ export function NewSalePage() {
             discountPercent: l.discountPercent,
           })),
         };
-        const sale = await apiFetch<{ id: string }>(isEditMode ? `/api/sales/${editSaleId}` : "/api/sales", {
+        await apiFetch<{ id: string }>(isEditMode ? `/api/sales/${editSaleId}` : "/api/sales", {
           method: isEditMode ? "PATCH" : "POST",
           body: JSON.stringify(body),
           token,
         });
-        const dest = opts?.destination ?? "ticket";
-        if (dest === "comprobante") {
-          navigate(`/ventas/${sale.id}/comprobante`);
+
+        if (isEditMode) {
+          showToast("Factura actualizada correctamente", "success");
+          navigate("/ventas");
+        } else if (opts?.autoPrintTicket) {
+          showToast("Factura impresa correctamente", "print");
         } else {
-          const q = opts?.autoPrintTicket ? "?print=1" : "";
-          navigate(`/ventas/${sale.id}/ticket${q}`);
+          showToast("Factura guardada correctamente", "success");
+        }
+
+        if (!isEditMode) {
+          setLines([]);
+          setSelectedLineIndex(null);
+          setNotes("");
+          setPaid("");
+          setTerms("CONTADO");
+          setQuickAddCode("");
+          setQuickAddErr("");
+          setErr("");
+          setLoadedInvoiceNumber(null);
+
+          if (token) {
+            apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
+              const def = list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
+              if (def) {
+                setCustomerId(def.id);
+                setCustomerName(def.name);
+                setCustomerAddress(def.address ?? "");
+                setCustomerPhone(def.phone ?? "");
+                setCustomerTaxId(def.taxId ?? "");
+              }
+            });
+          }
         }
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Error");
@@ -635,6 +669,7 @@ export function NewSalePage() {
       isEditMode,
       editSaleId,
       navigate,
+      showToast,
     ]
   );
 
@@ -898,6 +933,24 @@ export function NewSalePage() {
 
   return (
     <div className="flex min-h-0 flex-col gap-3 pf-safe-page">
+      {toast && (
+        <div
+          className={`fixed left-1/2 top-6 z-[9999] -translate-x-1/2 animate-[toast-in_0.35s_ease-out] rounded-2xl border px-6 py-4 shadow-2xl ${
+            toast.type === "print"
+              ? "border-sky-300 bg-sky-50 text-sky-800"
+              : "border-emerald-300 bg-emerald-50 text-emerald-800"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            {toast.type === "print" ? (
+              <Printer className="h-6 w-6 shrink-0" strokeWidth={2} />
+            ) : (
+              <CheckCircle2 className="h-6 w-6 shrink-0" strokeWidth={2} />
+            )}
+            <span className="text-base font-bold">{toast.message}</span>
+          </div>
+        </div>
+      )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
       <div className="pf-sale-doc-header">
         <h1 className="pf-doc-section-title mb-3">

@@ -923,3 +923,8 @@ body {
   border: 1px solid rgb(255 255 255 / 0.8);
   backdrop-filter: blur(8px);
 }
+
+@keyframes toast-in {
+  0% { opacity: 0; transform: translate(-50%, -1.5rem) scale(0.92); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
