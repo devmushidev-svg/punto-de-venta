@@ -1,14 +1,38 @@
-import { CheckCircle2, ClipboardList, Minus, Monitor, Plus, Printer, Save, ShoppingCart, Star, Trash2, X } from "lucide-react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  ClipboardList,
+  Minus,
+  Monitor,
+  Plus,
+  Printer,
+  Save,
+  ShoppingCart,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
+import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
 import type { Customer, Product, Sale } from "../types";
+
+function toDatetimeLocalValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const h = pad(d.getHours());
+  const min = pad(d.getMinutes());
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
 
 type Line = {
   productId: string;
@@ -28,6 +52,10 @@ export function TouchSalePage() {
   const [priceTier, setPriceTier] = useState(1);
   const [terms, setTerms] = useState("CONTADO");
   const [paid, setPaid] = useState("");
+  const [notes, setNotes] = useState("");
+  const [documentSaleDate, setDocumentSaleDate] = useState(() => new Date());
+  const [saleDatePickerOpen, setSaleDatePickerOpen] = useState(false);
+  const [saleDateDraft, setSaleDateDraft] = useState("");
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [favIds, setFavIds] = useState<string[]>([]);
@@ -54,7 +82,7 @@ export function TouchSalePage() {
     if (!token) return;
     apiFetch<Customer[]>("/api/customers", { token }).then((c) => {
       setCustomers(c);
-      const def = c.find((x) => x.name.includes("CONSUMIDOR")) ?? c[0];
+      const def = c.find((x) => /consumidor/i.test(x.name)) ?? c[0];
       if (def) setCustomerId(def.id);
       else setCustomerId("");
     });
@@ -82,22 +110,20 @@ export function TouchSalePage() {
     return products.filter((p) => set.has(p.id));
   }, [products, favIds]);
 
-  function tracksStock(p: Product) {
-    return p.productType !== "KIT" && p.productType !== "SERVICIO";
-  }
-
   function addProduct(p: Product) {
     setErr("");
+    if (!p.active || p.productType === "INSUMO") return;
     setLines((prev) => {
       const i = prev.findIndex((l) => l.productId === p.id);
       if (i >= 0) return prev;
+      const qty = defaultQtyForNewLine(p);
       return [
         ...prev,
         {
           productId: p.id,
           product: p,
-          qty: 0,
-          unitPrice: resolveProductUnitPrice(p, 0, priceTier),
+          qty,
+          unitPrice: resolveProductUnitPrice(p, qty, priceTier),
           discountPercent: 0,
         },
       ];
@@ -139,6 +165,18 @@ export function TouchSalePage() {
     }
     return { subtotal: sub, tax, total: sub + tax };
   }, [lines]);
+
+  const saleDateDisplayStr = useMemo(
+    () =>
+      documentSaleDate.toLocaleString("es-HN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    [documentSaleDate]
+  );
 
   const cartLineCount = lines.length;
 
@@ -234,6 +272,8 @@ export function TouchSalePage() {
 
       setLines([]);
       setPaid("");
+      setNotes("");
+      setDocumentSaleDate(new Date());
       setTerms("CONTADO");
       setErr("");
 
@@ -285,6 +325,31 @@ export function TouchSalePage() {
           <Input type="number" step="any" value={paid} onChange={(e) => setPaid(e.target.value)} />
         </Field>
       )}
+
+      <Field label="Notas (opc.)">
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
+      </Field>
+
+      <div>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-pf-text-tertiary">Fecha venta</span>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 min-h-0 gap-1 px-2 py-0 text-xs font-semibold text-pf-primary"
+            onClick={() => {
+              setSaleDateDraft(toDatetimeLocalValue(documentSaleDate));
+              setSaleDatePickerOpen(true);
+            }}
+          >
+            <CalendarClock className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+            Editar
+          </Button>
+        </div>
+        <p className="rounded-lg border border-pf-border-soft bg-pf-surface-muted/40 px-3 py-2 text-sm font-semibold tabular-nums text-pf-text">
+          {saleDateDisplayStr}
+        </p>
+      </div>
 
       <div className="max-h-60 divide-y divide-pf-border-soft overflow-y-auto rounded-xl border border-pf-border-soft bg-pf-surface-elevated/80 text-sm">
         {lines.length === 0 ? (
@@ -437,10 +502,9 @@ export function TouchSalePage() {
                       key={p.id}
                       type="button"
                       onClick={() => addProduct(p)}
-                      disabled={outOfStock}
                       className={`min-h-[80px] min-w-[140px] shrink-0 rounded-xl border p-3 text-left shadow-sm transition active:scale-[0.98] touch-manipulation ${
                         outOfStock
-                          ? "border-pf-border-soft bg-pf-surface-muted/60 opacity-50"
+                          ? "border-pf-danger/30 bg-pf-danger-soft/20"
                           : "border-pf-border-soft bg-gradient-to-br from-pf-primary-soft/60 to-pf-surface-elevated hover:shadow-md hover:brightness-[1.02]"
                       }`}
                     >
@@ -464,14 +528,13 @@ export function TouchSalePage() {
                   key={p.id}
                   className={`relative flex flex-col rounded-xl border shadow-sm transition ${
                     outOfStock
-                      ? "border-pf-border-soft bg-pf-surface-muted/50 opacity-60"
+                      ? "border-pf-danger/25 bg-pf-danger-soft/15"
                       : "border-pf-border-soft bg-pf-surface-elevated hover:shadow-md"
                   }`}
                 >
                   <button
                     type="button"
                     onClick={() => addProduct(p)}
-                    disabled={outOfStock}
                     className="flex min-h-[100px] flex-1 flex-col p-3 text-left transition active:scale-[0.98] touch-manipulation hover:bg-pf-surface-muted/30 rounded-t-xl"
                   >
                     <span className="line-clamp-2 text-sm font-semibold leading-snug text-pf-text">{p.name}</span>
@@ -669,6 +732,42 @@ export function TouchSalePage() {
             </div>
           );
         })()}
+      </Modal>
+
+      <Modal
+        open={saleDatePickerOpen}
+        title="Fecha y hora del documento"
+        onClose={() => setSaleDatePickerOpen(false)}
+      >
+        <p className="mb-3 text-sm text-pf-muted">
+          Esta fecha se guardará en la factura al cobrar (informes y caja la usan como fecha de venta).
+        </p>
+        <Input
+          type="datetime-local"
+          value={saleDateDraft}
+          onChange={(e) => setSaleDateDraft(e.target.value)}
+          className="w-full min-h-[44px] max-w-md"
+        />
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => setSaleDatePickerOpen(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              const d = new Date(saleDateDraft);
+              if (Number.isNaN(d.getTime())) {
+                setErr("Fecha u hora no válida.");
+                return;
+              }
+              setDocumentSaleDate(d);
+              setSaleDatePickerOpen(false);
+              setErr("");
+            }}
+          >
+            Aplicar
+          </Button>
+        </div>
       </Modal>
     </div>
   );

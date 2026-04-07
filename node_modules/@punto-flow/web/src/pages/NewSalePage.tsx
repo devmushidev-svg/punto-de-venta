@@ -36,6 +36,7 @@ import { formatMoney } from "../lib/format";
 import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
+import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
 import type { Customer, Product, Sale, Supplier } from "../types";
 
@@ -188,16 +189,6 @@ function computeLineTotal(l: Line): number {
 
 function normProductLookup(s: string | null | undefined): string {
   return (s ?? "").trim().toLowerCase();
-}
-
-function tracksStock(p: Product): boolean {
-  return p.productType !== "KIT" && p.productType !== "SERVICIO";
-}
-
-/** Cantidad inicial al añadir línea: 1 si hay existencia (o no controla stock); 0 solo sin existencia. */
-function defaultQtyForNewLine(p: Product): number {
-  if (tracksStock(p) && p.stock <= 0) return 0;
-  return 1;
 }
 
 /** Valor para input `datetime-local` en hora local. */
@@ -798,7 +789,7 @@ export function NewSalePage() {
       e.preventDefault();
       e.stopPropagation();
       if (fi < SALE_LINE_FIELDS.length - 1) focusSaleLineField(lineIndex, SALE_LINE_FIELDS[fi + 1]);
-      else if (lineIndex < n - 1) focusSaleLineField(lineIndex + 1, "qty");
+      /* Tras el último campo de la fila ir siempre al código nuevo (no recorrer fila por fila). */
       else queueMicrotask(() => quickAddInputRef.current?.focus());
     },
     [lines.length, terms, focusSaleLineField]
