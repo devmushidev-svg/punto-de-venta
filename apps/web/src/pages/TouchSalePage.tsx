@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
-import { openSaleTicketPrintDialog } from "../lib/ticketPrint";
+import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
 import type { Customer, Product, Sale } from "../types";
 
@@ -87,29 +87,17 @@ export function TouchSalePage() {
   }
 
   function addProduct(p: Product) {
+    setErr("");
     setLines((prev) => {
       const i = prev.findIndex((l) => l.productId === p.id);
-      const step = p.esGranel ? 0.1 : 1;
-      if (i >= 0) {
-        const next = [...prev];
-        const newQty = next[i].qty + step;
-        if (tracksStock(p) && newQty > p.stock) return prev;
-        next[i] = {
-          ...next[i],
-          qty: newQty,
-          unitPrice: resolveProductUnitPrice(p, newQty, priceTier),
-        };
-        return next;
-      }
-      if (tracksStock(p) && p.stock <= 0) return prev;
-      const q0 = p.esGranel ? 0.1 : 1;
+      if (i >= 0) return prev;
       return [
         ...prev,
         {
           productId: p.id,
           product: p,
-          qty: q0,
-          unitPrice: resolveProductUnitPrice(p, q0, priceTier),
+          qty: 0,
+          unitPrice: resolveProductUnitPrice(p, 0, priceTier),
           discountPercent: 0,
         },
       ];
@@ -117,11 +105,19 @@ export function TouchSalePage() {
   }
 
   function updateLineQty(i: number, delta: number) {
+    setErr("");
     setLines((prev) => {
       const l = prev[i];
       const step = l.product.esGranel ? 0.1 : 1;
-      const newQty = Math.max(step, l.qty + delta * step);
-      if (tracksStock(l.product) && newQty > l.product.stock) return prev;
+      let newQty = l.qty + delta * step;
+      if (!l.product.esGranel) newQty = Math.round(newQty);
+      if (newQty < 0) newQty = 0;
+      if (tracksStock(l.product) && newQty > l.product.stock) {
+        queueMicrotask(() =>
+          setErr(`«${l.product.name}»: máximo ${l.product.stock} en existencia.`)
+        );
+        return prev;
+      }
       const next = [...prev];
       next[i] = { ...next[i], qty: newQty, unitPrice: resolveProductUnitPrice(l.product, newQty, priceTier) };
       return next;
@@ -171,6 +167,10 @@ export function TouchSalePage() {
   function openCheckout(mode: "save" | "print") {
     if (!token || lines.length === 0) return;
     setErr("");
+    if (!lines.some((l) => l.qty > 0)) {
+      setErr("Indique una cantidad mayor que cero en al menos una línea.");
+      return;
+    }
     if (isCreditSaleTerm(terms) && !customerId.trim()) {
       setErr("Las ventas a crédito requieren un cliente registrado.");
       return;
@@ -196,6 +196,10 @@ export function TouchSalePage() {
   async function confirmCheckout() {
     if (!token || lines.length === 0 || busy) return;
     setErr("");
+    if (!lines.some((l) => l.qty > 0)) {
+      setErr("Indique una cantidad mayor que cero en al menos una línea.");
+      return;
+    }
     setBusy(true);
     try {
       const body = {
@@ -203,12 +207,14 @@ export function TouchSalePage() {
         terms,
         priceTier,
         paid: isCreditSaleTerm(terms) ? Number(paid) || 0 : undefined,
-        lines: lines.map((l) => ({
-          productId: l.productId,
-          qty: l.qty,
-          unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent,
-        })),
+        lines: lines
+          .filter((l) => l.qty > 0)
+          .map((l) => ({
+            productId: l.productId,
+            qty: l.qty,
+            unitPrice: l.unitPrice,
+            discountPercent: l.discountPercent,
+          })),
       };
       const sale = await apiFetch<Sale>("/api/sales", {
         method: "POST",
@@ -220,13 +226,8 @@ export function TouchSalePage() {
       setShowCart(false);
 
       if (checkoutMode === "print") {
-        const opened = openSaleTicketPrintDialog(sale.id);
-        showToast(
-          opened
-            ? "Factura guardada. Se abrió el ticket; use el diálogo de impresión."
-            : "Factura guardada. Permita ventanas emergentes para imprimir el ticket.",
-          opened ? "print" : "success"
-        );
+        showToast("Factura guardada. Aparecerá el cuadro de impresión.", "print");
+        printSaleTicketInHiddenFrame(sale.id);
       } else {
         showToast("Factura guardada correctamente", "success");
       }
@@ -349,7 +350,7 @@ export function TouchSalePage() {
           variant="secondary"
           className="min-h-[52px] text-sm shadow-md"
           onClick={() => openCheckout("save")}
-          disabled={busy || lines.length === 0}
+          disabled={busy || !lines.some((l) => l.qty > 0)}
         >
           <Save className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
           Guardar
@@ -358,7 +359,7 @@ export function TouchSalePage() {
           type="button"
           className="min-h-[52px] text-sm shadow-lg"
           onClick={() => openCheckout("print")}
-          disabled={busy || lines.length === 0}
+          disabled={busy || !lines.some((l) => l.qty > 0)}
         >
           <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
           Imprimir

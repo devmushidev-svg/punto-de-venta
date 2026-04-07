@@ -728,7 +728,7 @@ body {
 
 /** Título más bajo en pantallas de facturación (nueva venta). */
 @utility pf-doc-section-title-compact {
-  margin-bottom: 0.15rem;
+  margin-bottom: 0;
   font-size: 0.975rem;
   line-height: 1.15rem;
 
@@ -743,14 +743,15 @@ body {
   border: 1px solid var(--pf-glass-border);
   border-bottom: none;
   background: linear-gradient(to bottom right, var(--pf-hero-bg-1), var(--pf-hero-bg-2), var(--pf-hero-bg-3));
-  padding: 0.3rem 0.5rem;
+  /* Sin padding horizontal: el bloque de datos y la tabla comparten el mismo ancho útil. */
+  padding: 0.15rem 0 0.2rem;
   box-shadow: var(--pf-shadow-warm-sm);
   backdrop-filter: blur(12px);
 
   @media (width >= 768px) {
     border-radius: 1rem 1rem 0 0;
-    padding-left: 0.6rem;
-    padding-right: 0.6rem;
+    padding-top: 0.15rem;
+    padding-bottom: 0.2rem;
   }
 }
 

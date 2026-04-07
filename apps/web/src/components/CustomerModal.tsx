@@ -2,8 +2,13 @@ import { Eraser, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { handleEnterFieldNav } from "../lib/formFieldNav";
 import { Button, Field, Input, Modal, Textarea } from "./ui";
 import type { Customer } from "../types";
+
+const CUSTOMER_FIELD_ORDER = ["customer-modal-code", "customer-modal-name", "customer-modal-address", "customer-modal-phone", "customer-modal-taxId", "customer-modal-notes"] as const;
+
+const CUSTOMER_SAVE_SELECTOR = "#customer-modal-save";
 
 const emptyForm = {
   code: "",
@@ -143,39 +148,58 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, onSave
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Código">
             <Input
+              id="customer-modal-code"
               value={form.code}
               onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
               className="font-mono"
+              onKeyDown={(e) => handleEnterFieldNav(e, CUSTOMER_FIELD_ORDER, "customer-modal-code", CUSTOMER_SAVE_SELECTOR)}
             />
           </Field>
           <Field label="Nombre *" className="sm:col-span-2">
             <Input
+              id="customer-modal-name"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               autoComplete="organization"
+              onKeyDown={(e) => handleEnterFieldNav(e, CUSTOMER_FIELD_ORDER, "customer-modal-name", CUSTOMER_SAVE_SELECTOR)}
             />
           </Field>
           <Field label="Dirección" className="sm:col-span-2">
             <Input
+              id="customer-modal-address"
               value={form.address}
               onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+              onKeyDown={(e) => handleEnterFieldNav(e, CUSTOMER_FIELD_ORDER, "customer-modal-address", CUSTOMER_SAVE_SELECTOR)}
             />
           </Field>
           <Field label="Teléfono">
             <Input
+              id="customer-modal-phone"
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               autoComplete="tel"
+              onKeyDown={(e) => handleEnterFieldNav(e, CUSTOMER_FIELD_ORDER, "customer-modal-phone", CUSTOMER_SAVE_SELECTOR)}
             />
           </Field>
           <Field label="RTN / ID fiscal">
-            <Input value={form.taxId} onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))} />
+            <Input
+              id="customer-modal-taxId"
+              value={form.taxId}
+              onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))}
+              onKeyDown={(e) => handleEnterFieldNav(e, CUSTOMER_FIELD_ORDER, "customer-modal-taxId", CUSTOMER_SAVE_SELECTOR)}
+            />
           </Field>
           <Field label="Notas" className="sm:col-span-2">
             <Textarea
+              id="customer-modal-notes"
               rows={4}
               value={form.notes}
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+              onKeyDown={(e) =>
+                handleEnterFieldNav(e, CUSTOMER_FIELD_ORDER, "customer-modal-notes", CUSTOMER_SAVE_SELECTOR, {
+                  textarea: true,
+                })
+              }
             />
           </Field>
         </div>
@@ -199,6 +223,7 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, onSave
             Cancelar
           </Button>
           <Button
+            id="customer-modal-save"
             type="button"
             className="min-h-11 gap-2"
             onClick={() => void save()}

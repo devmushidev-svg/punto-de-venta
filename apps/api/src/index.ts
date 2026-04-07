@@ -196,6 +196,14 @@ function requirePermission(...required: PermissionKey[]) {
   });
 }
 
+function parseClientSaleDate(raw: unknown): Date | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw !== "string") return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
 /** Al menos uno de los permisos (JWT `perms` o BD). */
 function requireAnyPermission(...required: PermissionKey[]) {
   return createMiddleware<{ Variables: Variables }>(async (c, next) => {
@@ -795,6 +803,8 @@ api.post("/sales", async (c) => {
     sellerName?: string;
     priceTier?: number;
     paid?: number;
+    /** ISO 8601; si se omite se usa la fecha/hora del servidor. */
+    saleDate?: string;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
@@ -856,6 +866,7 @@ api.post("/sales", async (c) => {
 
     const count = await tx.sale.count({ where: { organizationId: jwt.orgId } });
     const invoiceNumber = String(count + 1).padStart(6, "0");
+    const saleDateResolved = parseClientSaleDate(body.saleDate) ?? new Date();
 
     const sale = await tx.sale.create({
       data: {
@@ -871,6 +882,7 @@ api.post("/sales", async (c) => {
         tax,
         total,
         paid,
+        saleDate: saleDateResolved,
         lines: { create: saleLines },
       },
       include: {
@@ -986,12 +998,14 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
     notes?: string;
     priceTier?: number;
     paid?: number;
+    saleDate?: string;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
+  const saleDatePatch = parseClientSaleDate(body.saleDate);
 
   if (isCreditSaleTerm(terms)) {
     const cid = typeof body.customerId === "string" ? body.customerId.trim() : "";
@@ -1075,6 +1089,7 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
           tax,
           total,
           paid,
+          ...(saleDatePatch ? { saleDate: saleDatePatch } : {}),
           lines: { create: saleLines },
         },
       });

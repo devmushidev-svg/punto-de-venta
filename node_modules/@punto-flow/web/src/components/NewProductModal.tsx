@@ -1,10 +1,35 @@
 import { Eraser, Plus, Save, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { handleEnterFieldNav } from "../lib/formFieldNav";
 import { parseVolumePricesJson } from "../lib/volumePrice";
 import { Button, Field, Input, Modal, Select, Textarea } from "./ui";
 import type { Product, Supplier } from "../types";
+
+const NP_SAVE_SELECTOR = "#new-product-modal-save";
+
+/** Orden al pulsar Enter en la pestaña «Producto». */
+const NP_PRODUCT_TAB_ORDER = [
+  "np-f-sku",
+  "np-f-barcode",
+  "np-f-quickCode",
+  "np-f-productType",
+  "np-f-name",
+  "np-f-cost",
+  "np-f-margin",
+  "np-f-tax",
+  "np-f-price",
+  "np-f-stock",
+  "np-f-minStock",
+  "np-f-esGranel",
+  "np-f-imageUrl",
+  "np-f-unit",
+  "np-f-category",
+  "np-f-location",
+  "np-f-brand",
+  "np-f-supplier",
+] as const;
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
 
@@ -107,6 +132,23 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const [loadingProduct, setLoadingProduct] = useState(false);
+
+  const pricesTabEnterOrder = useMemo(() => {
+    const keys = ["price", "price2", "price3", "price4"] as const;
+    const row: string[] = [];
+    for (const k of keys) {
+      row.push(`np-pr-${k}`, `np-pr-${k}-margin`);
+    }
+    for (let i = 0; i < form.volumeTiers.length; i++) {
+      row.push(`np-vol-${i}-min`, `np-vol-${i}-price`);
+    }
+    return row;
+  }, [form.volumeTiers.length]);
+
+  const kitTabEnterOrder = useMemo(
+    () => ["np-kit-search", ...kitRows.map((_, i) => `np-kit-qty-${i}`)],
+    [kitRows.length]
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -329,16 +371,32 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
               {fieldsetClass("Producto")}
               <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Código del producto (SKU)">
-                  <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} />
+                  <Input
+                    id="np-f-sku"
+                    value={form.sku}
+                    onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-sku", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <Field label="Código de barra">
-                  <Input value={form.barcode} onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))} />
+                  <Input
+                    id="np-f-barcode"
+                    value={form.barcode}
+                    onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-barcode", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <Field label="Código rápido">
-                  <Input value={form.quickCode} onChange={(e) => setForm((f) => ({ ...f, quickCode: e.target.value }))} />
+                  <Input
+                    id="np-f-quickCode"
+                    value={form.quickCode}
+                    onChange={(e) => setForm((f) => ({ ...f, quickCode: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-quickCode", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <Field label="Tipo de producto">
                   <Select
+                    id="np-f-productType"
                     value={form.productType}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -350,6 +408,9 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                       }));
                       if (v !== "KIT") setKitRows([]);
                     }}
+                    onKeyDown={(e) =>
+                      handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-productType", NP_SAVE_SELECTOR)
+                    }
                   >
                     {PRODUCT_TYPES.map((t) => (
                       <option key={t} value={t}>
@@ -359,7 +420,12 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                   </Select>
                 </Field>
                 <Field label="Nombre del producto / servicio" className="sm:col-span-2 lg:col-span-4">
-                  <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                  <Input
+                    id="np-f-name"
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-name", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
               </div>
             </fieldset>
@@ -369,14 +435,17 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
               <div className="mt-2 grid gap-3 sm:grid-cols-3">
                 <Field label="Costo">
                   <Input
+                    id="np-f-cost"
                     type="number"
                     step="any"
                     value={form.cost}
                     onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-cost", NP_SAVE_SELECTOR)}
                   />
                 </Field>
                 <Field label="Utilidad %">
                   <Input
+                    id="np-f-margin"
                     type="number"
                     step="any"
                     value={
@@ -391,23 +460,28 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                       setForm((f) => ({ ...f, price: String(newPrice) }));
                     }}
                     className="text-emerald-700 font-semibold"
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-margin", NP_SAVE_SELECTOR)}
                   />
                 </Field>
                 <Field label="ISV %">
                   <Input
+                    id="np-f-tax"
                     type="number"
                     step="any"
                     value={form.taxPercent}
                     onChange={(e) => setForm((f) => ({ ...f, taxPercent: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-tax", NP_SAVE_SELECTOR)}
                   />
                 </Field>
                 <Field label="Precio de venta (lista 1)">
                   <Input
+                    id="np-f-price"
                     type="number"
                     step="any"
                     value={form.price}
                     onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
                     className="font-semibold"
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-price", NP_SAVE_SELECTOR)}
                   />
                 </Field>
                 <Field label="Utilidad">
@@ -430,30 +504,36 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
               <div className="mt-2 grid gap-3 sm:grid-cols-2">
                 <Field label="Existencia inicial">
                   <Input
+                    id="np-f-stock"
                     type="number"
                     step="any"
                     value={form.productType === "KIT" ? "0" : form.stock}
                     readOnly={form.productType === "KIT"}
                     className={form.productType === "KIT" ? "bg-pf-primary-soft/40 text-pf-muted" : undefined}
                     onChange={(e) => setForm((f) => ({ ...f, stock: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-stock", NP_SAVE_SELECTOR)}
                   />
                 </Field>
                 <Field label="Existencia mínima">
                   <Input
+                    id="np-f-minStock"
                     type="number"
                     step="any"
                     value={form.minStock}
                     onChange={(e) => setForm((f) => ({ ...f, minStock: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-minStock", NP_SAVE_SELECTOR)}
                   />
                 </Field>
               </div>
               {form.productType !== "KIT" ? (
                 <label className="mt-3 flex cursor-pointer items-center gap-2">
                   <input
+                    id="np-f-esGranel"
                     type="checkbox"
                     checked={form.esGranel}
                     onChange={(e) => setForm((f) => ({ ...f, esGranel: e.target.checked }))}
                     className="h-4 w-4 rounded border-pf-border"
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-esGranel", NP_SAVE_SELECTOR)}
                   />
                   <span className="text-sm font-medium text-pf-text-secondary">Venta a granel (cantidades decimales)</span>
                 </label>
@@ -470,7 +550,12 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
               {fieldsetClass("Imagen")}
               <div className="mt-2">
                 <Field label="URL de imagen">
-                  <Input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} />
+                  <Input
+                    id="np-f-imageUrl"
+                    value={form.imageUrl}
+                    onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-imageUrl", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <div className="mt-2 flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-pf-border bg-pf-primary-soft/20 p-2">
                   {form.imageUrl ? (
@@ -486,19 +571,44 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
               {fieldsetClass("Categorías")}
               <div className="mt-2 space-y-3">
                 <Field label="Unidad de medida">
-                  <Input value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} />
+                  <Input
+                    id="np-f-unit"
+                    value={form.unit}
+                    onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-unit", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <Field label="Categoría">
-                  <Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
+                  <Input
+                    id="np-f-category"
+                    value={form.category}
+                    onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-category", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <Field label="Ubicación en bodega">
-                  <Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} />
+                  <Input
+                    id="np-f-location"
+                    value={form.location}
+                    onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-location", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <Field label="Marca del producto">
-                  <Input value={form.brand} onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))} />
+                  <Input
+                    id="np-f-brand"
+                    value={form.brand}
+                    onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-brand", NP_SAVE_SELECTOR)}
+                  />
                 </Field>
                 <Field label="Proveedor">
-                  <Select value={form.supplierId} onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}>
+                  <Select
+                    id="np-f-supplier"
+                    value={form.supplierId}
+                    onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}
+                    onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-supplier", NP_SAVE_SELECTOR)}
+                  >
                     <option value="">— Ninguno —</option>
                     {suppliers.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -547,15 +657,20 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                         <td className="px-2 py-2 text-xs font-medium text-pf-text">{label}</td>
                         <td className="px-2 py-2 text-right">
                           <Input
+                            id={`np-pr-${key}`}
                             type="number"
                             step="any"
                             className="min-h-9 py-1 text-right font-semibold"
                             value={form[key]}
                             onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                            onKeyDown={(e) =>
+                              handleEnterFieldNav(e, pricesTabEnterOrder, `np-pr-${key}`, NP_SAVE_SELECTOR)
+                            }
                           />
                         </td>
                         <td className="px-2 py-2 text-right">
                           <Input
+                            id={`np-pr-${key}-margin`}
                             type="number"
                             step="any"
                             className="min-h-9 py-1 text-right text-emerald-700 font-semibold"
@@ -565,6 +680,9 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                               const newPrice = c > 0 ? +(c * (1 + pct / 100)).toFixed(4) : 0;
                               setForm((f) => ({ ...f, [key]: String(newPrice) }));
                             }}
+                            onKeyDown={(e) =>
+                              handleEnterFieldNav(e, pricesTabEnterOrder, `np-pr-${key}-margin`, NP_SAVE_SELECTOR)
+                            }
                           />
                         </td>
                         <td className={`px-2 py-2 text-right tabular-nums font-bold ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -601,6 +719,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                   <li key={idx} className="flex flex-wrap items-end gap-2">
                     <Field label="Cant. mínima" className="min-w-[120px] flex-1">
                       <Input
+                        id={`np-vol-${idx}-min`}
                         type="number"
                         step="any"
                         min={1}
@@ -612,10 +731,14 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                             return { ...f, volumeTiers: next };
                           })
                         }
+                        onKeyDown={(e) =>
+                          handleEnterFieldNav(e, pricesTabEnterOrder, `np-vol-${idx}-min`, NP_SAVE_SELECTOR)
+                        }
                       />
                     </Field>
                     <Field label="Precio unitario" className="min-w-[120px] flex-1">
                       <Input
+                        id={`np-vol-${idx}-price`}
                         type="number"
                         step="any"
                         min={0}
@@ -626,6 +749,9 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                             next[idx] = { ...next[idx], price: e.target.value };
                             return { ...f, volumeTiers: next };
                           })
+                        }
+                        onKeyDown={(e) =>
+                          handleEnterFieldNav(e, pricesTabEnterOrder, `np-vol-${idx}-price`, NP_SAVE_SELECTOR)
                         }
                       />
                     </Field>
@@ -659,9 +785,13 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
           </p>
           <Field label="Buscar producto">
             <Input
+              id="np-kit-search"
               value={kitPickSearch}
               onChange={(e) => setKitPickSearch(e.target.value)}
               placeholder="Nombre o SKU…"
+              onKeyDown={(e) =>
+                handleEnterFieldNav(e, kitTabEnterOrder, "np-kit-search", NP_SAVE_SELECTOR)
+              }
             />
           </Field>
           {kitPickHits.length > 0 ? (
@@ -701,6 +831,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                   </div>
                   <Field label="Cant. por kit" className="w-32">
                     <Input
+                      id={`np-kit-qty-${idx}`}
                       type="number"
                       step="any"
                       min={0.0001}
@@ -711,6 +842,9 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                           next[idx] = { ...next[idx], qty: e.target.value };
                           return next;
                         })
+                      }
+                      onKeyDown={(e) =>
+                        handleEnterFieldNav(e, kitTabEnterOrder, `np-kit-qty-${idx}`, NP_SAVE_SELECTOR)
                       }
                     />
                   </Field>
@@ -733,9 +867,13 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
       {loadingProduct ? null : formTab === "notes" ? (
         <Field label="Descripción / notas">
           <Textarea
+            id="np-notes-desc"
             rows={6}
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            onKeyDown={(e) =>
+              handleEnterFieldNav(e, ["np-notes-desc"], "np-notes-desc", NP_SAVE_SELECTOR, { textarea: true })
+            }
           />
         </Field>
       ) : null}
@@ -758,6 +896,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
             Cancelar
           </Button>
           <Button
+            id="new-product-modal-save"
             type="button"
             className="min-h-11 gap-2"
             onClick={() => void save()}

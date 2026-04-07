@@ -1,9 +1,9 @@
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   Eraser,
   FileText,
-  ListPlus,
   Pencil,
   Plus,
   Printer,
@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
@@ -32,7 +33,7 @@ import { CustomerModal } from "../components/CustomerModal";
 import { NewProductModal } from "../components/NewProductModal";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
-import { openSaleTicketPrintDialog } from "../lib/ticketPrint";
+import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
@@ -193,6 +194,17 @@ function tracksStock(p: Product): boolean {
   return p.productType !== "KIT" && p.productType !== "SERVICIO";
 }
 
+/** Valor para input `datetime-local` en hora local. */
+function toDatetimeLocalValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const h = pad(d.getHours());
+  const min = pad(d.getMinutes());
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
 function SaleRibbonTile({
   icon: Icon,
   line1,
@@ -249,10 +261,12 @@ function SaleRibbonTile({
   );
 }
 
-function SaleRibbonGroup({ title, children }: { title: string; children: React.ReactNode }) {
+function SaleRibbonGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="pf-ribbon-group flex min-w-0 flex-col pl-2 first:border-l-0 first:pl-0 sm:pl-3">
-      <div className="flex flex-row flex-wrap items-stretch gap-0.5 sm:gap-0">{children}</div>
+      <div className="flex flex-row flex-wrap items-stretch gap-0.5 sm:gap-0">
+        {children}
+      </div>
       <p className="pf-ribbon-group-label mt-0.5 pt-0.5 text-center text-[10px] font-medium uppercase tracking-wide sm:text-[11px]">
         {title}
       </p>
@@ -315,6 +329,10 @@ export function NewSalePage() {
   const [checkoutAmountReceived, setCheckoutAmountReceived] = useState("");
   const [checkoutOpts, setCheckoutOpts] = useState<{ destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }>({ destination: "ticket" });
   const checkoutAmountInputRef = useRef<HTMLInputElement | null>(null);
+  /** Fecha/hora del documento (nueva venta editable; en editar venta viene del API). */
+  const [documentSaleDate, setDocumentSaleDate] = useState(() => new Date());
+  const [saleDatePickerOpen, setSaleDatePickerOpen] = useState(false);
+  const [saleDateDraft, setSaleDateDraft] = useState("");
   const quickAddInputRef = useRef<HTMLInputElement | null>(null);
   /** Evita un segundo Enter (lector) mientras el primero aún procesa; el estado `quickAddBusy` llega tarde en el mismo tick. */
   const quickAddBusyRef = useRef(false);
@@ -376,6 +394,7 @@ export function NewSalePage() {
         setTerms(sale.terms || "CONTADO");
         setPaid(String(sale.paid ?? 0));
         setNotes(sale.notes ?? "");
+        setDocumentSaleDate(new Date(sale.saleDate));
         setLines(
           sale.lines.map((l) => ({
             lineKey: newLineKey(),
@@ -398,28 +417,15 @@ export function NewSalePage() {
         const p = await apiFetch<Product>(`/api/products/${productId}`, { token });
         if (!p.active || p.productType === "INSUMO") return;
 
-        if (tracksStock(p) && p.stock <= 0) {
-          setErr(`«${p.name}» no tiene existencia disponible (stock: ${p.stock}).`);
-        }
-
         const tier = priceTierRef.current;
         let focusLineAfter: number | null = null;
         setLines((prev) => {
           const i = prev.findIndex((l) => l.productId === p.id);
           if (i >= 0) {
-            const next = [...prev];
-            const newQty = next[i].qty + 1;
-            if (tracksStock(p) && newQty > p.stock) {
-              setErr(`«${p.name}» — la cantidad (${newQty}) supera la existencia (${p.stock}).`);
-            }
-            next[i] = {
-              ...next[i],
-              qty: newQty,
-              unitPrice: resolveProductUnitPrice(p, newQty, tier),
-            };
             focusLineAfter = i;
-            return next;
+            return [...prev];
           }
+
           focusLineAfter = prev.length;
           return [
             ...prev,
@@ -427,8 +433,8 @@ export function NewSalePage() {
               lineKey: newLineKey(),
               productId: p.id,
               product: p,
-              qty: 1,
-              unitPrice: resolveProductUnitPrice(p, 1, tier),
+              qty: 0,
+              unitPrice: resolveProductUnitPrice(p, 0, tier),
               discountPercent: 0,
             },
           ];
@@ -465,12 +471,20 @@ export function NewSalePage() {
 
   const startEditProductFlow = useCallback(() => {
     if (!admin || lines.length === 0) return;
+    const sel =
+      selectedLineIndex !== null && selectedLineIndex >= 0 && selectedLineIndex < lines.length
+        ? selectedLineIndex
+        : null;
+    if (sel !== null) {
+      setCatalogModal({ kind: "edit", productId: lines[sel].productId });
+      return;
+    }
     if (lines.length === 1) {
       setCatalogModal({ kind: "edit", productId: lines[0].productId });
       return;
     }
     setPickLineForEditOpen(true);
-  }, [admin, lines]);
+  }, [admin, lines, selectedLineIndex]);
 
   const applyCustomer = useCallback((c: Customer) => {
     setCustomerId(c.id);
@@ -527,29 +541,16 @@ export function NewSalePage() {
     );
   }, [customerPickList, customerSearchQ]);
 
+  /** F9: no duplica producto; solo lleva el foco al campo código/barras para añadir otra línea. */
   const insertRowAfterSelection = useCallback(() => {
-    if (lines.length === 0) return;
-    const refIdx =
-      selectedLineIndex !== null && selectedLineIndex >= 0 && selectedLineIndex < lines.length
-        ? selectedLineIndex
-        : lines.length - 1;
-    const refLine = lines[refIdx];
-    const tier = priceTierRef.current;
-    const p = refLine.product;
-    const newLine: Line = {
-      lineKey: newLineKey(),
-      productId: p.id,
-      product: p,
-      qty: 1,
-      unitPrice: resolveProductUnitPrice(p, 1, tier),
-      discountPercent: 0,
-    };
-    setLines((prev) => {
-      const insertAt = refIdx + 1;
-      return [...prev.slice(0, insertAt), newLine, ...prev.slice(insertAt)];
+    setQuickAddErr("");
+    queueMicrotask(() => {
+      const el = quickAddInputRef.current;
+      if (!el) return;
+      el.focus({ preventScroll: true });
+      el.select();
     });
-    setSelectedLineIndex(refIdx + 1);
-  }, [lines, selectedLineIndex]);
+  }, []);
 
   const deleteSelectedOrLastRow = useCallback(() => {
     if (lines.length === 0) return;
@@ -570,10 +571,6 @@ export function NewSalePage() {
     setLines(next);
     setSelectedLineIndex(newSel);
   }, [lines, selectedLineIndex]);
-
-  const focusQuickAddRow = useCallback(() => {
-    queueMicrotask(() => quickAddInputRef.current?.focus());
-  }, []);
 
   const focusSaleLineField = useCallback((lineIndex: number, field: SaleLineField) => {
     const el = document.querySelector<HTMLInputElement>(
@@ -793,29 +790,15 @@ export function NewSalePage() {
         setQuickAddErr("El producto no existe.");
         return;
       }
-      if (tracksStock(exact) && exact.stock <= 0) {
-        setQuickAddErr(`«${exact.name}» no tiene existencia disponible (stock: ${exact.stock}).`);
-        return;
-      }
       const tier = priceTierRef.current;
       /* Commit síncrono: la fila existe y useLayoutEffect enfoca cantidad antes de otro Enter del lector. */
       flushSync(() => {
         setLines((prev) => {
           const i = prev.findIndex((l) => l.productId === exact.id);
           if (i >= 0) {
-            const next = [...prev];
-            const newQty = next[i].qty + 1;
-            if (tracksStock(exact) && newQty > exact.stock) {
-              setQuickAddErr(`«${exact.name}» — la cantidad (${newQty}) supera la existencia (${exact.stock}).`);
-            }
-            next[i] = {
-              ...next[i],
-              qty: newQty,
-              unitPrice: resolveProductUnitPrice(exact, newQty, tier),
-            };
             focusLineAfter = i;
             pendingLineFieldFocusRef.current = { lineIndex: i, field: "qty" };
-            return next;
+            return [...prev];
           }
           const idx = prev.length;
           focusLineAfter = idx;
@@ -826,8 +809,8 @@ export function NewSalePage() {
               lineKey: newLineKey(),
               productId: exact.id,
               product: exact,
-              qty: 1,
-              unitPrice: resolveProductUnitPrice(exact, 1, tier),
+              qty: 0,
+              unitPrice: resolveProductUnitPrice(exact, 0, tier),
               discountPercent: 0,
             },
           ];
@@ -921,6 +904,8 @@ export function NewSalePage() {
     return { subtotal: sub, tax, total: sub + tax };
   }, [lines]);
 
+  const hasBillableLines = useMemo(() => lines.some((l) => l.qty > 0), [lines]);
+
   const stockIssueCount = useMemo(
     () => lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock).length,
     [lines]
@@ -930,6 +915,10 @@ export function NewSalePage() {
     async (opts?: { destination?: "ticket" | "comprobante"; autoPrintTicket?: boolean }) => {
       if (!token || lines.length === 0) return;
       setErr("");
+      if (!lines.some((l) => l.qty > 0)) {
+        setErr("Indique una cantidad mayor que cero en al menos una línea antes de guardar.");
+        return;
+      }
       if (isCreditSaleTerm(terms) && !customerId.trim()) {
         setErr("Las ventas a crédito requieren un cliente registrado.");
         return;
@@ -967,12 +956,15 @@ export function NewSalePage() {
           priceTier,
           notes: notes.trim() || undefined,
           paid: isCreditSaleTerm(terms) ? Number(paid) || 0 : undefined,
-          lines: lines.map((l) => ({
-            productId: l.productId,
-            qty: l.qty,
-            unitPrice: l.unitPrice,
-            discountPercent: l.discountPercent,
-          })),
+          saleDate: documentSaleDate.toISOString(),
+          lines: lines
+            .filter((l) => l.qty > 0)
+            .map((l) => ({
+              productId: l.productId,
+              qty: l.qty,
+              unitPrice: l.unitPrice,
+              discountPercent: l.discountPercent,
+            })),
         };
         const sale = await apiFetch<Sale>(isEditMode ? `/api/sales/${editSaleId}` : "/api/sales", {
           method: isEditMode ? "PATCH" : "POST",
@@ -987,13 +979,8 @@ export function NewSalePage() {
           showToast("Factura guardada correctamente", "success");
           navigate(`/ventas/${sale.id}/comprobante`);
         } else if (opts?.autoPrintTicket) {
-          const opened = openSaleTicketPrintDialog(sale.id);
-          showToast(
-            opened
-              ? "Factura guardada. Se abrió el ticket; use el diálogo de impresión de su navegador."
-              : "Factura guardada. Permita ventanas emergentes para abrir el ticket e imprimir.",
-            opened ? "print" : "success"
-          );
+          showToast("Factura guardada. Aparecerá el cuadro de impresión (siga en esta pantalla).", "print");
+          printSaleTicketInHiddenFrame(sale.id);
         } else {
           showToast("Factura guardada correctamente", "success");
         }
@@ -1008,6 +995,7 @@ export function NewSalePage() {
           setQuickAddErr("");
           setErr("");
           setLoadedInvoiceNumber(null);
+          setDocumentSaleDate(new Date());
 
           if (token) {
             apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
@@ -1040,6 +1028,7 @@ export function NewSalePage() {
       priceTier,
       paid,
       notes,
+      documentSaleDate,
       isEditMode,
       editSaleId,
       navigate,
@@ -1051,6 +1040,10 @@ export function NewSalePage() {
     (opts: { destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }) => {
       if (!token || lines.length === 0) return;
       setErr("");
+      if (!lines.some((l) => l.qty > 0)) {
+        setErr("Indique una cantidad mayor que cero en al menos una línea antes de cobrar.");
+        return;
+      }
       if (isCreditSaleTerm(terms) && !customerId.trim()) {
         setErr("Las ventas a crédito requieren un cliente registrado.");
         return;
@@ -1136,14 +1129,16 @@ export function NewSalePage() {
     deleteSelectedOrLastRow,
   ]);
 
-  const todayStr = useMemo(
+  const saleDateDisplayStr = useMemo(
     () =>
-      new Date().toLocaleDateString("es-HN", {
+      documentSaleDate.toLocaleString("es-HN", {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
       }),
-    []
+    [documentSaleDate]
   );
 
   const saleRibbonBar = useMemo(
@@ -1157,7 +1152,7 @@ export function NewSalePage() {
             line2={isEditMode ? "cambios" : "venta"}
             title={isEditMode ? "Guardar cambios (F5)" : "Guardar venta (F5)"}
             onClick={() => openCheckout({ destination: "ticket" })}
-            disabled={busy || lines.length === 0 || loadingSale}
+            disabled={busy || !hasBillableLines || loadingSale}
           />
           <SaleRibbonTile
             variant="muted"
@@ -1166,7 +1161,7 @@ export function NewSalePage() {
             line2="ticket"
             title="Guardar e imprimir ticket térmico (F8)"
             onClick={() => openCheckout({ destination: "ticket", autoPrintTicket: true })}
-            disabled={busy || lines.length === 0 || loadingSale}
+            disabled={busy || !hasBillableLines || loadingSale}
           />
           <SaleRibbonTile
             variant="default"
@@ -1175,7 +1170,7 @@ export function NewSalePage() {
             line2="carta"
             title="Guardar y abrir comprobante en carta"
             onClick={() => openCheckout({ destination: "comprobante" })}
-            disabled={busy || lines.length === 0 || loadingSale}
+            disabled={busy || !hasBillableLines || loadingSale}
           />
         </SaleRibbonGroup>
         <SaleRibbonGroup title="Clientes">
@@ -1184,7 +1179,7 @@ export function NewSalePage() {
             icon={Users}
             line1="F2 Buscar"
             line2="clientes"
-            title="Buscar y elegir cliente registrado (F2)"
+            title="Buscar y elegir cliente (F2)"
             onClick={() => setCustomerSearchOpen(true)}
           />
           <SaleRibbonTile
@@ -1192,7 +1187,7 @@ export function NewSalePage() {
             icon={UserPlus}
             line1="F6 Nuevo"
             line2="cliente"
-            title="Registrar cliente y usarlo en esta venta (F6)"
+            title="Registrar cliente (F6). En el formulario: Enter siguiente campo, Shift+Enter anterior."
             onClick={() => setCustomerCatalogModal({ kind: "new" })}
           />
           <SaleRibbonTile
@@ -1200,7 +1195,7 @@ export function NewSalePage() {
             icon={Pencil}
             line1="Editar"
             line2="cliente"
-            title="Editar el cliente seleccionado (debe tener registro en catálogo)"
+            title="Editar el cliente seleccionado (debe estar en catálogo)"
             onClick={startEditCustomerFlow}
             disabled={!customerId.trim()}
           />
@@ -1213,7 +1208,7 @@ export function NewSalePage() {
             line2="producto"
             title={
               admin
-                ? "Crear producto en el catálogo (F3)"
+                ? "Crear producto (F3). En el formulario: Enter siguiente campo, Shift+Enter anterior."
                 : "Solo el administrador puede crear productos nuevos"
             }
             onClick={() => admin && setCatalogModal({ kind: "new" })}
@@ -1226,7 +1221,7 @@ export function NewSalePage() {
             line2="producto"
             title={
               admin
-                ? "Editar en catálogo el producto de la venta (una línea o elegir entre varias)"
+                ? "Editar producto de la fila seleccionada"
                 : "Solo el administrador puede editar el catálogo"
             }
             onClick={startEditProductFlow}
@@ -1237,7 +1232,7 @@ export function NewSalePage() {
             icon={Search}
             line1="F4 Buscar"
             line2="productos"
-            title="Buscar productos en esta venta"
+            title="Buscar productos (F4)"
             onClick={openProductSearchModal}
           />
         </SaleRibbonGroup>
@@ -1247,9 +1242,8 @@ export function NewSalePage() {
             icon={Plus}
             line1="F9 Insertar"
             line2="fila"
-            title="Insertar fila debajo de la selección (o al final) con el mismo producto; primero elija una fila"
+            title="Enfocar el campo Código / barras / rápido para agregar un producto (no copia la fila seleccionada)"
             onClick={insertRowAfterSelection}
-            disabled={lines.length === 0}
           />
           <SaleRibbonTile
             variant="danger"
@@ -1259,14 +1253,6 @@ export function NewSalePage() {
             title="Eliminar la fila seleccionada o la última (F10)"
             onClick={deleteSelectedOrLastRow}
             disabled={lines.length === 0}
-          />
-          <SaleRibbonTile
-            variant="default"
-            icon={ListPlus}
-            line1="Añadir"
-            line2="fila (código)"
-            title="Enfocar la fila nueva al final de la tabla (columna Código)"
-            onClick={focusQuickAddRow}
           />
         </SaleRibbonGroup>
         <SaleRibbonGroup title="Limpiar">
@@ -1288,7 +1274,7 @@ export function NewSalePage() {
       clearLines,
       customerId,
       deleteSelectedOrLastRow,
-      focusQuickAddRow,
+      hasBillableLines,
       insertRowAfterSelection,
       isEditMode,
       lines.length,
@@ -1358,11 +1344,11 @@ export function NewSalePage() {
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
       <div className="pf-sale-doc-header">
-        <h1 className="pf-doc-section-title pf-doc-section-title-compact">
+        <h1 className="pf-doc-section-title pf-doc-section-title-compact px-2 sm:px-2.5">
           {isEditMode ? "Editar venta" : "Nueva venta"}
         </h1>
 
-        <div className="rounded-lg border border-pf-border bg-pf-surface-elevated/95 p-1 shadow-sm sm:p-1.5">
+        <div className="w-full min-w-0 rounded-lg border border-pf-border bg-pf-surface-elevated/95 p-1 shadow-sm sm:p-1.5">
           <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
             {/* Columna documento: Nº factura, términos, fecha */}
             <div className="min-w-0 space-y-0.5 xl:col-span-2">
@@ -1395,21 +1381,38 @@ export function NewSalePage() {
                 </Select>
               </Field>
               <div>
-                <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-pf-text-tertiary">
-                  Fecha
-                </span>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0">
+                  <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-pf-text-tertiary">
+                    Fecha
+                  </span>
+                  {!isEditMode ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-6 min-h-0 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-semibold text-pf-primary"
+                      title="Cambiar fecha y hora del documento (se guardará al facturar)"
+                      onClick={() => {
+                        setSaleDateDraft(toDatetimeLocalValue(documentSaleDate));
+                        setSaleDatePickerOpen(true);
+                      }}
+                    >
+                      <CalendarClock className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+                      Editar fecha
+                    </Button>
+                  ) : null}
+                </div>
                 <div
                   ref={saleFechaRef}
                   tabIndex={0}
                   role="textbox"
                   aria-readonly="true"
-                  aria-label={`Fecha de la venta, ${todayStr}`}
+                  aria-label={`Fecha de la venta, ${saleDateDisplayStr}`}
                   className="mt-0 flex !h-7 min-h-[28px] cursor-default items-center rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-1.5 text-[11px] font-bold tabular-nums text-pf-text shadow-[var(--pf-control-shadow)] outline-none focus-visible:ring-2 focus-visible:ring-pf-primary focus-visible:ring-offset-1"
                   onKeyDown={(e) => {
                     tryHeaderArrowNav(e, "fecha");
                   }}
                 >
-                  {todayStr}
+                  {saleDateDisplayStr}
                 </div>
               </div>
             </div>
@@ -1560,13 +1563,10 @@ export function NewSalePage() {
                         : ""
                   }`}
                 >
-                  <td
-                    className="px-3 py-2 font-mono text-xs text-pf-text-tertiary"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-3 py-2 font-mono text-xs text-pf-text-tertiary">
                     {l.product.sku}
                   </td>
-                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-3 py-2">
                     <span className="font-medium text-pf-text">{l.product.name}</span>
                     <span className="block text-[11px] text-pf-muted">
                       {l.product.productType === "KIT"
@@ -1597,7 +1597,30 @@ export function NewSalePage() {
                       onFocus={() => setSelectedLineIndex(i)}
                       onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "qty")}
                       onChange={(e) => {
-                        const qty = Math.max(0.0001, Number(e.target.value) || 0);
+                        const parsed = Number(e.target.value);
+                        let qty = Number.isFinite(parsed) ? Math.max(0, parsed) : l.qty;
+
+                        if (tracksStock(l.product)) {
+                          const cap = l.product.stock;
+                          if (!l.product.esGranel) qty = Math.round(qty);
+                          if (qty > cap) {
+                            setErr(
+                              `«${l.product.name}»: no puede vender más de ${cap} (existencia). Aumente el stock en Productos antes de continuar.`
+                            );
+                            qty = cap;
+                          }
+                          if (qty > 0) {
+                            const floor = l.product.esGranel ? 0.0001 : 1;
+                            if (qty < floor) {
+                              qty = floor;
+                              if (qty > cap) qty = cap;
+                            }
+                          }
+                        } else {
+                          qty = Number.isFinite(parsed) ? Math.max(0, parsed) : l.qty;
+                          if (qty > 0 && qty < 0.0001) qty = 0.0001;
+                        }
+
                         updateLine(i, {
                           qty,
                           unitPrice: resolveProductUnitPrice(l.product, qty, priceTier),
@@ -1605,9 +1628,7 @@ export function NewSalePage() {
                       }}
                     />
                   </td>
-                  <td className="px-3 py-2 text-xs text-pf-text-tertiary" onClick={(e) => e.stopPropagation()}>
-                    {l.product.unit}
-                  </td>
+                  <td className="px-3 py-2 text-xs text-pf-text-tertiary">{l.product.unit}</td>
                   <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                     <Input
                       type="number"
@@ -1634,16 +1655,10 @@ export function NewSalePage() {
                       onChange={(e) => updateLine(i, { discountPercent: Number(e.target.value) || 0 })}
                     />
                   </td>
-                  <td
-                    className="px-3 py-2 text-right tabular-nums text-pf-text-tertiary"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-3 py-2 text-right tabular-nums text-pf-text-tertiary">
                     {l.product.taxPercent}
                   </td>
-                  <td
-                    className="px-3 py-2 text-right font-medium tabular-nums"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-3 py-2 text-right font-medium tabular-nums">
                     {formatMoney(sym, computeLineTotal(l))}
                   </td>
                   <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
@@ -1790,6 +1805,43 @@ export function NewSalePage() {
         {filteredPickCustomers.length === 0 ? (
           <p className="mt-3 text-center text-sm text-pf-muted">Sin resultados</p>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={saleDatePickerOpen}
+        title="Fecha y hora del documento"
+        onClose={() => setSaleDatePickerOpen(false)}
+      >
+        <p className="mb-3 text-sm text-pf-muted">
+          Esta fecha se guardará en la factura al pulsar Guardar o Cobrar (informes y caja la usan como fecha de
+          venta).
+        </p>
+        <Input
+          type="datetime-local"
+          value={saleDateDraft}
+          onChange={(e) => setSaleDateDraft(e.target.value)}
+          className="w-full min-h-[44px] max-w-md"
+        />
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => setSaleDatePickerOpen(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              const d = new Date(saleDateDraft);
+              if (Number.isNaN(d.getTime())) {
+                setErr("Fecha u hora no válida.");
+                return;
+              }
+              setDocumentSaleDate(d);
+              setSaleDatePickerOpen(false);
+              setErr("");
+            }}
+          >
+            Aplicar
+          </Button>
+        </div>
       </Modal>
 
       <CustomerModal
@@ -2043,7 +2095,7 @@ export function NewSalePage() {
               {checkoutOpts.autoPrintTicket && (
                 <p className="flex items-center justify-center gap-1.5 text-center text-xs text-pf-muted">
                   <Printer className="h-3.5 w-3.5 shrink-0" />
-                  Tras cobrar se abrirá el ticket en una pestaña nueva y aparecerá el diálogo de impresión del navegador.
+                  Tras cobrar verá solo el diálogo de impresión; no se abre otra pestaña ni la página del comprobante.
                 </p>
               )}
             </div>
