@@ -149,6 +149,24 @@ export const PRODUCTS: ProductSeed[] = [
     productType: "KIT",
     cost: 0,
   },
+  /** Códigos 1…20: mismo número en SKU, código rápido y barras (para caja / lector). */
+  ...Array.from({ length: 20 }, (_, i) => {
+    const n = i + 1;
+    const code = String(n);
+    return {
+      sku: code,
+      name: `Artículo prueba ${code}`,
+      price: 5 * n,
+      taxPercent: 15,
+      stock: 100 + n,
+      unit: "UND",
+      category: cat("Pruebas"),
+      quickCode: code,
+      barcode: `999${String(n).padStart(10, "0")}`,
+      location: "TST",
+      cost: 2 * n,
+    } satisfies ProductSeed;
+  }),
 ];
 
 export const DEMO_SALES: DemoSaleSeed[] = [

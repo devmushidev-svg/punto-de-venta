@@ -3,6 +3,7 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
 
@@ -48,15 +49,22 @@ export function Field({
   error,
   children,
   className = "",
+  compact = false,
 }: {
   label: string;
   error?: string;
   children: ReactNode;
   className?: string;
+  /** Encabezados densos (p. ej. nueva venta): menos altura entre etiqueta y control. */
+  compact?: boolean;
 }) {
   return (
-    <label className={`block space-y-1.5 ${className}`}>
-      <span className="text-sm font-medium text-pf-text-secondary">{label}</span>
+    <label className={`block ${compact ? "space-y-0.5" : "space-y-1.5"} ${className}`}>
+      <span
+        className={`font-medium text-pf-text-secondary ${compact ? "text-[10px] leading-none" : "text-sm"}`}
+      >
+        {label}
+      </span>
       {children}
       {error ? <span className="text-sm text-red-600">{error}</span> : null}
     </label>
@@ -85,14 +93,18 @@ export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HT
   );
 }
 
-export function Select({ className = "", ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      className={`pf-control-surface min-h-[48px] px-3.5 py-2.5 md:min-h-[44px] md:rounded-[var(--radius-pf)] ${className}`}
-      {...props}
-    />
-  );
-}
+export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
+  function Select({ className = "", ...props }, ref) {
+    return (
+      <select
+        ref={ref}
+        className={`pf-control-surface min-h-[48px] px-3.5 py-2.5 md:min-h-[44px] md:rounded-[var(--radius-pf)] ${className}`}
+        {...props}
+      />
+    );
+  }
+);
+Select.displayName = "Select";
 
 export function Modal({
   open,

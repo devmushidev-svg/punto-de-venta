@@ -1,4 +1,4 @@
-import { Banknote, CheckCircle2, ClipboardList, Minus, Monitor, Plus, Printer, Save, ShoppingCart, Star, Trash2, X } from "lucide-react";
+import { CheckCircle2, ClipboardList, Minus, Monitor, Plus, Printer, Save, ShoppingCart, Star, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
@@ -6,8 +6,9 @@ import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
+import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
-import type { Customer, Product } from "../types";
+import type { Customer, Product, Sale } from "../types";
 
 type Line = {
   productId: string;
@@ -209,7 +210,7 @@ export function TouchSalePage() {
           discountPercent: l.discountPercent,
         })),
       };
-      await apiFetch<{ id: string }>("/api/sales", {
+      const sale = await apiFetch<Sale>("/api/sales", {
         method: "POST",
         body: JSON.stringify(body),
         token,
@@ -219,7 +220,8 @@ export function TouchSalePage() {
       setShowCart(false);
 
       if (checkoutMode === "print") {
-        showToast("Factura impresa correctamente", "print");
+        showToast("Factura guardada. Enviando ticket a impresión…", "print");
+        printSaleTicketInHiddenFrame(sale.id);
       } else {
         showToast("Factura guardada correctamente", "success");
       }

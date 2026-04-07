@@ -710,7 +710,7 @@ body {
 
 /** Cabecera “documento” nueva venta (continúa con tabla) */
 @utility pf-doc-section-title {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
   background-image: linear-gradient(to right, var(--pf-hero-title-1), var(--pf-hero-title-2), var(--pf-hero-title-3));
   -webkit-background-clip: text;
   background-clip: text;
@@ -726,19 +726,31 @@ body {
   }
 }
 
+/** Título más bajo en pantallas de facturación (nueva venta). */
+@utility pf-doc-section-title-compact {
+  margin-bottom: 0.15rem;
+  font-size: 0.975rem;
+  line-height: 1.15rem;
+
+  @media (width >= 640px) {
+    font-size: 1.0625rem;
+    line-height: 1.2rem;
+  }
+}
+
 @utility pf-sale-doc-header {
   border-radius: 1.5rem 1.5rem 0 0;
   border: 1px solid var(--pf-glass-border);
   border-bottom: none;
   background: linear-gradient(to bottom right, var(--pf-hero-bg-1), var(--pf-hero-bg-2), var(--pf-hero-bg-3));
-  padding: 1rem 1rem;
+  padding: 0.3rem 0.5rem;
   box-shadow: var(--pf-shadow-warm-sm);
   backdrop-filter: blur(12px);
 
   @media (width >= 768px) {
     border-radius: 1rem 1rem 0 0;
-    padding-left: 1.25rem;
-    padding-right: 1.25rem;
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
   }
 }
 

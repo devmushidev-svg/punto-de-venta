@@ -141,11 +141,6 @@ export function SalesPage() {
     setTermsFilter("");
   }
 
-  const selectedSale = useMemo(
-    () => (selectedSaleId ? list.find((s) => s.id === selectedSaleId) ?? null : null),
-    [list, selectedSaleId]
-  );
-
   const ribbonBar = useMemo(
     () => (
       <>

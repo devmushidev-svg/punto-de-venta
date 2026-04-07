@@ -14,7 +14,15 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -23,6 +31,7 @@ import { CustomerModal } from "../components/CustomerModal";
 import { NewProductModal } from "../components/NewProductModal";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
+import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
@@ -40,6 +49,130 @@ type Line = {
 type CatalogModalState = { kind: "closed" } | { kind: "new" } | { kind: "edit"; productId: string };
 
 type CustomerCatalogModal = { kind: "closed" } | { kind: "new" } | { kind: "edit" };
+
+const SALE_LINE_FIELDS = ["qty", "price", "disc"] as const;
+type SaleLineField = (typeof SALE_LINE_FIELDS)[number];
+
+/** Campos del encabezado para navegar con flechas (cuadrícula visual). */
+type SaleHeaderArrowField =
+  | "invoice"
+  | "terms"
+  | "fecha"
+  | "customer"
+  | "address"
+  | "phone"
+  | "taxId"
+  | "notes"
+  | "priceTier"
+  | "paid";
+
+type SaleHeaderArrowDest = SaleHeaderArrowField | "quickAdd";
+
+type ArrowDir = "up" | "down" | "left" | "right";
+
+/** Cabecera: en estos campos las flechas siempre cambian de celda (texto suele ser corto). */
+const HEADER_ARROW_ALWAYS_LEAVE_FIELD: ReadonlySet<SaleHeaderArrowField> = new Set([
+  "notes",
+  "address",
+  "phone",
+  "taxId",
+]);
+
+function arrowKeyToDir(key: string): ArrowDir | null {
+  if (key === "ArrowUp") return "up";
+  if (key === "ArrowDown") return "down";
+  if (key === "ArrowLeft") return "left";
+  if (key === "ArrowRight") return "right";
+  return null;
+}
+
+function shouldMoveFromTextInput(el: HTMLInputElement | HTMLTextAreaElement, dir: ArrowDir): boolean {
+  if (el.readOnly) return true;
+  const v = el.value;
+  const s = el.selectionStart;
+  const e = el.selectionEnd;
+  if (s === null || e === null) return true;
+  if (s !== e) return false;
+  const p = s;
+  switch (dir) {
+    case "left":
+    case "up":
+      return p <= 0;
+    case "right":
+    case "down":
+      return p >= v.length;
+    default:
+      return false;
+  }
+}
+
+function headerArrowNeighbor(
+  from: SaleHeaderArrowField,
+  dir: ArrowDir,
+  credit: boolean
+): SaleHeaderArrowDest | null {
+  switch (from) {
+    case "invoice":
+      if (dir === "right") return "customer";
+      if (dir === "down") return "terms";
+      return null;
+    case "terms":
+      if (dir === "up") return "invoice";
+      if (dir === "down") return "fecha";
+      if (dir === "right") return "address";
+      return null;
+    case "fecha":
+      if (dir === "up") return "terms";
+      if (dir === "right") return "address";
+      if (dir === "down") return "quickAdd";
+      if (dir === "left") return "invoice";
+      return null;
+    case "customer":
+      if (dir === "left") return "invoice";
+      if (dir === "right") return "notes";
+      if (dir === "down") return "address";
+      if (dir === "up") return "invoice";
+      return null;
+    case "address":
+      if (dir === "left") return "terms";
+      if (dir === "right") return "phone";
+      if (dir === "up") return "customer";
+      if (dir === "down") return "quickAdd";
+      return null;
+    case "phone":
+      if (dir === "left") return "address";
+      if (dir === "right") return "taxId";
+      if (dir === "up") return "customer";
+      if (dir === "down") return "quickAdd";
+      return null;
+    case "taxId":
+      if (dir === "left") return "phone";
+      if (dir === "right") return "priceTier";
+      if (dir === "up") return "customer";
+      if (dir === "down") return "quickAdd";
+      return null;
+    case "notes":
+      /* Izquierda → RTN (columna central); abajo/derecha → lista de precios */
+      if (dir === "left") return "taxId";
+      if (dir === "right") return "priceTier";
+      if (dir === "down") return "priceTier";
+      if (dir === "up") return "customer";
+      return null;
+    case "priceTier":
+      if (dir === "left") return "taxId";
+      if (dir === "up") return "notes";
+      if (dir === "down") return credit ? "paid" : "quickAdd";
+      return null;
+    case "paid":
+      if (dir === "up") return "priceTier";
+      if (dir === "left") return "taxId";
+      if (dir === "down") return "quickAdd";
+      if (dir === "right") return "quickAdd";
+      return null;
+    default:
+      return null;
+  }
+}
 
 function newLineKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `l-${Date.now()}-${Math.random()}`;
@@ -182,6 +315,18 @@ export function NewSalePage() {
   const [checkoutOpts, setCheckoutOpts] = useState<{ destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }>({ destination: "ticket" });
   const checkoutAmountInputRef = useRef<HTMLInputElement | null>(null);
   const quickAddInputRef = useRef<HTMLInputElement | null>(null);
+  /** Tras agregar línea por código o catálogo: enfocar cantidad cuando el DOM ya tiene la fila (evita que el foco se quede en «código»). */
+  const pendingLineFieldFocusRef = useRef<{ lineIndex: number; field: SaleLineField } | null>(null);
+  const saleTermsRef = useRef<HTMLSelectElement | null>(null);
+  const saleCustomerRef = useRef<HTMLInputElement | null>(null);
+  const saleAddressRef = useRef<HTMLInputElement | null>(null);
+  const salePhoneRef = useRef<HTMLInputElement | null>(null);
+  const saleTaxIdRef = useRef<HTMLInputElement | null>(null);
+  const saleNotesRef = useRef<HTMLInputElement | null>(null);
+  const salePriceTierRef = useRef<HTMLSelectElement | null>(null);
+  const salePaidRef = useRef<HTMLInputElement | null>(null);
+  const saleInvoiceRef = useRef<HTMLInputElement | null>(null);
+  const saleFechaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -255,6 +400,7 @@ export function NewSalePage() {
         }
 
         const tier = priceTierRef.current;
+        let focusLineAfter: number | null = null;
         setLines((prev) => {
           const i = prev.findIndex((l) => l.productId === p.id);
           if (i >= 0) {
@@ -268,8 +414,10 @@ export function NewSalePage() {
               qty: newQty,
               unitPrice: resolveProductUnitPrice(p, newQty, tier),
             };
+            focusLineAfter = i;
             return next;
           }
+          focusLineAfter = prev.length;
           return [
             ...prev,
             {
@@ -282,6 +430,10 @@ export function NewSalePage() {
             },
           ];
         });
+        if (focusLineAfter !== null) {
+          pendingLineFieldFocusRef.current = { lineIndex: focusLineAfter, field: "qty" };
+          setSelectedLineIndex(focusLineAfter);
+        }
       } catch {
         /* ignorar */
       }
@@ -420,6 +572,191 @@ export function NewSalePage() {
     queueMicrotask(() => quickAddInputRef.current?.focus());
   }, []);
 
+  const focusSaleLineField = useCallback((lineIndex: number, field: SaleLineField) => {
+    const el = document.querySelector<HTMLInputElement>(
+      `[data-sale-form-line="${lineIndex}"][data-sale-form-field="${field}"]`
+    );
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, []);
+
+  const focusHeaderArrowTarget = useCallback((dest: SaleHeaderArrowDest) => {
+    if (dest === "quickAdd") {
+      queueMicrotask(() => quickAddInputRef.current?.focus());
+      return;
+    }
+    switch (dest) {
+      case "invoice":
+        saleInvoiceRef.current?.focus();
+        break;
+      case "terms":
+        saleTermsRef.current?.focus();
+        break;
+      case "fecha":
+        saleFechaRef.current?.focus();
+        break;
+      case "customer":
+        saleCustomerRef.current?.focus();
+        break;
+      case "address":
+        saleAddressRef.current?.focus();
+        break;
+      case "phone":
+        salePhoneRef.current?.focus();
+        break;
+      case "taxId":
+        saleTaxIdRef.current?.focus();
+        break;
+      case "notes":
+        saleNotesRef.current?.focus();
+        break;
+      case "priceTier":
+        salePriceTierRef.current?.focus();
+        break;
+      case "paid":
+        salePaidRef.current?.focus();
+        break;
+      default:
+        break;
+    }
+  }, []);
+
+  const tryHeaderArrowNav = useCallback(
+    (e: ReactKeyboardEvent, from: SaleHeaderArrowField): boolean => {
+      if (e.nativeEvent.isComposing) return false;
+      if (e.ctrlKey || e.metaKey || e.altKey) return false;
+      const dir = arrowKeyToDir(e.key);
+      if (!dir) return false;
+
+      const tgt = e.currentTarget;
+      if (tgt instanceof HTMLInputElement) {
+        if (tgt.readOnly) {
+          /* siempre navegar */
+        } else if (tgt.type === "number") {
+          /* abono: flechas solo cambian de campo */
+        } else if (!HEADER_ARROW_ALWAYS_LEAVE_FIELD.has(from) && !shouldMoveFromTextInput(tgt, dir)) {
+          return false;
+        }
+      }
+
+      const credit = isCreditSaleTerm(terms);
+      if (from === "paid" && !credit) return false;
+
+      const next = headerArrowNeighbor(from, dir, credit);
+      if (!next) return false;
+      e.preventDefault();
+      focusHeaderArrowTarget(next);
+      return true;
+    },
+    [terms, focusHeaderArrowTarget]
+  );
+
+  const handleSaleHeaderInputKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLInputElement>, field: "customer" | "address" | "phone" | "taxId" | "notes" | "paid") => {
+      if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const next: Record<typeof field, () => void> = {
+        customer: () => saleAddressRef.current?.focus(),
+        address: () => salePhoneRef.current?.focus(),
+        phone: () => saleTaxIdRef.current?.focus(),
+        taxId: () => saleNotesRef.current?.focus(),
+        notes: () => salePriceTierRef.current?.focus(),
+        paid: () => quickAddInputRef.current?.focus(),
+      };
+      const prev: Record<typeof field, () => void> = {
+        customer: () => saleTermsRef.current?.focus(),
+        address: () => saleCustomerRef.current?.focus(),
+        phone: () => saleAddressRef.current?.focus(),
+        taxId: () => salePhoneRef.current?.focus(),
+        notes: () => saleTaxIdRef.current?.focus(),
+        paid: () => salePriceTierRef.current?.focus(),
+      };
+      if (e.shiftKey) {
+        e.preventDefault();
+        prev[field]();
+      } else {
+        e.preventDefault();
+        next[field]();
+      }
+    },
+    []
+  );
+
+  const handleSaleLineInputKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLInputElement>, lineIndex: number, field: SaleLineField) => {
+      const n = lines.length;
+      if (e.nativeEvent.isComposing) return;
+
+      if (e.key === "ArrowDown" && e.altKey) {
+        e.preventDefault();
+        if (lineIndex < n - 1) focusSaleLineField(lineIndex + 1, field);
+        else queueMicrotask(() => quickAddInputRef.current?.focus());
+        return;
+      }
+      if (e.key === "ArrowUp" && e.altKey) {
+        e.preventDefault();
+        if (lineIndex > 0) focusSaleLineField(lineIndex - 1, field);
+        else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
+        else salePriceTierRef.current?.focus();
+        return;
+      }
+
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (e.key !== "Enter") return;
+
+      const fi = SALE_LINE_FIELDS.indexOf(field);
+      if (fi < 0) return;
+
+      if (e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (fi > 0) focusSaleLineField(lineIndex, SALE_LINE_FIELDS[fi - 1]);
+        else if (lineIndex > 0) focusSaleLineField(lineIndex - 1, "disc");
+        else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
+        else salePriceTierRef.current?.focus();
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (fi < SALE_LINE_FIELDS.length - 1) focusSaleLineField(lineIndex, SALE_LINE_FIELDS[fi + 1]);
+      else if (lineIndex < n - 1) focusSaleLineField(lineIndex + 1, "qty");
+      else queueMicrotask(() => quickAddInputRef.current?.focus());
+    },
+    [lines.length, terms, focusSaleLineField]
+  );
+
+  const handleSaleTermsKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLSelectElement>) => {
+      if (tryHeaderArrowNav(e, "terms")) return;
+      if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      saleCustomerRef.current?.focus();
+    },
+    [tryHeaderArrowNav]
+  );
+
+  const handleSalePriceTierKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLSelectElement>) => {
+      if (tryHeaderArrowNav(e, "priceTier")) return;
+      if (e.nativeEvent.isComposing) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      if (e.shiftKey) {
+        saleNotesRef.current?.focus();
+        return;
+      }
+      if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
+      else if (lines.length > 0) focusSaleLineField(0, "qty");
+      else quickAddInputRef.current?.focus();
+    },
+    [tryHeaderArrowNav, terms, lines.length, focusSaleLineField]
+  );
+
   const startEditCustomerFlow = useCallback(() => {
     if (!customerId.trim()) {
       setErr("Elija un cliente con F2 o cree uno con F6 antes de editar.");
@@ -434,6 +771,7 @@ export function NewSalePage() {
     setQuickAddErr("");
     if (!raw || !token) return;
     setQuickAddBusy(true);
+    let focusLineAfter: number | null = null;
     try {
       const list = await apiFetch<Product[]>(
         `/api/products?q=${encodeURIComponent(raw)}&touch=1&limit=120`,
@@ -452,6 +790,7 @@ export function NewSalePage() {
       }
       if (tracksStock(exact) && exact.stock <= 0) {
         setQuickAddErr(`«${exact.name}» no tiene existencia disponible (stock: ${exact.stock}).`);
+        return;
       }
       const tier = priceTierRef.current;
       setLines((prev) => {
@@ -467,8 +806,10 @@ export function NewSalePage() {
             qty: newQty,
             unitPrice: resolveProductUnitPrice(exact, newQty, tier),
           };
+          focusLineAfter = i;
           return next;
         }
+        focusLineAfter = prev.length;
         return [
           ...prev,
           {
@@ -481,11 +822,25 @@ export function NewSalePage() {
           },
         ];
       });
+      if (focusLineAfter !== null) {
+        pendingLineFieldFocusRef.current = { lineIndex: focusLineAfter, field: "qty" };
+        setSelectedLineIndex(focusLineAfter);
+      }
       setQuickAddCode("");
     } catch {
       setQuickAddErr("No se pudo buscar el producto.");
     } finally {
-      setQuickAddBusy(false);
+      /* Si la línea se agregó bien, el campo código sigue «ocupado» hasta useLayoutEffect
+         para que al quitarse readOnly el foco no vuelva solo al código. */
+      if (focusLineAfter === null) {
+        setQuickAddBusy(false);
+        window.setTimeout(() => {
+          const el = quickAddInputRef.current;
+          if (!el || el.disabled) return;
+          el.focus({ preventScroll: true });
+          el.select();
+        }, 0);
+      }
     }
   }, [token, quickAddCode]);
 
@@ -609,7 +964,7 @@ export function NewSalePage() {
             discountPercent: l.discountPercent,
           })),
         };
-        await apiFetch<{ id: string }>(isEditMode ? `/api/sales/${editSaleId}` : "/api/sales", {
+        const sale = await apiFetch<Sale>(isEditMode ? `/api/sales/${editSaleId}` : "/api/sales", {
           method: isEditMode ? "PATCH" : "POST",
           body: JSON.stringify(body),
           token,
@@ -618,8 +973,12 @@ export function NewSalePage() {
         if (isEditMode) {
           showToast("Factura actualizada correctamente", "success");
           navigate("/ventas");
+        } else if (opts?.destination === "comprobante") {
+          showToast("Factura guardada correctamente", "success");
+          navigate(`/ventas/${sale.id}/comprobante`);
         } else if (opts?.autoPrintTicket) {
-          showToast("Factura impresa correctamente", "print");
+          showToast("Factura guardada. Enviando ticket a impresión…", "print");
+          printSaleTicketInHiddenFrame(sale.id);
         } else {
           showToast("Factura guardada correctamente", "success");
         }
@@ -891,7 +1250,7 @@ export function NewSalePage() {
             icon={ListPlus}
             line1="Añadir"
             line2="fila (código)"
-            title="Enfocar el campo de código / barras para agregar otro producto"
+            title="Enfocar la fila nueva al final de la tabla (columna Código)"
             onClick={focusQuickAddRow}
           />
         </SaleRibbonGroup>
@@ -927,6 +1286,34 @@ export function NewSalePage() {
   );
 
   useLayoutEffect(() => {
+    const p = pendingLineFieldFocusRef.current;
+    if (!p) return;
+    pendingLineFieldFocusRef.current = null;
+    const focusLineField = (): boolean => {
+      const el = document.querySelector<HTMLInputElement>(
+        `[data-sale-form-line="${p.lineIndex}"][data-sale-form-field="${p.field}"]`
+      );
+      if (!el) return false;
+      quickAddInputRef.current?.blur();
+      el.focus({ preventScroll: true });
+      el.select();
+      return true;
+    };
+    const releaseQuickAdd = () => setQuickAddBusy(false);
+    if (focusLineField()) {
+      releaseQuickAdd();
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (!focusLineField()) {
+        quickAddInputRef.current?.focus({ preventScroll: true });
+        quickAddInputRef.current?.select();
+      }
+      releaseQuickAdd();
+    });
+  }, [lines]);
+
+  useLayoutEffect(() => {
     setSaleToolbar?.(saleRibbonBar);
     return () => setSaleToolbar?.(null);
   }, [saleRibbonBar, setSaleToolbar]);
@@ -953,24 +1340,35 @@ export function NewSalePage() {
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
       <div className="pf-sale-doc-header">
-        <h1 className="pf-doc-section-title mb-3">
+        <h1 className="pf-doc-section-title pf-doc-section-title-compact">
           {isEditMode ? "Editar venta" : "Nueva venta"}
         </h1>
 
-        <div className="rounded-xl border border-pf-border bg-pf-surface-elevated/95 p-3 shadow-sm sm:p-3.5">
-          <div className="grid grid-cols-1 gap-3 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-stretch xl:gap-x-3 xl:gap-y-2">
+        <div className="rounded-lg border border-pf-border bg-pf-surface-elevated/95 p-1 shadow-sm sm:p-1.5">
+          <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
             {/* Columna documento: Nº factura, términos, fecha */}
-            <div className="min-w-0 space-y-2 xl:col-span-2">
-              <Field label="Nº factura" className="min-w-0">
+            <div className="min-w-0 space-y-0.5 xl:col-span-2">
+              <Field label="Nº factura" className="min-w-0" compact>
                 <Input
                   readOnly
+                  ref={saleInvoiceRef}
+                  tabIndex={-1}
                   value={loadedInvoiceNumber && String(loadedInvoiceNumber).trim() ? loadedInvoiceNumber : "—"}
-                  className="cursor-default bg-pf-primary-soft/25 tabular-nums text-pf-text"
+                  className="!h-7 !min-h-[28px] cursor-default bg-pf-primary-soft/25 px-1.5 py-0 text-xs tabular-nums text-pf-text"
                   title={isEditMode ? "Número de factura" : "Se asignará al guardar"}
+                  onKeyDown={(e) => {
+                    tryHeaderArrowNav(e, "invoice");
+                  }}
                 />
               </Field>
-              <Field label="Términos" className="min-w-0">
-                <Select value={terms} onChange={(e) => setTerms(e.target.value)}>
+              <Field label="Términos" className="min-w-0" compact>
+                <Select
+                  ref={saleTermsRef}
+                  value={terms}
+                  onChange={(e) => setTerms(e.target.value)}
+                  onKeyDown={handleSaleTermsKeyDown}
+                  className="!h-7 !min-h-[28px] py-0 pl-1.5 pr-6 text-xs"
+                >
                   {SALE_TERMS_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -979,90 +1377,148 @@ export function NewSalePage() {
                 </Select>
               </Field>
               <div>
-                <span className="text-xs font-semibold uppercase tracking-[0.08em] text-pf-text-tertiary">Fecha</span>
-                <div className="mt-1 flex min-h-[42px] items-center rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-3 text-sm font-bold tabular-nums text-pf-text shadow-[var(--pf-control-shadow)]">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-pf-text-tertiary">
+                  Fecha
+                </span>
+                <div
+                  ref={saleFechaRef}
+                  tabIndex={0}
+                  role="textbox"
+                  aria-readonly="true"
+                  aria-label={`Fecha de la venta, ${todayStr}`}
+                  className="mt-0 flex !h-7 min-h-[28px] cursor-default items-center rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-1.5 text-[11px] font-bold tabular-nums text-pf-text shadow-[var(--pf-control-shadow)] outline-none focus-visible:ring-2 focus-visible:ring-pf-primary focus-visible:ring-offset-1"
+                  onKeyDown={(e) => {
+                    tryHeaderArrowNav(e, "fecha");
+                  }}
+                >
                   {todayStr}
                 </div>
               </div>
             </div>
 
-            {/* Cliente + DIR / TEL / RTN apilados */}
-            <div className="min-w-0 space-y-2 xl:col-span-4">
-              <Field label="Cliente" className="min-w-0">
+            {/* Cliente + DIR / TEL / RTN — en xl una sola fila para no alargar la cabecera */}
+            <div className="min-w-0 space-y-0.5 xl:col-span-4">
+              <Field label="Cliente" className="min-w-0" compact>
                 <Input
+                  ref={saleCustomerRef}
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder="Nombre o razón social"
                   autoComplete="name"
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                  onKeyDown={(e) => {
+                    if (tryHeaderArrowNav(e, "customer")) return;
+                    handleSaleHeaderInputKeyDown(e, "customer");
+                  }}
                 />
               </Field>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-1">
-                <Field label="DIR" className="min-w-0">
+              <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-3 xl:grid-cols-3 sm:gap-1">
+                <Field label="DIR" className="min-w-0" compact>
                   <Input
+                    ref={saleAddressRef}
                     value={customerAddress}
                     onChange={(e) => setCustomerAddress(e.target.value)}
                     placeholder="Dirección"
                     autoComplete="street-address"
-                    className="min-h-9 py-2 md:min-h-9"
+                    className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                    onKeyDown={(e) => {
+                      if (tryHeaderArrowNav(e, "address")) return;
+                      handleSaleHeaderInputKeyDown(e, "address");
+                    }}
                   />
                 </Field>
-                <Field label="TEL" className="min-w-0">
+                <Field label="TEL" className="min-w-0" compact>
                   <Input
+                    ref={salePhoneRef}
                     value={customerPhone}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     placeholder="Teléfono"
                     autoComplete="tel"
-                    className="min-h-9 py-2 md:min-h-9"
+                    className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                    onKeyDown={(e) => {
+                      if (tryHeaderArrowNav(e, "phone")) return;
+                      handleSaleHeaderInputKeyDown(e, "phone");
+                    }}
                   />
                 </Field>
-                <Field label="RTN" className="min-w-0">
+                <Field label="RTN" className="min-w-0" compact>
                   <Input
+                    ref={saleTaxIdRef}
                     value={customerTaxId}
                     onChange={(e) => setCustomerTaxId(e.target.value)}
                     placeholder="RTN"
-                    className="min-h-9 py-2 md:min-h-9"
+                    className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                    onKeyDown={(e) => {
+                      if (tryHeaderArrowNav(e, "taxId")) return;
+                      handleSaleHeaderInputKeyDown(e, "taxId");
+                    }}
                   />
                 </Field>
               </div>
             </div>
 
             {/* Notas, lista de precios y total dentro del mismo recuadro */}
-            <div className="flex min-h-0 min-w-0 flex-col gap-2 xl:col-span-6">
-              <Field label="Notas (opc.)" className="min-w-0 shrink-0">
+            <div className="flex min-h-0 min-w-0 flex-col gap-0.5 xl:col-span-6">
+              <Field label="Notas (opc.)" className="min-w-0 shrink-0" compact>
                 <Input
+                  ref={saleNotesRef}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Opcional"
-                  className="min-h-9 py-2 md:min-h-9"
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                  onKeyDown={(e) => {
+                    if (tryHeaderArrowNav(e, "notes")) return;
+                    handleSaleHeaderInputKeyDown(e, "notes");
+                  }}
                 />
               </Field>
-              <Field label="Lista de precios" className="min-w-0 shrink-0">
-                <Select value={priceTier} onChange={(e) => setPriceTier(Number(e.target.value))}>
+              <Field label="Lista de precios" className="min-w-0 shrink-0" compact>
+                <Select
+                  ref={salePriceTierRef}
+                  value={priceTier}
+                  onChange={(e) => setPriceTier(Number(e.target.value))}
+                  onKeyDown={handleSalePriceTierKeyDown}
+                  className="!h-7 !min-h-[28px] py-0 pl-1.5 pr-6 text-xs"
+                >
                   <option value={1}>Precio 1</option>
                   <option value={2}>Precio 2</option>
                   <option value={3}>Precio 3</option>
                   <option value={4}>Precio 4</option>
                 </Select>
               </Field>
-              <div className="mt-auto flex min-h-[7rem] flex-col justify-end rounded-xl border border-pf-border/90 bg-gradient-to-b from-pf-primary-soft/35 via-white to-pf-surface-elevated p-3 shadow-[var(--pf-control-shadow)] sm:min-h-[7.5rem]">
-                <p className="text-right text-[10px] font-semibold uppercase tracking-[0.2em] text-pf-text-tertiary">
+              <div className="rounded border border-pf-border/90 bg-gradient-to-b from-pf-primary-soft/20 to-pf-surface-elevated px-1 py-0.5 shadow-[var(--pf-control-shadow)]">
+                <p className="text-right text-[7px] font-semibold uppercase tracking-[0.1em] text-pf-text-tertiary">
                   Total
                 </p>
-                <p className="mt-0.5 text-right text-2xl font-black tabular-nums tracking-tight text-pf-text sm:text-3xl">
+                <p className="text-right text-base font-black tabular-nums leading-none tracking-tight text-pf-text sm:text-lg">
                   {formatMoney(sym, totals.total)}
                 </p>
-                <p className="mt-2 text-right text-[10px] leading-snug text-pf-muted sm:text-[11px]">
-                  F2 clientes · F6 nuevo cliente · F9/F10 filas · F11 limpiar · F5/F8 guardar · F4 productos.
+                <p
+                  className="truncate text-right text-[7px] leading-none text-pf-muted"
+                  title="Cabecera: flechas entre campos (en textos, solo al inicio/fin de la línea para no cortar la edición). Líneas: Alt+flecha. Enter como antes. F2…F11."
+                >
+                  ↑↓←→ cabecera · Alt+↑↓ líneas · Enter · F2…F11
                 </p>
               </div>
             </div>
           </div>
 
           {isCreditSaleTerm(terms) ? (
-            <div className="mt-3 grid gap-2 border-t border-pf-border/60 pt-3 sm:grid-cols-2 sm:items-end lg:grid-cols-3">
-              <p className="text-xs text-pf-muted sm:col-span-2 lg:col-span-1">Cliente obligatorio para crédito.</p>
-              <Field label="Abono inicial (opcional)" className="sm:max-w-xs lg:max-w-none">
-                <Input type="number" step="any" value={paid} onChange={(e) => setPaid(e.target.value)} />
+            <div className="mt-1.5 grid gap-1 border-t border-pf-border/60 pt-1.5 sm:grid-cols-2 sm:items-end lg:grid-cols-3">
+              <p className="text-[10px] text-pf-muted sm:col-span-2 lg:col-span-1">Cliente obligatorio para crédito.</p>
+              <Field label="Abono inicial (opcional)" className="sm:max-w-xs lg:max-w-none" compact>
+                <Input
+                  ref={salePaidRef}
+                  type="number"
+                  step="any"
+                  value={paid}
+                  onChange={(e) => setPaid(e.target.value)}
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                  onKeyDown={(e) => {
+                    if (tryHeaderArrowNav(e, "paid")) return;
+                    handleSaleHeaderInputKeyDown(e, "paid");
+                  }}
+                />
               </Field>
             </div>
           ) : null}
@@ -1074,38 +1530,22 @@ export function NewSalePage() {
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="pf-table-thead text-left uppercase tracking-wide">
-              <th className="px-3 py-2.5 w-24">Código</th>
-              <th className="px-3 py-2.5">Descripción</th>
-              <th className="px-3 py-2.5 w-24 text-right">Cant.</th>
-              <th className="px-3 py-2.5 w-20">Und.</th>
-              <th className="px-3 py-2.5 w-28 text-right">Precio</th>
-              <th className="px-3 py-2.5 w-20 text-right">Desc. %</th>
-              <th className="px-3 py-2.5 w-20 text-right">ISV %</th>
-              <th className="px-3 py-2.5 w-28 text-right">Total</th>
-              <th className="px-2 py-2.5 w-12" />
+              <th className="px-2 py-2 w-24">Código</th>
+              <th className="px-2 py-2">Descripción</th>
+              <th className="px-2 py-2 w-[6rem] text-right">Cant.</th>
+              <th className="px-2 py-2 w-14">Und.</th>
+              <th className="px-2 py-2 w-32 text-right">Precio</th>
+              <th className="px-2 py-2 w-28 text-right">Desc. %</th>
+              <th className="px-2 py-2 w-20 text-right">ISV %</th>
+              <th className="px-2 py-2 min-w-[5.5rem] text-right">Total</th>
+              <th className="px-1 py-2 w-16" />
             </tr>
           </thead>
           <tbody>
-            {lines.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-pf-muted">
-                  Agregue líneas abajo con código de barras o código de producto, o use F4 / «Buscar producto» en la
-                  cinta.
-                </td>
-              </tr>
-            ) : (
-              lines.map((l, i) => (
+            {lines.map((l, i) => (
                 <tr
                   key={l.lineKey}
-                  role="button"
-                  tabIndex={0}
                   onClick={() => setSelectedLineIndex(i)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setSelectedLineIndex(i);
-                    }
-                  }}
                   className={`pf-table-row cursor-pointer transition hover:bg-gradient-to-r hover:from-pf-primary-soft/20 hover:to-transparent ${
                     selectedLineIndex === i
                       ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
@@ -1144,8 +1584,12 @@ export function NewSalePage() {
                     <Input
                       type="number"
                       step="any"
-                      className="min-h-9 py-1 text-right"
+                      data-sale-form-line={i}
+                      data-sale-form-field="qty"
+                      className="!min-h-[44px] w-full min-w-[5.25rem] px-2 py-2 text-right text-sm tabular-nums [&::-webkit-inner-spin-button]:opacity-60"
                       value={l.qty}
+                      onFocus={() => setSelectedLineIndex(i)}
+                      onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "qty")}
                       onChange={(e) => {
                         const qty = Math.max(0.0001, Number(e.target.value) || 0);
                         updateLine(i, {
@@ -1162,8 +1606,12 @@ export function NewSalePage() {
                     <Input
                       type="number"
                       step="any"
-                      className="min-h-9 py-1 text-right"
+                      data-sale-form-line={i}
+                      data-sale-form-field="price"
+                      className="!min-h-[44px] w-full min-w-[5.5rem] px-2 py-2 text-right text-sm tabular-nums [&::-webkit-inner-spin-button]:opacity-60"
                       value={l.unitPrice}
+                      onFocus={() => setSelectedLineIndex(i)}
+                      onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "price")}
                       onChange={(e) => updateLine(i, { unitPrice: Number(e.target.value) || 0 })}
                     />
                   </td>
@@ -1171,8 +1619,12 @@ export function NewSalePage() {
                     <Input
                       type="number"
                       step="any"
-                      className="min-h-9 py-1 text-right"
+                      data-sale-form-line={i}
+                      data-sale-form-field="disc"
+                      className="!min-h-[44px] w-full min-w-[4.5rem] px-2 py-2 text-right text-sm tabular-nums [&::-webkit-inner-spin-button]:opacity-60"
                       value={l.discountPercent}
+                      onFocus={() => setSelectedLineIndex(i)}
+                      onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "disc")}
                       onChange={(e) => updateLine(i, { discountPercent: Number(e.target.value) || 0 })}
                     />
                   </td>
@@ -1201,36 +1653,58 @@ export function NewSalePage() {
                     </button>
                   </td>
                 </tr>
-              ))
-            )}
-            <tr className="border-t-2 border-dashed border-pf-border bg-pf-primary-soft/15">
-              <td colSpan={9} className="px-3 py-3 align-top">
-                <label className="block max-w-xl">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-pf-text-tertiary">
-                    Código / barras / código rápido
-                  </span>
-                  <Input
-                    ref={quickAddInputRef}
-                    value={quickAddCode}
-                    onChange={(e) => {
-                      setQuickAddCode(e.target.value);
-                      setQuickAddErr("");
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void submitQuickAddByCode();
-                      }
-                    }}
-                    placeholder="Escanee o escriba y pulse Enter…"
-                    disabled={quickAddBusy || loadingSale || !token}
-                    autoComplete="off"
-                    className="font-mono"
-                  />
-                </label>
-                {quickAddErr ? <p className="mt-2 text-sm font-medium text-red-600">{quickAddErr}</p> : null}
-                {quickAddBusy ? <p className="mt-1 text-xs text-pf-muted">Buscando…</p> : null}
+              ))}
+            {/* Fila “vacía” del grid: código aquí y Enter agrega el producto */}
+            <tr className="border-t-2 border-dashed border-pf-border bg-pf-primary-soft/20">
+              <td className="px-3 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
+                <Input
+                  ref={quickAddInputRef}
+                  value={quickAddCode}
+                  onChange={(e) => {
+                    setQuickAddCode(e.target.value);
+                    setQuickAddErr("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      if (lines.length > 0) focusSaleLineField(lines.length - 1, "qty");
+                      else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
+                      else salePriceTierRef.current?.focus();
+                      return;
+                    }
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void submitQuickAddByCode();
+                    }
+                  }}
+                  placeholder="Código / barras / rápido"
+                  readOnly={quickAddBusy}
+                  disabled={loadingSale || !token}
+                  autoComplete="off"
+                  className="!min-h-[44px] w-full min-w-[10.5rem] px-2 py-2 font-mono text-sm read-only:bg-pf-surface-elevated/80"
+                />
               </td>
+              <td className="px-3 py-2 align-middle text-xs leading-snug" onClick={(e) => e.stopPropagation()}>
+                {quickAddErr ? (
+                  <span className="font-medium text-red-600">{quickAddErr}</span>
+                ) : quickAddBusy ? (
+                  <span className="text-pf-muted">Buscando…</span>
+                ) : (
+                  <span className="text-pf-muted">
+                    {lines.length === 0
+                      ? "Código o barras y Enter → cantidad; Enter sigue a precio y descuento, luego nuevo código."
+                      : "Siguiente: código y Enter → cantidad del producto."}
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-xs text-pf-text-tertiary">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-2 py-2" onClick={(e) => e.stopPropagation()} />
             </tr>
           </tbody>
         </table>
@@ -1552,9 +2026,11 @@ export function NewSalePage() {
               </Button>
 
               {checkoutOpts.autoPrintTicket && (
-                <p className="flex items-center justify-center gap-1.5 text-xs text-pf-muted">
-                  <Printer className="h-3.5 w-3.5" />
-                  Se imprimirá el ticket automáticamente
+                <p className="flex items-center justify-center gap-1.5 text-center text-xs text-pf-muted">
+                  <Printer className="h-3.5 w-3.5 shrink-0" />
+                  Tras cobrar se envía el ticket en segundo plano. Para evitar el cuadro de impresión del navegador, use
+                  Chrome con <span className="font-mono">--kiosk-printing</span> y deje la térmica como impresora predeterminada
+                  (ver Ajustes → Factura y ticket).
                 </p>
               )}
             </div>
