@@ -381,6 +381,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
     .filter((g) => g.items.length > 0);
   const showRibbon = !saleDoc && activeTab !== "inicio" && ribbonGroupsFiltered.length > 0;
   const hideChromeForPrint = /^\/ventas\/[^/]+\/comprobante$/.test(location.pathname);
+  /** Nueva venta / editar / buscar producto: menos margen lateral para aprovechar el monitor. */
+  const saleDocWideLayout = isSaleDocPath(location.pathname) && !hideChromeForPrint;
 
   const saleToolbarStrip =
     saleDoc && saleToolbarSlot ? (
@@ -719,7 +721,13 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <main
-          className={`flex-1 min-w-0 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:px-6 md:py-6 md:pb-6${hideChromeForPrint ? " print:p-4 print:bg-white md:print:px-8" : ""}`}
+          className={`flex-1 min-w-0 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:py-6 md:pb-6 ${
+            hideChromeForPrint
+              ? "px-4 md:px-6 print:p-4 print:bg-white md:print:px-8"
+              : saleDocWideLayout
+                ? "px-2 sm:px-3 md:px-4 lg:px-5 xl:px-6 2xl:px-8"
+                : "px-4 md:px-6"
+          }`}
         >
           {children ?? <Outlet />}
         </main>

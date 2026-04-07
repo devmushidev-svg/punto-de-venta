@@ -4,7 +4,6 @@ import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card } from "../components/ui";
 import { formatDate, formatMoney } from "../lib/format";
-import { PF_TICKET_EMBED_PRINT_DONE } from "../lib/ticketPrint";
 import type { Sale } from "../types";
 
 type TicketCfg = {
@@ -37,25 +36,11 @@ export function SaleTicketPage() {
     if (!sale) return;
     const params = new URLSearchParams(location.search);
     if (params.get("print") !== "1") return;
-    const embed = params.get("embed") === "1";
 
     let cancelled = false;
     const outer = window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (cancelled) return;
-        if (embed && window.parent !== window) {
-          window.addEventListener(
-            "afterprint",
-            () => {
-              try {
-                window.parent.postMessage({ type: PF_TICKET_EMBED_PRINT_DONE }, window.location.origin);
-              } catch {
-                /* */
-              }
-            },
-            { once: true },
-          );
-        }
         window.print();
         params.delete("print");
         const qs = params.toString();
@@ -73,50 +58,44 @@ export function SaleTicketPage() {
     window.print();
   }
 
-  const isEmbed = new URLSearchParams(location.search).get("embed") === "1";
-
   if (!sale) {
     return (
       <div className="space-y-4 pf-safe-page">
         <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted backdrop-blur-sm">
           Cargando ticket…
         </p>
-        {!isEmbed && (
-          <Link
-            to="/ventas"
-            className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl border border-orange-200/50 bg-gradient-to-r from-pf-primary-soft/90 to-amber-50/80 text-sm font-bold text-pf-primary-foreground shadow-md sm:w-auto sm:px-4 touch-manipulation"
-          >
-            Volver
-          </Link>
-        )}
+        <Link
+          to="/ventas"
+          className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl border border-orange-200/50 bg-gradient-to-r from-pf-primary-soft/90 to-amber-50/80 text-sm font-bold text-pf-primary-foreground shadow-md sm:w-auto sm:px-4 touch-manipulation"
+        >
+          Volver
+        </Link>
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-md space-y-4 pf-safe-page print:max-w-none print:pb-0">
-      {!isEmbed && (
-        <div className="flex flex-col gap-2 print:hidden sm:flex-row sm:flex-wrap">
-          <Button type="button" className="min-h-[48px] w-full shadow-md sm:min-h-11 sm:w-auto" onClick={printTicket}>
-            Imprimir
+      <div className="flex flex-col gap-2 print:hidden sm:flex-row sm:flex-wrap">
+        <Button type="button" className="min-h-[48px] w-full shadow-md sm:min-h-11 sm:w-auto" onClick={printTicket}>
+          Imprimir
+        </Button>
+        <Link to={`/ventas/${sale.id}/comprobante`} className="block w-full sm:w-auto">
+          <Button variant="secondary" type="button" className="min-h-[48px] w-full sm:min-h-11 sm:w-auto">
+            Comprobante (carta)
           </Button>
-          <Link to={`/ventas/${sale.id}/comprobante`} className="block w-full sm:w-auto">
-            <Button variant="secondary" type="button" className="min-h-[48px] w-full sm:min-h-11 sm:w-auto">
-              Comprobante (carta)
-            </Button>
-          </Link>
-          <Link to="/ventas" className="block w-full sm:w-auto">
-            <Button variant="secondary" type="button" className="min-h-[48px] w-full sm:min-h-11 sm:w-auto">
-              Lista de ventas
-            </Button>
-          </Link>
-          <Link to="/venta" className="block w-full sm:w-auto">
-            <Button variant="ghost" type="button" className="min-h-[48px] w-full sm:min-h-11 sm:w-auto">
-              Nueva venta
-            </Button>
-          </Link>
-        </div>
-      )}
+        </Link>
+        <Link to="/ventas" className="block w-full sm:w-auto">
+          <Button variant="secondary" type="button" className="min-h-[48px] w-full sm:min-h-11 sm:w-auto">
+            Lista de ventas
+          </Button>
+        </Link>
+        <Link to="/venta" className="block w-full sm:w-auto">
+          <Button variant="ghost" type="button" className="min-h-[48px] w-full sm:min-h-11 sm:w-auto">
+            Nueva venta
+          </Button>
+        </Link>
+      </div>
 
       <Card className="border-white/50 bg-white/95 p-6 shadow-lg backdrop-blur-sm print:border-0 print:bg-white print:shadow-none" id="ticket">
         <div className="text-center border-b border-pf-border pb-4 mb-4">

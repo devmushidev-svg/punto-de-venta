@@ -6,7 +6,6 @@ import { apiDownload, apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Textarea } from "../components/ui";
 import type { PfThemeId } from "../theme/pfTheme";
-import { getTicketPrintKioskMode, setTicketPrintKioskMode } from "../lib/ticketPrint";
 import { usePfTheme } from "../theme/ThemeProvider";
 
 type Tab = "apariencia" | "ticket" | "avanzado";
@@ -66,7 +65,6 @@ export function SettingsPage() {
 
   const [generalJson, setGeneralJson] = useState("{}");
   const [showRawInvoice, setShowRawInvoice] = useState(false);
-  const [ticketPrintKioskAck, setTicketPrintKioskAck] = useState(() => getTicketPrintKioskMode());
 
   const [busy, setBusy] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
@@ -244,30 +242,6 @@ export function SettingsPage() {
                 checked={ticket.showTaxBreakdown}
                 onChange={(v) => setTicket({ ...ticket, showTaxBreakdown: v })}
                 label="Mostrar desglose de impuestos"
-              />
-            </Card>
-
-            <Card className="pf-glass-card-panel space-y-4 p-4 md:p-5">
-              <p className="text-sm font-bold text-pf-text">Impresión rápida en punto de venta</p>
-              <p className="text-xs text-pf-text-tertiary leading-relaxed">
-                Al cobrar con «Imprimir ticket», la aplicación abre la impresión en segundo plano.
-                El navegador no permite elegir una impresora fija con código: use la{" "}
-                <strong className="font-semibold text-pf-text">impresora predeterminada de Windows</strong>{" "}
-                (Configuración → Bluetooth e impresoras) para la térmica o PDF.
-              </p>
-              <p className="text-xs text-pf-text-tertiary leading-relaxed">
-                Para intentar enviar directo al predeterminado <strong className="font-semibold text-pf-text">sin el cuadro de diálogo</strong>, inicie{" "}
-                Google Chrome o Edge Chromium con el argumento{" "}
-                <code className="rounded bg-pf-surface-muted px-1 text-[11px] font-mono">--kiosk-printing</code>
-                {" "}(acceso directo al ejecutable). Sin eso, el sistema seguirá mostrando el diálogo de impresión.
-              </p>
-              <Toggle
-                checked={ticketPrintKioskAck}
-                onChange={(v) => {
-                  setTicketPrintKioskAck(v);
-                  setTicketPrintKioskMode(v);
-                }}
-                label="Entendido: ya configuré el acceso directo / impresora predeterminada"
               />
             </Card>
 

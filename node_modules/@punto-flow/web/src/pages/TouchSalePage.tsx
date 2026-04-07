@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
-import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
+import { openSaleTicketPrintDialog } from "../lib/ticketPrint";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
 import type { Customer, Product, Sale } from "../types";
 
@@ -220,8 +220,13 @@ export function TouchSalePage() {
       setShowCart(false);
 
       if (checkoutMode === "print") {
-        showToast("Factura guardada. Enviando ticket a impresión…", "print");
-        printSaleTicketInHiddenFrame(sale.id);
+        const opened = openSaleTicketPrintDialog(sale.id);
+        showToast(
+          opened
+            ? "Factura guardada. Se abrió el ticket; use el diálogo de impresión."
+            : "Factura guardada. Permita ventanas emergentes para imprimir el ticket.",
+          opened ? "print" : "success"
+        );
       } else {
         showToast("Factura guardada correctamente", "success");
       }

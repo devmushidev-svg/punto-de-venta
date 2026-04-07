@@ -23,6 +23,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -31,7 +32,7 @@ import { CustomerModal } from "../components/CustomerModal";
 import { NewProductModal } from "../components/NewProductModal";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
-import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
+import { openSaleTicketPrintDialog } from "../lib/ticketPrint";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
@@ -315,6 +316,8 @@ export function NewSalePage() {
   const [checkoutOpts, setCheckoutOpts] = useState<{ destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }>({ destination: "ticket" });
   const checkoutAmountInputRef = useRef<HTMLInputElement | null>(null);
   const quickAddInputRef = useRef<HTMLInputElement | null>(null);
+  /** Evita un segundo Enter (lector) mientras el primero aún procesa; el estado `quickAddBusy` llega tarde en el mismo tick. */
+  const quickAddBusyRef = useRef(false);
   /** Tras agregar línea por código o catálogo: enfocar cantidad cuando el DOM ya tiene la fila (evita que el foco se quede en «código»). */
   const pendingLineFieldFocusRef = useRef<{ lineIndex: number; field: SaleLineField } | null>(null);
   const saleTermsRef = useRef<HTMLSelectElement | null>(null);
@@ -770,6 +773,8 @@ export function NewSalePage() {
     const raw = quickAddCode.trim();
     setQuickAddErr("");
     if (!raw || !token) return;
+    if (quickAddBusyRef.current) return;
+    quickAddBusyRef.current = true;
     setQuickAddBusy(true);
     let focusLineAfter: number | null = null;
     try {
@@ -793,46 +798,51 @@ export function NewSalePage() {
         return;
       }
       const tier = priceTierRef.current;
-      setLines((prev) => {
-        const i = prev.findIndex((l) => l.productId === exact.id);
-        if (i >= 0) {
-          const next = [...prev];
-          const newQty = next[i].qty + 1;
-          if (tracksStock(exact) && newQty > exact.stock) {
-            setQuickAddErr(`«${exact.name}» — la cantidad (${newQty}) supera la existencia (${exact.stock}).`);
+      /* Commit síncrono: la fila existe y useLayoutEffect enfoca cantidad antes de otro Enter del lector. */
+      flushSync(() => {
+        setLines((prev) => {
+          const i = prev.findIndex((l) => l.productId === exact.id);
+          if (i >= 0) {
+            const next = [...prev];
+            const newQty = next[i].qty + 1;
+            if (tracksStock(exact) && newQty > exact.stock) {
+              setQuickAddErr(`«${exact.name}» — la cantidad (${newQty}) supera la existencia (${exact.stock}).`);
+            }
+            next[i] = {
+              ...next[i],
+              qty: newQty,
+              unitPrice: resolveProductUnitPrice(exact, newQty, tier),
+            };
+            focusLineAfter = i;
+            pendingLineFieldFocusRef.current = { lineIndex: i, field: "qty" };
+            return next;
           }
-          next[i] = {
-            ...next[i],
-            qty: newQty,
-            unitPrice: resolveProductUnitPrice(exact, newQty, tier),
-          };
-          focusLineAfter = i;
-          return next;
+          const idx = prev.length;
+          focusLineAfter = idx;
+          pendingLineFieldFocusRef.current = { lineIndex: idx, field: "qty" };
+          return [
+            ...prev,
+            {
+              lineKey: newLineKey(),
+              productId: exact.id,
+              product: exact,
+              qty: 1,
+              unitPrice: resolveProductUnitPrice(exact, 1, tier),
+              discountPercent: 0,
+            },
+          ];
+        });
+        if (focusLineAfter !== null) {
+          setSelectedLineIndex(focusLineAfter);
         }
-        focusLineAfter = prev.length;
-        return [
-          ...prev,
-          {
-            lineKey: newLineKey(),
-            productId: exact.id,
-            product: exact,
-            qty: 1,
-            unitPrice: resolveProductUnitPrice(exact, 1, tier),
-            discountPercent: 0,
-          },
-        ];
+        setQuickAddCode("");
       });
-      if (focusLineAfter !== null) {
-        pendingLineFieldFocusRef.current = { lineIndex: focusLineAfter, field: "qty" };
-        setSelectedLineIndex(focusLineAfter);
-      }
-      setQuickAddCode("");
     } catch {
       setQuickAddErr("No se pudo buscar el producto.");
     } finally {
-      /* Si la línea se agregó bien, el campo código sigue «ocupado» hasta useLayoutEffect
-         para que al quitarse readOnly el foco no vuelva solo al código. */
+      /* Si la línea se agregó bien, el campo código sigue «ocupado» hasta useLayoutEffect. */
       if (focusLineAfter === null) {
+        quickAddBusyRef.current = false;
         setQuickAddBusy(false);
         window.setTimeout(() => {
           const el = quickAddInputRef.current;
@@ -977,8 +987,13 @@ export function NewSalePage() {
           showToast("Factura guardada correctamente", "success");
           navigate(`/ventas/${sale.id}/comprobante`);
         } else if (opts?.autoPrintTicket) {
-          showToast("Factura guardada. Enviando ticket a impresión…", "print");
-          printSaleTicketInHiddenFrame(sale.id);
+          const opened = openSaleTicketPrintDialog(sale.id);
+          showToast(
+            opened
+              ? "Factura guardada. Se abrió el ticket; use el diálogo de impresión de su navegador."
+              : "Factura guardada. Permita ventanas emergentes para abrir el ticket e imprimir.",
+            opened ? "print" : "success"
+          );
         } else {
           showToast("Factura guardada correctamente", "success");
         }
@@ -1299,7 +1314,10 @@ export function NewSalePage() {
       el.select();
       return true;
     };
-    const releaseQuickAdd = () => setQuickAddBusy(false);
+    const releaseQuickAdd = () => {
+      quickAddBusyRef.current = false;
+      setQuickAddBusy(false);
+    };
     if (focusLineField()) {
       releaseQuickAdd();
       return;
@@ -1367,7 +1385,7 @@ export function NewSalePage() {
                   value={terms}
                   onChange={(e) => setTerms(e.target.value)}
                   onKeyDown={handleSaleTermsKeyDown}
-                  className="!h-7 !min-h-[28px] py-0 pl-1.5 pr-6 text-xs"
+                  className="w-full min-w-0 shrink-0 !h-auto !max-h-none !min-h-[2.375rem]"
                 >
                   {SALE_TERMS_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -1457,7 +1475,7 @@ export function NewSalePage() {
               </div>
             </div>
 
-            {/* Notas, lista de precios y total dentro del mismo recuadro */}
+            {/* Notas y lista de precios (el total va en subtotal/impuesto y en la cinta) */}
             <div className="flex min-h-0 min-w-0 flex-col gap-0.5 xl:col-span-6">
               <Field label="Notas (opc.)" className="min-w-0 shrink-0" compact>
                 <Input
@@ -1470,6 +1488,7 @@ export function NewSalePage() {
                     if (tryHeaderArrowNav(e, "notes")) return;
                     handleSaleHeaderInputKeyDown(e, "notes");
                   }}
+                  title="Cabecera: flechas · Enter pasa a lista de precios. Líneas: Alt+flecha. F2…F11."
                 />
               </Field>
               <Field label="Lista de precios" className="min-w-0 shrink-0" compact>
@@ -1478,7 +1497,8 @@ export function NewSalePage() {
                   value={priceTier}
                   onChange={(e) => setPriceTier(Number(e.target.value))}
                   onKeyDown={handleSalePriceTierKeyDown}
-                  className="!h-7 !min-h-[28px] py-0 pl-1.5 pr-6 text-xs"
+                  className="w-full min-w-0 shrink-0 !h-auto !max-h-none !min-h-[2.375rem]"
+                  title="↑↓←→ cabecera · Alt+↑↓ líneas · F2…F11"
                 >
                   <option value={1}>Precio 1</option>
                   <option value={2}>Precio 2</option>
@@ -1486,20 +1506,6 @@ export function NewSalePage() {
                   <option value={4}>Precio 4</option>
                 </Select>
               </Field>
-              <div className="rounded border border-pf-border/90 bg-gradient-to-b from-pf-primary-soft/20 to-pf-surface-elevated px-1 py-0.5 shadow-[var(--pf-control-shadow)]">
-                <p className="text-right text-[7px] font-semibold uppercase tracking-[0.1em] text-pf-text-tertiary">
-                  Total
-                </p>
-                <p className="text-right text-base font-black tabular-nums leading-none tracking-tight text-pf-text sm:text-lg">
-                  {formatMoney(sym, totals.total)}
-                </p>
-                <p
-                  className="truncate text-right text-[7px] leading-none text-pf-muted"
-                  title="Cabecera: flechas entre campos (en textos, solo al inicio/fin de la línea para no cortar la edición). Líneas: Alt+flecha. Enter como antes. F2…F11."
-                >
-                  ↑↓←→ cabecera · Alt+↑↓ líneas · Enter · F2…F11
-                </p>
-              </div>
             </div>
           </div>
 
@@ -1586,7 +1592,7 @@ export function NewSalePage() {
                       step="any"
                       data-sale-form-line={i}
                       data-sale-form-field="qty"
-                      className="!min-h-[44px] w-full min-w-[5.25rem] px-2 py-2 text-right text-sm tabular-nums [&::-webkit-inner-spin-button]:opacity-60"
+                      className="!min-h-[44px] w-full min-w-[5.25rem] px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={l.qty}
                       onFocus={() => setSelectedLineIndex(i)}
                       onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "qty")}
@@ -1608,7 +1614,7 @@ export function NewSalePage() {
                       step="any"
                       data-sale-form-line={i}
                       data-sale-form-field="price"
-                      className="!min-h-[44px] w-full min-w-[5.5rem] px-2 py-2 text-right text-sm tabular-nums [&::-webkit-inner-spin-button]:opacity-60"
+                      className="!min-h-[44px] w-full min-w-[5.5rem] px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={l.unitPrice}
                       onFocus={() => setSelectedLineIndex(i)}
                       onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "price")}
@@ -1621,7 +1627,7 @@ export function NewSalePage() {
                       step="any"
                       data-sale-form-line={i}
                       data-sale-form-field="disc"
-                      className="!min-h-[44px] w-full min-w-[4.5rem] px-2 py-2 text-right text-sm tabular-nums [&::-webkit-inner-spin-button]:opacity-60"
+                      className="!min-h-[44px] w-full min-w-[4.5rem] px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={l.discountPercent}
                       onFocus={() => setSelectedLineIndex(i)}
                       onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "disc")}
@@ -1673,8 +1679,11 @@ export function NewSalePage() {
                       return;
                     }
                     if (e.key === "Enter") {
+                      if (e.nativeEvent.isComposing) return;
                       e.preventDefault();
                       e.stopPropagation();
+                      /* Segundo Enter del lector en el mismo tick: ignorar hasta terminar el primero. */
+                      if (quickAddBusyRef.current) return;
                       void submitQuickAddByCode();
                     }
                   }}
@@ -1710,8 +1719,8 @@ export function NewSalePage() {
         </table>
       </div>
 
-      {/* Subtotal e ISV (el total destacado está en el recuadro superior) */}
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-x-8 gap-y-2 rounded-xl border border-pf-border/80 bg-pf-primary-soft/15 px-4 py-3 text-sm">
+      {/* Resumen monetario (antes estaba duplicado en la cabecera) */}
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 sm:gap-x-8 rounded-xl border border-pf-border/80 bg-pf-primary-soft/15 px-4 py-3 text-sm">
         <div className="text-right">
           <span className="font-medium text-pf-muted">Subtotal</span>
           <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
@@ -1722,6 +1731,12 @@ export function NewSalePage() {
           <span className="font-medium text-pf-muted">Impuesto</span>
           <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
             {formatMoney(sym, totals.tax)}
+          </span>
+        </div>
+        <div className="text-right">
+          <span className="font-medium text-pf-muted">Total</span>
+          <span className="ml-2 text-base font-black tabular-nums text-pf-text sm:text-lg">
+            {formatMoney(sym, totals.total)}
           </span>
         </div>
       </div>
@@ -2028,9 +2043,7 @@ export function NewSalePage() {
               {checkoutOpts.autoPrintTicket && (
                 <p className="flex items-center justify-center gap-1.5 text-center text-xs text-pf-muted">
                   <Printer className="h-3.5 w-3.5 shrink-0" />
-                  Tras cobrar se envía el ticket en segundo plano. Para evitar el cuadro de impresión del navegador, use
-                  Chrome con <span className="font-mono">--kiosk-printing</span> y deje la térmica como impresora predeterminada
-                  (ver Ajustes → Factura y ticket).
+                  Tras cobrar se abrirá el ticket en una pestaña nueva y aparecerá el diálogo de impresión del navegador.
                 </p>
               )}
             </div>
