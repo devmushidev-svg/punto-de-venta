@@ -194,6 +194,12 @@ function tracksStock(p: Product): boolean {
   return p.productType !== "KIT" && p.productType !== "SERVICIO";
 }
 
+/** Cantidad inicial al añadir línea: 1 si hay existencia (o no controla stock); 0 solo sin existencia. */
+function defaultQtyForNewLine(p: Product): number {
+  if (tracksStock(p) && p.stock <= 0) return 0;
+  return 1;
+}
+
 /** Valor para input `datetime-local` en hora local. */
 function toDatetimeLocalValue(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -348,6 +354,10 @@ export function NewSalePage() {
   const salePaidRef = useRef<HTMLInputElement | null>(null);
   const saleInvoiceRef = useRef<HTMLInputElement | null>(null);
   const saleFechaRef = useRef<HTMLDivElement | null>(null);
+  const [customerPickHighlight, setCustomerPickHighlight] = useState(0);
+  const [productSearchHighlight, setProductSearchHighlight] = useState(0);
+  const [pickLineHighlight, setPickLineHighlight] = useState(0);
+  const pickLinePanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -427,14 +437,15 @@ export function NewSalePage() {
           }
 
           focusLineAfter = prev.length;
+          const qty = defaultQtyForNewLine(p);
           return [
             ...prev,
             {
               lineKey: newLineKey(),
               productId: p.id,
               product: p,
-              qty: 0,
-              unitPrice: resolveProductUnitPrice(p, 0, tier),
+              qty,
+              unitPrice: resolveProductUnitPrice(p, qty, tier),
               discountPercent: 0,
             },
           ];
@@ -540,6 +551,71 @@ export function NewSalePage() {
         (c.phone && c.phone.toLowerCase().includes(q))
     );
   }, [customerPickList, customerSearchQ]);
+
+  useEffect(() => {
+    if (!customerSearchOpen) return;
+    setCustomerPickHighlight(0);
+  }, [customerSearchOpen, customerSearchQ]);
+
+  useLayoutEffect(() => {
+    if (!customerSearchOpen) return;
+    setCustomerPickHighlight((h) => {
+      const n = filteredPickCustomers.length;
+      if (n === 0) return 0;
+      return Math.min(Math.max(h, 0), n - 1);
+    });
+  }, [customerSearchOpen, filteredPickCustomers.length]);
+
+  useLayoutEffect(() => {
+    if (!customerSearchOpen || filteredPickCustomers.length === 0) return;
+    document
+      .querySelector<HTMLElement>(`[data-customer-pick-index="${customerPickHighlight}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [customerPickHighlight, filteredPickCustomers, customerSearchOpen]);
+
+  useEffect(() => {
+    if (!productSearchOpen) return;
+    setProductSearchHighlight(0);
+  }, [productSearchOpen, productSearchQ, productSupplierId, productInStockOnly]);
+
+  useLayoutEffect(() => {
+    if (!productSearchOpen) return;
+    setProductSearchHighlight((h) => {
+      const n = productSearchRows.length;
+      if (n === 0) return 0;
+      return Math.min(Math.max(h, 0), n - 1);
+    });
+  }, [productSearchOpen, productSearchRows.length]);
+
+  useLayoutEffect(() => {
+    if (!productSearchOpen || productSearchLoading || productSearchRows.length === 0) return;
+    document
+      .querySelector<HTMLElement>(`[data-product-search-row="${productSearchHighlight}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [productSearchHighlight, productSearchRows, productSearchOpen, productSearchLoading]);
+
+  useEffect(() => {
+    if (!pickLineForEditOpen) return;
+    setPickLineHighlight(0);
+    const id = window.setTimeout(() => pickLinePanelRef.current?.focus(), 0);
+    return () => clearTimeout(id);
+  }, [pickLineForEditOpen]);
+
+  useLayoutEffect(() => {
+    if (!pickLineForEditOpen) return;
+    setPickLineHighlight((h) => {
+      const n = lines.length;
+      if (n === 0) return 0;
+      return Math.min(Math.max(h, 0), n - 1);
+    });
+  }, [pickLineForEditOpen, lines.length]);
+
+  useLayoutEffect(() => {
+    if (!pickLineForEditOpen || lines.length === 0) return;
+    document
+      .querySelector<HTMLElement>(`[data-pick-line-index="${pickLineHighlight}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [pickLineHighlight, lines, pickLineForEditOpen]);
 
   /** F9: no duplica producto; solo lleva el foco al campo código/barras para añadir otra línea. */
   const insertRowAfterSelection = useCallback(() => {
@@ -803,14 +879,15 @@ export function NewSalePage() {
           const idx = prev.length;
           focusLineAfter = idx;
           pendingLineFieldFocusRef.current = { lineIndex: idx, field: "qty" };
+          const qty = defaultQtyForNewLine(exact);
           return [
             ...prev,
             {
               lineKey: newLineKey(),
               productId: exact.id,
               product: exact,
-              qty: 0,
-              unitPrice: resolveProductUnitPrice(exact, 0, tier),
+              qty,
+              unitPrice: resolveProductUnitPrice(exact, qty, tier),
               discountPercent: 0,
             },
           ];
@@ -1778,17 +1855,42 @@ export function NewSalePage() {
           <Input
             value={customerSearchQ}
             onChange={(e) => setCustomerSearchQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              const n = filteredPickCustomers.length;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                if (n === 0) return;
+                setCustomerPickHighlight((h) => Math.min(h + 1, n - 1));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setCustomerPickHighlight((h) => Math.max(h - 1, 0));
+                return;
+              }
+              if (e.key === "Enter" && n > 0) {
+                e.preventDefault();
+                applyCustomer(filteredPickCustomers[customerPickHighlight]!);
+                setCustomerSearchOpen(false);
+              }
+            }}
             placeholder="Filtrar la lista…"
             autoComplete="off"
+            autoFocus
           />
         </Field>
         <ul className="mt-3 max-h-[min(400px,55vh)] divide-y divide-pf-border/70 overflow-y-auto rounded-lg border border-pf-border">
-          {filteredPickCustomers.map((c) => (
+          {filteredPickCustomers.map((c, idx) => (
             <li key={c.id}>
               <button
                 type="button"
-                className="flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition hover:bg-pf-primary-soft/40"
+                data-customer-pick-index={idx}
+                className={`flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition hover:bg-pf-primary-soft/40 ${
+                  idx === customerPickHighlight ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary" : ""
+                }`}
                 onClick={() => {
+                  setCustomerPickHighlight(idx);
                   applyCustomer(c);
                   setCustomerSearchOpen(false);
                 }}
@@ -1863,6 +1965,28 @@ export function NewSalePage() {
             <Input
               value={productSearchQ}
               onChange={(e) => setProductSearchQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (productSearchLoading || productSearchRows.length === 0) return;
+                const n = productSearchRows.length;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setProductSearchHighlight((h) => Math.min(h + 1, n - 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setProductSearchHighlight((h) => Math.max(h - 1, 0));
+                  return;
+                }
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const p = productSearchRows[productSearchHighlight];
+                  if (!p) return;
+                  void addProductById(p.id);
+                  setProductSearchOpen(false);
+                }
+              }}
               placeholder="Escriba para filtrar…"
               autoFocus
             />
@@ -1932,13 +2056,19 @@ export function NewSalePage() {
                   </td>
                 </tr>
               ) : (
-                productSearchRows.map((p) => {
+                productSearchRows.map((p, idx) => {
                   const outOfStock = tracksStock(p) && p.stock <= 0;
+                  const isHi = idx === productSearchHighlight;
                   return (
                     <tr
                       key={p.id}
-                      className={`pf-table-row cursor-pointer transition hover:bg-pf-primary-soft/40 ${outOfStock ? "bg-pf-danger-soft/20 opacity-70" : ""}`}
+                      data-product-search-row={idx}
+                      tabIndex={-1}
+                      className={`pf-table-row cursor-pointer transition hover:bg-pf-primary-soft/40 ${outOfStock ? "bg-pf-danger-soft/20 opacity-70" : ""} ${
+                        isHi ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary" : ""
+                      }`}
                       onClick={() => {
+                        setProductSearchHighlight(idx);
                         void addProductById(p.id);
                         setProductSearchOpen(false);
                       }}
@@ -1979,13 +2109,44 @@ export function NewSalePage() {
         <p className="mb-3 text-sm text-pf-muted">
           Hay varias líneas en la venta. Elija cuál desea abrir en el catálogo.
         </p>
+        <div
+          ref={pickLinePanelRef}
+          tabIndex={-1}
+          className="outline-none focus-visible:ring-2 focus-visible:ring-pf-primary focus-visible:ring-offset-2"
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            const n = lines.length;
+            if (n === 0) return;
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setPickLineHighlight((h) => Math.min(h + 1, n - 1));
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setPickLineHighlight((h) => Math.max(h - 1, 0));
+              return;
+            }
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const l = lines[pickLineHighlight];
+              if (!l) return;
+              setPickLineForEditOpen(false);
+              setCatalogModal({ kind: "edit", productId: l.productId });
+            }
+          }}
+        >
         <ul className="max-h-[min(360px,50vh)] space-y-2 overflow-y-auto">
-          {lines.map((l) => (
+          {lines.map((l, idx) => (
             <li key={l.productId}>
               <button
                 type="button"
-                className="w-full rounded-lg border border-pf-border bg-pf-surface-elevated px-3 py-2.5 text-left text-sm transition hover:bg-pf-primary-soft/40"
+                data-pick-line-index={idx}
+                className={`w-full rounded-lg border border-pf-border bg-pf-surface-elevated px-3 py-2.5 text-left text-sm transition hover:bg-pf-primary-soft/40 ${
+                  idx === pickLineHighlight ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary" : ""
+                }`}
                 onClick={() => {
+                  setPickLineHighlight(idx);
                   setPickLineForEditOpen(false);
                   setCatalogModal({ kind: "edit", productId: l.productId });
                 }}
@@ -1996,6 +2157,7 @@ export function NewSalePage() {
             </li>
           ))}
         </ul>
+        </div>
       </Modal>
 
       <NewProductModal

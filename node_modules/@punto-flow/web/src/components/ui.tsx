@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useEffect,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -122,6 +123,17 @@ export function Modal({
   /** Si se define, sustituye el ancho por defecto (p. ej. sm:max-w-5xl). */
   maxWidthClass?: string;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
   const widthCls =
     maxWidthClass ?? (wide ? "sm:max-w-3xl" : "sm:max-w-md");
