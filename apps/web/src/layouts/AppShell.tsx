@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, type UserInfo } from "../auth/AuthContext";
-import { isSaleDocumentPath, isVentasModulePath } from "../lib/appUrl";
+import { isSaleDocPath, isSaleDocumentPath, isSalesListPath, isVentasModulePath } from "../lib/appUrl";
 import { hasPermission, PERMISSION_KEYS, type PermissionKey } from "../lib/permissions";
 import { BrandLockup, BrandLogo } from "../components/BrandLogo";
 import { Button } from "../components/ui";
@@ -357,12 +357,18 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>(() => tabFromPath(location.pathname));
   const [saleToolbarSlot, setSaleToolbarSlot] = useState<ReactNode>(null);
+  const [salesListTabOpen, setSalesListTabOpen] = useState(false);
+  const [saleDocTabOpen, setSaleDocTabOpen] = useState(false);
 
   useEffect(() => {
     setActiveTab(tabFromPath(location.pathname));
+    if (isSalesListPath(location.pathname)) setSalesListTabOpen(true);
+    if (isSaleDocPath(location.pathname)) setSaleDocTabOpen(true);
   }, [location.pathname]);
 
   const saleDoc = isSaleDocumentPath(location.pathname);
+  const onSalesList = isSalesListPath(location.pathname);
+  const onSaleDoc = isSaleDocPath(location.pathname);
 
   useEffect(() => {
     if (!saleDoc) setSaleToolbarSlot(null);
@@ -442,16 +448,40 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 </button>
               );
             })}
-            {saleDoc ? (
-              <div className="pf-sale-doc-tab inline-flex shrink-0 items-stretch rounded-md pl-2 pr-0.5">
+            {salesListTabOpen ? (
+              <div className={`inline-flex shrink-0 items-stretch rounded-md pl-2 pr-0.5 ${onSalesList ? "pf-sale-doc-tab" : "pf-top-tab-idle"}`}>
+                <button
+                  type="button"
+                  onClick={() => navigate("/ventas")}
+                  className="inline-flex max-w-[9rem] items-center truncate px-1 py-1.5 text-center text-[11px] font-semibold"
+                >
+                  Ventas
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center rounded-md px-1 text-current hover:bg-white/35"
+                  aria-label="Cerrar lista de ventas"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setSalesListTabOpen(false);
+                    if (onSalesList) navigate(saleDocTabOpen ? "/venta" : "/productos");
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                </button>
+              </div>
+            ) : null}
+            {saleDocTabOpen ? (
+              <div className={`inline-flex shrink-0 items-stretch rounded-md pl-2 pr-0.5 ${onSaleDoc ? "pf-sale-doc-tab" : "pf-top-tab-idle"}`}>
                 <button
                   type="button"
                   onClick={() => {
                     if (location.pathname === "/venta/buscar-producto") navigate("/venta");
+                    else if (!onSaleDoc) navigate("/venta");
                   }}
                   className="inline-flex max-w-[9rem] items-center truncate px-1 py-1.5 text-center text-[11px] font-semibold"
                 >
-                  {saleDocumentTabLabel(location.pathname)}
+                  {onSaleDoc ? saleDocumentTabLabel(location.pathname) : "Venta"}
                 </button>
                 <button
                   type="button"
@@ -459,7 +489,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   aria-label="Cerrar documento de venta"
                   onClick={(e) => {
                     e.preventDefault();
-                    navigate("/productos");
+                    setSaleDocTabOpen(false);
+                    if (onSaleDoc) navigate(salesListTabOpen ? "/ventas" : "/productos");
                   }}
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
@@ -566,16 +597,40 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 </button>
               );
             })}
-            {saleDoc ? (
-              <div className="pf-sale-doc-tab inline-flex shrink-0 items-stretch rounded-md py-0.5 pl-2 pr-0.5">
+            {salesListTabOpen ? (
+              <div className={`inline-flex shrink-0 items-stretch rounded-md py-0.5 pl-2 pr-0.5 ${onSalesList ? "pf-sale-doc-tab" : "pf-top-tab-idle"}`}>
+                <button
+                  type="button"
+                  onClick={() => navigate("/ventas")}
+                  className="inline-flex max-w-[11rem] items-center truncate px-1 py-1.5 text-xs font-semibold sm:text-sm"
+                >
+                  Ventas
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center rounded-md px-1.5 text-current hover:bg-white/35"
+                  aria-label="Cerrar lista de ventas"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setSalesListTabOpen(false);
+                    if (onSalesList) navigate(saleDocTabOpen ? "/venta" : "/productos");
+                  }}
+                >
+                  <X className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                </button>
+              </div>
+            ) : null}
+            {saleDocTabOpen ? (
+              <div className={`inline-flex shrink-0 items-stretch rounded-md py-0.5 pl-2 pr-0.5 ${onSaleDoc ? "pf-sale-doc-tab" : "pf-top-tab-idle"}`}>
                 <button
                   type="button"
                   onClick={() => {
                     if (location.pathname === "/venta/buscar-producto") navigate("/venta");
+                    else if (!onSaleDoc) navigate("/venta");
                   }}
                   className="inline-flex max-w-[11rem] items-center truncate px-1 py-1.5 text-xs font-semibold sm:text-sm"
                 >
-                  {saleDocumentTabLabel(location.pathname)}
+                  {onSaleDoc ? saleDocumentTabLabel(location.pathname) : "Venta"}
                 </button>
                 <button
                   type="button"
@@ -583,7 +638,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   aria-label="Cerrar documento de venta"
                   onClick={(e) => {
                     e.preventDefault();
-                    navigate("/productos");
+                    setSaleDocTabOpen(false);
+                    if (onSaleDoc) navigate(salesListTabOpen ? "/ventas" : "/productos");
                   }}
                 >
                   <X className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
