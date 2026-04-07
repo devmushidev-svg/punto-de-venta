@@ -455,7 +455,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   onClick={() => navigate("/ventas")}
                   className="inline-flex max-w-[9rem] items-center truncate px-1 py-1.5 text-center text-[11px] font-semibold"
                 >
-                  Ventas
+                  Lista de ventas
                 </button>
                 <button
                   type="button"
@@ -604,7 +604,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   onClick={() => navigate("/ventas")}
                   className="inline-flex max-w-[11rem] items-center truncate px-1 py-1.5 text-xs font-semibold sm:text-sm"
                 >
-                  Ventas
+                  Lista de ventas
                 </button>
                 <button
                   type="button"

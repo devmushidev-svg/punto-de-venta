@@ -195,42 +195,132 @@
   --pf-nav-pill-warm-to: #64748b;
 }
 
-/* Preset alterno: más frío y empresarial sin caer en grises planos. */
+/* Preset alterno: frío y empresarial, azul oceánico. */
 [data-pf-theme="ocean"] {
   --pf-primary: #2494c7;
   --pf-primary-hover: #1e7aa8;
   --pf-primary-mid: #208ab8;
   --pf-primary-soft: #d9f1fb;
-  --pf-primary-foreground: #05273a;
+  --pf-primary-foreground: #ffffff;
+
   --pf-surface: #f5fbfe;
+  --pf-surface-elevated: #ffffff;
   --pf-surface-muted: #e8f4fb;
-  --pf-surface-soft: #fbfeff;
+  --pf-surface-soft: #f0f8fd;
+  --pf-surface-overlay: rgb(255 255 255 / 0.82);
   --pf-border: #cfe4ef;
   --pf-border-soft: rgb(207 228 239 / 0.72);
   --pf-border-strong: #a8cfdf;
   --pf-muted: #5d7480;
+
   --pf-mint: #2dd4bf;
   --pf-mint-soft: #cbfbf1;
   --pf-sky: #38bdf8;
   --pf-sky-soft: #dff4ff;
-  --pf-lilac-soft: #edf2ff;
-  --pf-text: #10232f;
+  --pf-lilac-soft: #e0ecff;
+
+  --pf-text: #0c1f2e;
   --pf-text-secondary: #17384a;
-  --pf-text-tertiary: #446174;
-  --pf-text-soft: #5d7480;
+  --pf-text-tertiary: #3d5d70;
+  --pf-text-soft: #5d7f91;
+  --pf-text-on-brand: #ffffff;
+
+  --pf-glass-border: rgb(207 228 239 / 0.6);
+  --pf-modal-scrim-from: rgb(12 31 46 / 0.52);
+  --pf-modal-scrim-via: rgb(12 31 46 / 0.36);
+  --pf-modal-scrim-to: rgb(12 31 46 / 0.26);
+  --pf-focus-ring: rgb(36 148 199 / 0.24);
+
+  --pf-success: #0d9668;
+  --pf-success-soft: #d1fae5;
+  --pf-warning: #b45309;
+  --pf-warning-soft: #fef3c7;
+  --pf-danger: #dc2626;
+  --pf-danger-soft: #fee2e2;
+  --pf-info: #0c7fb5;
+  --pf-info-soft: #dff4ff;
+
+  --pf-shadow-hero: 0 10px 15px -3px rgb(15 76 104 / 0.08), 0 4px 6px -4px rgb(15 76 104 / 0.06);
+  --pf-shadow-card: 0 10px 15px -3px rgb(15 76 104 / 0.05);
+  --pf-shadow-btn-primary: 0 10px 15px -3px rgb(14 116 144 / 0.24);
+  --pf-shadow-btn-primary-hover: 0 10px 15px -3px rgb(14 116 144 / 0.32);
+  --pf-shadow-btn-soft: 0 8px 20px -12px rgb(15 76 104 / 0.18);
+  --pf-theme-color: #eef8ff;
+
+  --pf-hero-bg-1: rgb(255 255 255 / 0.92);
+  --pf-hero-bg-2: color-mix(in srgb, var(--pf-sky-soft) 52%, transparent);
+  --pf-hero-bg-3: color-mix(in srgb, var(--pf-mint-soft) 38%, transparent);
+
+  --pf-hero-title-1: #0c1f2e;
   --pf-hero-title-2: #0f5d7c;
   --pf-hero-title-3: #0f766e;
-  --pf-focus-ring: rgb(36 148 199 / 0.24);
-  --pf-theme-color: #eef8ff;
+
+  --pf-mesh-1: rgb(217 241 251 / 0.85);
+  --pf-mesh-2: rgb(203 251 241 / 0.5);
+  --pf-mesh-3: rgb(223 244 255 / 0.55);
+  --pf-mesh-4: rgb(224 236 255 / 0.35);
+  --pf-mesh-base-1: #f8fcfe;
+  --pf-mesh-base-2: #f0f8fd;
+  --pf-mesh-base-3: #eef8ff;
+
+  --pf-table-head-1: rgb(255 255 255 / 0.95);
+  --pf-table-head-2: color-mix(in srgb, var(--pf-primary-soft) 50%, white);
+  --pf-table-head-3: color-mix(in srgb, var(--pf-sky-soft) 60%, white);
+  --pf-table-border: rgb(168 207 223 / 0.4);
+  --pf-table-body: rgb(255 255 255 / 0.85);
+
+  --pf-row-hover-from: color-mix(in srgb, var(--pf-sky-soft) 52%, transparent);
+  --pf-row-selected-from: color-mix(in srgb, var(--pf-primary-soft) 60%, transparent);
+  --pf-row-selected-to: color-mix(in srgb, var(--pf-mint-soft) 32%, transparent);
+
   --pf-nav-ink-from: #0f4c68;
   --pf-nav-ink-via: #0f5d7c;
   --pf-nav-ink-to: #0b3f56;
-  --pf-shadow-btn-primary: 0 10px 15px -3px rgb(14 116 144 / 0.22);
-  --pf-shadow-btn-primary-hover: 0 10px 15px -3px rgb(14 116 144 / 0.3);
+  --pf-nav-shell-bg: linear-gradient(
+    to right,
+    rgb(255 255 255 / 0.88),
+    color-mix(in srgb, var(--pf-primary-soft) 28%, white),
+    color-mix(in srgb, var(--pf-mint-soft) 32%, white)
+  );
+  --pf-nav-shell-border: rgb(207 228 239 / 0.48);
+  --pf-tab-shell-bg: rgb(240 248 253 / 0.6);
+  --pf-tab-shell-border: rgb(168 207 223 / 0.34);
+  --pf-tab-active-bg: rgb(255 255 255 / 0.96);
+  --pf-tab-active-ink: var(--pf-text);
+  --pf-tab-idle-ink: var(--pf-text-soft);
+  --pf-tab-hover-bg: rgb(255 255 255 / 0.65);
+  --pf-tab-active-border: rgb(168 207 223 / 0.52);
+
+  --pf-ribbon-bg-1: #f8fcfe;
+  --pf-ribbon-bg-2: color-mix(in srgb, var(--pf-surface-muted) 65%, white);
+  --pf-ribbon-bg-3: color-mix(in srgb, var(--pf-primary-soft) 26%, white);
+  --pf-ribbon-divider: rgb(168 207 223 / 0.5);
+  --pf-ribbon-active-bg: color-mix(in srgb, var(--pf-primary-soft) 68%, white);
+  --pf-ribbon-active-border: rgb(36 148 199 / 0.45);
+  --pf-ribbon-hover-bg: rgb(255 255 255 / 0.92);
+  --pf-ribbon-tile-icon-bg: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--pf-sky-soft) 72%, white),
+    color-mix(in srgb, var(--pf-mint-soft) 52%, white)
+  );
+  --pf-ribbon-tile-icon-ink: #0c7fb5;
+  --pf-ribbon-tile-icon-ring: color-mix(in srgb, var(--pf-sky) 24%, white);
+
+  --pf-sale-tab-bg: color-mix(in srgb, var(--pf-primary-soft) 72%, white);
+  --pf-sale-tab-border: color-mix(in srgb, var(--pf-primary) 36%, white);
+  --pf-sale-tab-ink: var(--pf-text);
+
   --pf-shadow-warm-sm: 0 10px 15px -3px rgb(15 76 104 / 0.07), 0 4px 6px -4px rgb(15 76 104 / 0.05);
   --pf-shadow-warm-md: 0 20px 25px -5px rgb(15 76 104 / 0.09), 0 8px 10px -6px rgb(15 76 104 / 0.06);
   --pf-shadow-warm-xl: 0 25px 50px -12px rgb(15 76 104 / 0.14);
   --pf-nav-pill-warm-to: #2494c7;
+
+  --pf-control-bg: rgb(255 255 255 / 0.96);
+  --pf-control-bg-soft: color-mix(in srgb, var(--pf-surface-soft) 72%, white);
+  --pf-control-border: rgb(168 207 223 / 0.56);
+  --pf-control-border-hover: rgb(168 207 223 / 0.82);
+  --pf-control-placeholder: #7da0b2;
+  --pf-control-shadow: inset 0 1px 2px 0 rgb(15 76 104 / 0.04);
 }
 
 @theme {
