@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="pfBrandGrad" x1="8" y1="4" x2="42" y2="46" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f8b890"/>
+      <stop offset="1" stop-color="#e8955a"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="14" fill="url(#pfBrandGrad)"/>
+  <circle cx="16" cy="24" r="5" fill="#fffdf9"/>
+  <path
+    d="M24 18h12a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H24M24 26h10a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H24"
+    stroke="#fffdf9"
+    stroke-width="2.25"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

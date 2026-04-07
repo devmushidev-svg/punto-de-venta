@@ -1,4 +1,6 @@
 import {
+  AlertTriangle,
+  CheckCircle2,
   Eraser,
   FileText,
   ListPlus,
@@ -19,12 +21,12 @@ import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
 import { CustomerModal } from "../components/CustomerModal";
 import { NewProductModal } from "../components/NewProductModal";
-import { Field, Input, Modal, Select } from "../components/ui";
+import { Button, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
-import type { Customer, Product, Sale } from "../types";
+import type { Customer, Product, Sale, Supplier } from "../types";
 
 type Line = {
   lineKey: string;
@@ -48,8 +50,13 @@ function computeLineTotal(l: Line): number {
   return base + base * (l.product.taxPercent / 100);
 }
 
+
 function normProductLookup(s: string | null | undefined): string {
   return (s ?? "").trim().toLowerCase();
+}
+
+function tracksStock(p: Product): boolean {
+  return p.productType !== "KIT" && p.productType !== "SERVICIO";
 }
 
 function SaleRibbonTile({
@@ -154,7 +161,19 @@ export function NewSalePage() {
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [customerPickList, setCustomerPickList] = useState<Customer[]>([]);
   const [customerSearchQ, setCustomerSearchQ] = useState("");
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
+  const [productSearchQ, setProductSearchQ] = useState("");
+  const [productSupplierId, setProductSupplierId] = useState("");
+  const [productInStockOnly, setProductInStockOnly] = useState(false);
+  const [productSuppliers, setProductSuppliers] = useState<Supplier[]>([]);
+  const [productSearchRows, setProductSearchRows] = useState<Product[]>([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
+  const [productSearchErr, setProductSearchErr] = useState("");
   const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutAmountReceived, setCheckoutAmountReceived] = useState("");
+  const [checkoutOpts, setCheckoutOpts] = useState<{ destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }>({ destination: "ticket" });
+  const checkoutAmountInputRef = useRef<HTMLInputElement | null>(null);
   const quickAddInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -223,12 +242,20 @@ export function NewSalePage() {
       try {
         const p = await apiFetch<Product>(`/api/products/${productId}`, { token });
         if (!p.active || p.productType === "INSUMO") return;
+
+        if (tracksStock(p) && p.stock <= 0) {
+          setErr(`«${p.name}» no tiene existencia disponible (stock: ${p.stock}).`);
+        }
+
         const tier = priceTierRef.current;
         setLines((prev) => {
           const i = prev.findIndex((l) => l.productId === p.id);
           if (i >= 0) {
             const next = [...prev];
             const newQty = next[i].qty + 1;
+            if (tracksStock(p) && newQty > p.stock) {
+              setErr(`«${p.name}» — la cantidad (${newQty}) supera la existencia (${p.stock}).`);
+            }
             next[i] = {
               ...next[i],
               qty: newQty,
@@ -255,11 +282,8 @@ export function NewSalePage() {
     [token]
   );
 
-  const openProductSearchTab = useCallback(() => {
-    const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
-    const path = `${base}/venta/buscar-producto`;
-    const url = new URL(path, window.location.origin).href;
-    window.open(url, "pfBuscarProductoVenta");
+  const openProductSearchModal = useCallback(() => {
+    setProductSearchOpen(true);
   }, []);
 
   const refreshLinesWithProduct = useCallback((p: Product) => {
@@ -299,6 +323,35 @@ export function NewSalePage() {
     setCustomerSearchQ("");
     apiFetch<Customer[]>("/api/customers", { token }).then(setCustomerPickList).catch(() => setCustomerPickList([]));
   }, [customerSearchOpen, token]);
+
+  useEffect(() => {
+    if (!productSearchOpen || !token) return;
+    apiFetch<Supplier[]>("/api/suppliers", { token }).then(setProductSuppliers).catch(() => setProductSuppliers([]));
+  }, [productSearchOpen, token]);
+
+  useEffect(() => {
+    if (!productSearchOpen || !token) return;
+    const t = window.setTimeout(async () => {
+      setProductSearchErr("");
+      setProductSearchLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (productSearchQ.trim()) params.set("q", productSearchQ.trim());
+        params.set("touch", "1");
+        params.set("limit", "250");
+        if (productInStockOnly) params.set("stock", "with");
+        if (productSupplierId.trim()) params.set("supplierId", productSupplierId.trim());
+        const data = await apiFetch<Product[]>(`/api/products?${params.toString()}`, { token });
+        setProductSearchRows(data.filter((p) => p.active && p.productType !== "INSUMO"));
+      } catch (e) {
+        setProductSearchErr(e instanceof Error ? e.message : "Error al cargar productos");
+        setProductSearchRows([]);
+      } finally {
+        setProductSearchLoading(false);
+      }
+    }, 220);
+    return () => window.clearTimeout(t);
+  }, [productSearchOpen, token, productSearchQ, productSupplierId, productInStockOnly]);
 
   const filteredPickCustomers = useMemo(() => {
     const q = customerSearchQ.trim().toLowerCase();
@@ -390,12 +443,18 @@ export function NewSalePage() {
         setQuickAddErr("El producto no existe.");
         return;
       }
+      if (tracksStock(exact) && exact.stock <= 0) {
+        setQuickAddErr(`«${exact.name}» no tiene existencia disponible (stock: ${exact.stock}).`);
+      }
       const tier = priceTierRef.current;
       setLines((prev) => {
         const i = prev.findIndex((l) => l.productId === exact.id);
         if (i >= 0) {
           const next = [...prev];
           const newQty = next[i].qty + 1;
+          if (tracksStock(exact) && newQty > exact.stock) {
+            setQuickAddErr(`«${exact.name}» — la cantidad (${newQty}) supera la existencia (${exact.stock}).`);
+          }
           next[i] = {
             ...next[i],
             qty: newQty,
@@ -490,12 +549,29 @@ export function NewSalePage() {
     return { subtotal: sub, tax, total: sub + tax };
   }, [lines]);
 
+  const stockIssueCount = useMemo(
+    () => lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock).length,
+    [lines]
+  );
+
   const saveSale = useCallback(
     async (opts?: { destination?: "ticket" | "comprobante"; autoPrintTicket?: boolean }) => {
       if (!token || lines.length === 0) return;
       setErr("");
       if (isCreditSaleTerm(terms) && !customerId.trim()) {
         setErr("Las ventas a crédito requieren un cliente registrado.");
+        return;
+      }
+      const stockProblems = lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock);
+      if (stockProblems.length > 0) {
+        const detail = stockProblems
+          .map((l) =>
+            l.product.stock <= 0
+              ? `«${l.product.name}» sin existencia`
+              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`
+          )
+          .join("; ");
+        setErr(`No se puede guardar: existencia insuficiente — ${detail}.`);
         return;
       }
       setBusy(true);
@@ -562,6 +638,34 @@ export function NewSalePage() {
     ]
   );
 
+  const openCheckout = useCallback(
+    (opts: { destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }) => {
+      if (!token || lines.length === 0) return;
+      setErr("");
+      if (isCreditSaleTerm(terms) && !customerId.trim()) {
+        setErr("Las ventas a crédito requieren un cliente registrado.");
+        return;
+      }
+      const stockProblems = lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock);
+      if (stockProblems.length > 0) {
+        const detail = stockProblems
+          .map((l) =>
+            l.product.stock <= 0
+              ? `«${l.product.name}» sin existencia`
+              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`
+          )
+          .join("; ");
+        setErr(`No se puede guardar: existencia insuficiente — ${detail}.`);
+        return;
+      }
+      setCheckoutOpts(opts);
+      setCheckoutAmountReceived("");
+      setCheckoutOpen(true);
+      setTimeout(() => checkoutAmountInputRef.current?.focus(), 80);
+    },
+    [token, lines, terms, customerId]
+  );
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target;
@@ -578,7 +682,7 @@ export function NewSalePage() {
       }
       if (e.key === "F4") {
         e.preventDefault();
-        openProductSearchTab();
+        openProductSearchModal();
         return;
       }
       if (e.key === "F6") {
@@ -605,8 +709,8 @@ export function NewSalePage() {
       e.preventDefault();
       if (busy || loadingSale || lines.length === 0) return;
       if (isCreditSaleTerm(terms) && !customerId.trim()) return;
-      if (e.key === "F8") void saveSale({ destination: "ticket", autoPrintTicket: true });
-      else void saveSale({ destination: "ticket" });
+      if (e.key === "F8") openCheckout({ destination: "ticket", autoPrintTicket: true });
+      else openCheckout({ destination: "ticket" });
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -617,8 +721,8 @@ export function NewSalePage() {
     lines.length,
     terms,
     customerId,
-    saveSale,
-    openProductSearchTab,
+    openCheckout,
+    openProductSearchModal,
     insertRowAfterSelection,
     deleteSelectedOrLastRow,
   ]);
@@ -643,7 +747,7 @@ export function NewSalePage() {
             line1="F5 Guardar"
             line2={isEditMode ? "cambios" : "venta"}
             title={isEditMode ? "Guardar cambios (F5)" : "Guardar venta (F5)"}
-            onClick={() => void saveSale({ destination: "ticket" })}
+            onClick={() => openCheckout({ destination: "ticket" })}
             disabled={busy || lines.length === 0 || loadingSale}
           />
           <SaleRibbonTile
@@ -652,7 +756,7 @@ export function NewSalePage() {
             line1="F8 Imprimir"
             line2="ticket"
             title="Guardar e imprimir ticket térmico (F8)"
-            onClick={() => void saveSale({ destination: "ticket", autoPrintTicket: true })}
+            onClick={() => openCheckout({ destination: "ticket", autoPrintTicket: true })}
             disabled={busy || lines.length === 0 || loadingSale}
           />
           <SaleRibbonTile
@@ -661,7 +765,7 @@ export function NewSalePage() {
             line1="Factura"
             line2="carta"
             title="Guardar y abrir comprobante en carta"
-            onClick={() => void saveSale({ destination: "comprobante" })}
+            onClick={() => openCheckout({ destination: "comprobante" })}
             disabled={busy || lines.length === 0 || loadingSale}
           />
         </SaleRibbonGroup>
@@ -723,9 +827,9 @@ export function NewSalePage() {
             variant="default"
             icon={Search}
             line1="F4 Buscar"
-            line2="en otra pestaña"
-            title="Abrir búsqueda de productos en una nueva pestaña"
-            onClick={openProductSearchTab}
+            line2="productos"
+            title="Buscar productos en esta venta"
+            onClick={openProductSearchModal}
           />
         </SaleRibbonGroup>
         <SaleRibbonGroup title="Filas">
@@ -780,8 +884,8 @@ export function NewSalePage() {
       isEditMode,
       lines.length,
       loadingSale,
-      openProductSearchTab,
-      saveSale,
+      openCheckout,
+      openProductSearchModal,
       startEditCustomerFlow,
       startEditProductFlow,
     ]
@@ -894,6 +998,9 @@ export function NewSalePage() {
                 <p className="mt-0.5 text-right text-2xl font-black tabular-nums tracking-tight text-pf-text sm:text-3xl">
                   {formatMoney(sym, totals.total)}
                 </p>
+                <p className="mt-2 text-right text-[10px] leading-snug text-pf-muted sm:text-[11px]">
+                  F2 clientes · F6 nuevo cliente · F9/F10 filas · F11 limpiar · F5/F8 guardar · F4 productos.
+                </p>
               </div>
             </div>
           </div>
@@ -949,7 +1056,9 @@ export function NewSalePage() {
                   className={`pf-table-row cursor-pointer transition hover:bg-gradient-to-r hover:from-pf-primary-soft/20 hover:to-transparent ${
                     selectedLineIndex === i
                       ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
-                      : ""
+                      : tracksStock(l.product) && l.qty > l.product.stock
+                        ? "bg-pf-danger-soft/30"
+                        : ""
                   }`}
                 >
                   <td
@@ -965,6 +1074,18 @@ export function NewSalePage() {
                         ? "Combo (exist. por componentes)"
                         : `Exist. ${l.product.stock}`}
                     </span>
+                    {tracksStock(l.product) && l.product.stock <= 0 && (
+                      <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                        Sin existencia
+                      </span>
+                    )}
+                    {tracksStock(l.product) && l.product.stock > 0 && l.qty > l.product.stock && (
+                      <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                        Excede existencia por {(l.qty - l.product.stock).toFixed(l.product.esGranel ? 2 : 0)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                     <Input
@@ -1078,6 +1199,16 @@ export function NewSalePage() {
         </div>
       </div>
 
+      {stockIssueCount > 0 && (
+        <div className="mt-2 flex items-start gap-2 rounded-xl border border-pf-danger/40 bg-pf-danger-soft/30 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-pf-danger" />
+          <p className="font-medium text-pf-danger">
+            {stockIssueCount === 1
+              ? "1 producto excede la existencia disponible. Ajuste la cantidad para poder guardar."
+              : `${stockIssueCount} productos exceden la existencia disponible. Ajuste las cantidades para poder guardar.`}
+          </p>
+        </div>
+      )}
       {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
       <Modal
         open={customerSearchOpen}
@@ -1127,6 +1258,126 @@ export function NewSalePage() {
       />
 
       <Modal
+        open={productSearchOpen}
+        title="Buscar producto"
+        onClose={() => setProductSearchOpen(false)}
+        wide
+        maxWidthClass="sm:max-w-5xl"
+      >
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-end">
+          <Field label="Buscar por nombre, código, código de barras o código rápido" className="lg:col-span-5 min-w-0">
+            <Input
+              value={productSearchQ}
+              onChange={(e) => setProductSearchQ(e.target.value)}
+              placeholder="Escriba para filtrar…"
+              autoFocus
+            />
+          </Field>
+          <Field label="Proveedor" className="lg:col-span-4 min-w-0">
+            <Select value={productSupplierId} onChange={(e) => setProductSupplierId(e.target.value)}>
+              <option value="">Todos los proveedores</option>
+              {productSuppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="flex flex-wrap items-center gap-3 lg:col-span-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-pf-text-secondary">
+              <input
+                type="checkbox"
+                checked={productInStockOnly}
+                onChange={(e) => setProductInStockOnly(e.target.checked)}
+                className="h-4 w-4 rounded border-pf-border text-pf-primary"
+              />
+              Solo con existencia
+            </label>
+            <button
+              type="button"
+              className="text-sm font-semibold text-pf-primary-hover underline-offset-2 hover:underline"
+              onClick={() => {
+                setProductSearchQ("");
+                setProductSupplierId("");
+                setProductInStockOnly(false);
+              }}
+            >
+              Limpiar búsqueda
+            </button>
+          </div>
+        </div>
+
+        {productSearchErr ? <p className="mt-3 text-sm text-red-600">{productSearchErr}</p> : null}
+
+        <div className="mt-3 max-h-[min(65vh,560px)] overflow-auto rounded-xl border border-pf-border bg-pf-surface-elevated shadow-sm">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr className="pf-table-thead text-left text-xs font-bold uppercase tracking-wide">
+                <th className="px-3 py-2.5">Código</th>
+                <th className="px-3 py-2.5">Descripción</th>
+                <th className="px-3 py-2.5">Und.</th>
+                <th className="px-3 py-2.5 text-right">Exist.</th>
+                <th className="px-3 py-2.5 text-right">Precio</th>
+                <th className="px-3 py-2.5">Categoría</th>
+                <th className="px-3 py-2.5">Ubicación</th>
+                <th className="px-3 py-2.5">Cód. rápido</th>
+                <th className="px-3 py-2.5 text-right">ISV %</th>
+              </tr>
+            </thead>
+            <tbody className="pf-table-body">
+              {productSearchLoading ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center text-pf-muted">
+                    Cargando…
+                  </td>
+                </tr>
+              ) : productSearchRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center text-pf-muted">
+                    No hay productos para mostrar. Ajuste filtros o la búsqueda.
+                  </td>
+                </tr>
+              ) : (
+                productSearchRows.map((p) => {
+                  const outOfStock = tracksStock(p) && p.stock <= 0;
+                  return (
+                    <tr
+                      key={p.id}
+                      className={`pf-table-row cursor-pointer transition hover:bg-pf-primary-soft/40 ${outOfStock ? "bg-pf-danger-soft/20 opacity-70" : ""}`}
+                      onClick={() => {
+                        void addProductById(p.id);
+                        setProductSearchOpen(false);
+                      }}
+                    >
+                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-pf-text-tertiary">{p.sku}</td>
+                      <td className="max-w-[280px] px-3 py-2">
+                        <span className="font-medium text-pf-text">{p.name}</span>
+                        {outOfStock && (
+                          <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-pf-danger-soft/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pf-danger">
+                            <AlertTriangle className="h-3 w-3" />
+                            Sin stock
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-pf-text-secondary">{p.unit}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${outOfStock ? "font-semibold text-pf-danger" : ""}`}>
+                        {p.stock}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">{formatMoney(sym, p.price)}</td>
+                      <td className="px-3 py-2 text-pf-text-tertiary">{p.category ?? "—"}</td>
+                      <td className="px-3 py-2 text-pf-text-tertiary">{p.location ?? "—"}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-pf-text-tertiary">{p.quickCode ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{p.taxPercent}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+
+      <Modal
         open={pickLineForEditOpen}
         title="¿Qué producto editar?"
         onClose={() => setPickLineForEditOpen(false)}
@@ -1160,6 +1411,103 @@ export function NewSalePage() {
         onSaved={(p) => void addProductById(p.id)}
         onUpdated={refreshLinesWithProduct}
       />
+
+      <Modal
+        open={checkoutOpen}
+        title="Cobrar Factura"
+        onClose={() => setCheckoutOpen(false)}
+        maxWidthClass="sm:max-w-md"
+      >
+        {(() => {
+          const total = totals.total;
+          const received = Number(checkoutAmountReceived) || 0;
+          const cambio = Math.max(0, received - total);
+          const saldo = Math.max(0, total - received);
+          return (
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-pf-border bg-pf-primary-soft/25 px-4 py-3">
+                  <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">Total</span>
+                  <span className="text-2xl font-black tabular-nums tracking-tight text-pf-text">
+                    {formatMoney(sym, total)}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-xl border-2 border-pf-primary/40 bg-white px-4 py-3">
+                  <label htmlFor="checkout-amount" className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">
+                    Cantidad
+                  </label>
+                  <Input
+                    ref={checkoutAmountInputRef}
+                    id="checkout-amount"
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="max-w-[180px] text-right text-xl font-bold"
+                    value={checkoutAmountReceived}
+                    onChange={(e) => setCheckoutAmountReceived(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!busy) {
+                          setCheckoutOpen(false);
+                          void saveSale(checkoutOpts);
+                        }
+                      }
+                    }}
+                    placeholder="0.00"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
+                  cambio > 0
+                    ? "border-emerald-300 bg-emerald-50"
+                    : "border-pf-border bg-pf-surface-elevated"
+                }`}>
+                  <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">Cambio</span>
+                  <span className={`text-xl font-black tabular-nums ${cambio > 0 ? "text-emerald-600" : "text-pf-text-tertiary"}`}>
+                    {formatMoney(sym, cambio)}
+                  </span>
+                </div>
+
+                <div className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
+                  saldo > 0
+                    ? "border-amber-300 bg-amber-50"
+                    : "border-pf-border bg-pf-surface-elevated"
+                }`}>
+                  <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">Saldo</span>
+                  <span className={`text-xl font-black tabular-nums ${saldo > 0 ? "text-amber-600" : "text-pf-text-tertiary"}`}>
+                    {formatMoney(sym, saldo)}
+                  </span>
+                </div>
+              </div>
+
+              {err ? <p className="text-sm font-medium text-red-600">{err}</p> : null}
+
+              <Button
+                type="button"
+                className="w-full min-h-12 gap-3 text-base"
+                onClick={() => {
+                  setCheckoutOpen(false);
+                  void saveSale(checkoutOpts);
+                }}
+                disabled={busy}
+              >
+                <CheckCircle2 className="h-5 w-5 shrink-0" strokeWidth={2.5} />
+                {busy ? "Guardando…" : "Cobrar Factura"}
+              </Button>
+
+              {checkoutOpts.autoPrintTicket && (
+                <p className="flex items-center justify-center gap-1.5 text-xs text-pf-muted">
+                  <Printer className="h-3.5 w-3.5" />
+                  Se imprimirá el ticket automáticamente
+                </p>
+              )}
+            </div>
+          );
+        })()}
+      </Modal>
       </div>
     </div>
   );

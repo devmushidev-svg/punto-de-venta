@@ -1,0 +1,1 @@
+const s="PF_PRODUCT_PICK",t="pf-product-pick";function e(o){const c={type:s,productId:o};try{const n=new BroadcastChannel(t);n.postMessage({productId:o}),n.close()}catch{}try{window.opener&&!window.opener.closed&&window.opener.postMessage(c,window.location.origin)}catch{}}export{t as P,s as a,e as p};
