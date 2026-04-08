@@ -1,7 +1,21 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
-const SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const DEV_FALLBACK = "dev-secret-change-me";
+
+function loadJwtSecret(): string {
+  const s = process.env.JWT_SECRET?.trim();
+  if (s) return s;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "JWT_SECRET is required in production. Set a long random value (e.g. openssl rand -base64 48)."
+    );
+  }
+  console.warn("[auth] JWT_SECRET not set; using development default. Never deploy with the dev default.");
+  return DEV_FALLBACK;
+}
+
+const SECRET = loadJwtSecret();
 
 export type JwtPayload = {
   sub: string;

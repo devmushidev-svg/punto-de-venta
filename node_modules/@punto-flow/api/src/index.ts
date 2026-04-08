@@ -4,6 +4,12 @@ import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
 import { prisma } from "./lib/prisma.js";
 import { signToken, verifyToken, verifyPassword, hashPassword } from "./lib/auth.js";
+import {
+  clearLoginFailures,
+  clientIpFromHeaders,
+  isLoginBlocked,
+  registerLoginFailure,
+} from "./lib/loginRateLimit.js";
 import type { JwtPayload } from "./lib/auth.js";
 import {
   isCreditSaleTerm,
@@ -55,15 +61,32 @@ type Variables = { jwt: JwtPayload };
 
 const app = new Hono<{ Variables: Variables }>();
 
+const DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+
+function parseCorsOrigins(): string[] {
+  const raw = process.env.CORS_ORIGINS?.trim();
+  if (!raw) return DEFAULT_CORS_ORIGINS;
+  const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return list.length ? list : DEFAULT_CORS_ORIGINS;
+}
+
 app.use(
   "*",
   cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: parseCorsOrigins(),
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
     credentials: true,
   })
 );
+
+app.use("*", async (c, next) => {
+  await next();
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+});
 
 app.get("/health", (c) => c.json({ ok: true }));
 
@@ -76,6 +99,11 @@ app.get("/auth/organizations", async (c) => {
 });
 
 app.post("/auth/login", async (c) => {
+  const loginIp = clientIpFromHeaders((name) => c.req.header(name));
+  if (isLoginBlocked(loginIp)) {
+    return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
+  }
+
   const body = await c.req.json<{
     organizationSlug?: string;
     organizationId?: string;
@@ -106,8 +134,14 @@ app.post("/auth/login", async (c) => {
     include: { organization: true },
   });
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
+    const nowLocked = registerLoginFailure(loginIp);
+    if (nowLocked) {
+      return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
+    }
     return c.json({ error: "Credenciales inválidas" }, 401);
   }
+
+  clearLoginFailures(loginIp);
 
   const effectivePermissions = effectivePermissionList(user.role, user.permissionsJson);
   const token = signToken({
