@@ -28,3 +28,12 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# --- Git: commit y push (recordatorio) ---
+# Tras guardar cambios en el editor:
+#   git status
+#   git add -A
+#   git commit -m "Describe el cambio"
+#   git push origin main
+# Si "nothing to commit", no hay cambios pendientes.
+# git add con ruta concreta: git add apps/web/src/App.tsx
