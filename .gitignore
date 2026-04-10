@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Environment (secrets) — copiar desde apps/api/.env.example
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# SQLite local (regenerar con db:push / db:seed)
+*.db
+*.db-journal
+
+# Logs / caches
+npm-debug.log*
+.pnpm-debug.log*
+.vite/
+.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
