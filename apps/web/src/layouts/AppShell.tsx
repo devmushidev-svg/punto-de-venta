@@ -187,6 +187,7 @@ function saleDocumentTabLabel(pathname: string): string {
   if (pathname === "/ventas") return "Ventas";
   if (/^\/ventas\/[^/]+\/editar$/.test(pathname)) return "Editar venta";
   if (pathname === "/venta/buscar-producto") return "Buscar producto";
+  if (pathname === "/venta/tactil") return "Venta táctil";
   return "Venta";
 }
 
@@ -566,7 +567,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       {/* Escritorio */}
       <header
-        className={`pf-app-shell-header sticky top-0 z-20 hidden print:hidden md:block${hideChromeForPrint ? " print:hidden" : ""}`}
+        className={`pf-app-shell-header sticky top-0 z-20 max-md:hidden print:hidden${hideChromeForPrint ? " print:hidden" : ""}`}
       >
         <div className="flex h-11 items-center gap-4 px-3 lg:gap-6 lg:px-5">
           <NavLink

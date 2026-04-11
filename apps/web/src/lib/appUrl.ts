@@ -15,7 +15,7 @@ export function isSalesListPath(pathname: string): boolean {
 
 /** Documento de venta individual (pestaña dinámica «Venta» / «Editar venta»). */
 export function isSaleDocPath(pathname: string): boolean {
-  if (pathname === "/venta" || pathname === "/venta/buscar-producto") return true;
+  if (pathname === "/venta" || pathname === "/venta/buscar-producto" || pathname === "/venta/tactil") return true;
   return /^\/ventas\/[^/]+\/editar$/.test(pathname);
 }
 
@@ -27,7 +27,6 @@ export function isSaleDocumentPath(pathname: string): boolean {
 /** Rutas de lista/táctil/CxC/reportes/preventas (cinta bajo Facturación, sin pestaña propia). */
 export function isVentasModulePath(pathname: string): boolean {
   if (/^\/(cxc|reportes)(\/|$)/.test(pathname)) return true;
-  if (pathname === "/venta/tactil") return true;
   if (pathname.startsWith("/ventas/preventas")) return true;
   if (/^\/ventas\/[^/]+\/(ticket|comprobante)$/.test(pathname)) return true;
   return false;

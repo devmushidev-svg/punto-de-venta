@@ -1,11 +1,10 @@
 import { DoorClosed, DoorOpen } from "lucide-react";
-import { useEffect, useState } from "react";
-import { PageHero } from "../components/PageHero";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { Button, Card, Field, Input } from "../components/ui";
+import { Button, Field, Input } from "../components/ui";
 import { formatDate, formatMoney, formatTimeOnly } from "../lib/format";
 
 type Session = {
@@ -39,6 +38,7 @@ type Diary = {
   ventasTotal: number;
   gastosSesion: number;
   efectivoCajaSugerido: number;
+  cashDifference: number | null;
   sales: DiarySale[];
 };
 
@@ -54,8 +54,55 @@ const EMPTY_DIARY: Diary = {
   ventasTotal: 0,
   gastosSesion: 0,
   efectivoCajaSugerido: 0,
+  cashDifference: null,
   sales: [],
 };
+
+function DiaryTopField({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-pf-border bg-white px-3 py-2.5 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-pf-muted">{label}</p>
+      <div className="mt-1 text-sm font-semibold text-pf-text">{value}</div>
+    </div>
+  );
+}
+
+function DiaryMetric({
+  label,
+  value,
+  help,
+  tone = "default",
+}: {
+  label: string;
+  value: ReactNode;
+  help?: string;
+  tone?: "default" | "warn" | "danger" | "strong";
+}) {
+  const toneClass =
+    tone === "warn"
+      ? "border-amber-200 bg-amber-50/70"
+      : tone === "danger"
+        ? "border-red-200 bg-red-50/70"
+        : tone === "strong"
+          ? "border-pf-primary/35 bg-pf-primary-soft/35"
+          : "border-pf-border bg-white";
+  return (
+    <div className={`rounded-xl border px-3 py-3 shadow-sm ${toneClass}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-pf-muted">{label}</p>
+      <p className="mt-1 text-2xl font-extrabold tabular-nums text-pf-text">{value}</p>
+      {help ? <p className="mt-1 text-xs text-pf-text-tertiary">{help}</p> : null}
+    </div>
+  );
+}
+
+function DiarySection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-pf-border bg-white p-4 shadow-[var(--pf-shadow-card)]">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-pf-text">{title}</h2>
+      <div className="mt-3">{children}</div>
+    </div>
+  );
+}
 
 export function CashPage() {
   const { token, user, organization } = useAuth();
@@ -66,11 +113,20 @@ export function CashPage() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [opening, setOpening] = useState("0");
   const [closing, setClosing] = useState("");
-  const [expected, setExpected] = useState("");
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [diary, setDiary] = useState<Diary | null>(null);
+  const todayLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString("es-HN", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }),
+    []
+  );
 
   function refresh() {
     if (!token) return;
@@ -113,13 +169,11 @@ export function CashPage() {
         method: "POST",
         body: JSON.stringify({
           closingCash: closing === "" ? undefined : Number(closing),
-          expectedCash: expected === "" ? undefined : Number(expected),
           notes: notes || undefined,
         }),
         token,
       });
       setClosing("");
-      setExpected("");
       setNotes("");
       refresh();
     } catch (e) {
@@ -137,178 +191,201 @@ export function CashPage() {
     );
   }
 
-  return (
-    <div className="max-w-4xl space-y-6 pf-safe-page">
-      <PageHero title={"Caja y diario digital"}>
-        <p className="pf-page-lead max-w-2xl">
-          Qué es: control de turno (apertura/cierre), resumen de ventas del usuario en la sesión y referencia para arqueo
-          de efectivo.
-        </p>
-        <p className="pf-page-lead-muted max-w-2xl">
-          Equivale al diario digital / cierre de caja del manual tipo Smart POS. La referencia de efectivo en caja suma
-          fondo inicial, ventas en efectivo o contado del turno, el abonado en facturas a crédito <strong>emitidas en esta
-          misma sesión</strong> y resta gastos registrados con su usuario en el mismo periodo (no incluye ventas con
-          tarjeta en el cajón). Los abonos en CxC a facturas de <strong>otros días</strong> no se reflejan aquí (no hay
-          registro de pagos por fecha en el diario); si cobró esas cuentas en efectivo durante el turno, incorpórelos al
-          arqueo manualmente.
-        </p>
-      </PageHero>
+  const closingValue = closing === "" ? null : Number(closing);
+  const closingDifference =
+    closingValue !== null && Number.isFinite(closingValue) ? closingValue - diary.efectivoCajaSugerido : null;
+  const sessionStatus = session ? "Turno abierto" : "Sin turno abierto";
+  const sessionStatusTone =
+    closingDifference === null ? "text-pf-text" : closingDifference === 0 ? "text-pf-success" : closingDifference > 0 ? "text-pf-info" : "text-pf-danger";
 
-      <Card className="space-y-3 border-orange-200/40 bg-gradient-to-br from-pf-primary-soft/50 via-white/80 to-teal-50/30 p-4 shadow-[var(--pf-shadow-warm-sm)] backdrop-blur-sm md:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-bold text-stone-900">Resumen del turno (sus ventas en esta sesión)</h2>
-          {(canCxc || canCxp || canGastosLink) && (
-            <div className="flex flex-wrap gap-2 text-sm">
-              {canCxc ? (
-                <Link
-                  to="/cxc"
-                  className="inline-flex min-h-[40px] items-center rounded-xl border border-orange-200/50 bg-gradient-to-r from-pf-primary-soft/90 to-amber-50/90 px-3 py-2 text-xs font-bold text-pf-primary-foreground shadow-sm transition hover:brightness-105 touch-manipulation md:min-h-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:text-pf-primary-hover md:shadow-none md:underline md:underline-offset-2"
-                >
-                  CxC
-                </Link>
-              ) : null}
-              {canCxc && canCxp ? <span className="hidden text-pf-muted md:inline" aria-hidden>·</span> : null}
-              {canCxp ? (
-                <Link
-                  to="/cxp"
-                  className="inline-flex min-h-[40px] items-center rounded-xl border border-teal-200/50 bg-teal-50/90 px-3 py-2 text-xs font-bold text-teal-900 shadow-sm transition hover:brightness-105 touch-manipulation md:min-h-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:font-medium md:text-pf-primary-hover md:shadow-none md:underline md:underline-offset-2"
-                >
-                  CxP
-                </Link>
-              ) : null}
-              {canGastosLink ? (
-                <>
-                  {canCxc || canCxp ? <span className="hidden text-pf-muted md:inline" aria-hidden>·</span> : null}
-                  <Link
-                    to="/gastos"
-                    className="inline-flex min-h-[40px] items-center rounded-xl border border-violet-200/50 bg-violet-50/90 px-3 py-2 text-xs font-bold text-violet-900 shadow-sm transition hover:brightness-105 touch-manipulation md:min-h-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:font-medium md:text-pf-primary-hover md:shadow-none md:underline md:underline-offset-2"
-                  >
+  return (
+    <div className="max-w-6xl space-y-4 pf-safe-page">
+      <DiarySection title="Caja y Diario Digital">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-1.5">
+              <p className="text-3xl font-extrabold tracking-tight text-pf-text">Caja y diario digital</p>
+              <p className="max-w-3xl text-sm text-pf-text-secondary">
+                Administre el turno de caja: abra con un fondo inicial, venda normalmente, registre gastos y cierre comparando
+                efectivo esperado contra efectivo contado.
+              </p>
+            </div>
+            {(canCxc || canCxp || canGastosLink) && (
+              <div className="flex flex-wrap gap-2">
+                {canCxc ? (
+                  <Link to="/cxc" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                    Pagos clientes
+                  </Link>
+                ) : null}
+                {canCxp ? (
+                  <Link to="/cxp" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                    Pagos proveedores
+                  </Link>
+                ) : null}
+                {canGastosLink ? (
+                  <Link to="/gastos" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
                     Gastos
                   </Link>
-                </>
-              ) : null}
+                ) : null}
+                <button
+                  type="button"
+                  onClick={refresh}
+                  className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted"
+                >
+                  Actualizar
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <DiaryTopField label="Usuario" value={user?.displayName ?? "Usuario actual"} />
+            <DiaryTopField label="Fecha" value={todayLabel} />
+            <DiaryTopField
+              label="Estado"
+              value={<span className={session ? "text-pf-success" : "text-pf-warning"}>{sessionStatus}</span>}
+            />
+          </div>
+
+          <div className="rounded-xl border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs leading-5 text-pf-text-secondary">
+            Arqueo: <strong>fondo inicial + efectivo de ventas + abonos a credito del mismo turno - gastos</strong>. Las ventas con
+            tarjeta no cuentan como efectivo en cajon. Si cobro una cuenta por cobrar vieja en efectivo, agreguela manualmente al
+            conteo del cierre.
+          </div>
+        </div>
+      </DiarySection>
+
+      <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+        <DiarySection title="Resumen del turno">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <DiaryMetric label="Ventas (tickets)" value={diary.saleCount} />
+            <DiaryMetric label="Facturacion total" value={formatMoney(sym, diary.ventasTotal)} />
+            <DiaryMetric label="Venta inmediata" value={formatMoney(sym, diary.contadoTotal)} help="Contado / tarjeta / efectivo" />
+            <DiaryMetric label="Tarjeta" value={formatMoney(sym, diary.tarjetaTotal)} help="No entra al cajon" />
+            <DiaryMetric label="Credito facturado" value={formatMoney(sym, diary.creditoTotal)} />
+            <DiaryMetric label="Pendiente credito" value={formatMoney(sym, diary.creditoPendiente)} tone="warn" />
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            <DiaryMetric label="Efectivo ventas" value={formatMoney(sym, diary.efectivoVentasTotal)} help="Contado y efectivo" />
+            <DiaryMetric label="Gastos turno" value={formatMoney(sym, diary.gastosSesion)} help="Registrados con su usuario" tone="danger" />
+            <DiaryMetric
+              label="Efectivo esperado"
+              value={formatMoney(sym, diary.efectivoCajaSugerido)}
+              help="Fondo + ventas + abonos del turno - gastos"
+              tone="strong"
+            />
+          </div>
+
+          <div className="mt-3 rounded-xl border border-pf-border bg-pf-surface-soft/70 px-3 py-2 text-xs text-pf-text-tertiary">
+            {diary.session
+              ? `Turno abierto desde ${formatDate(diary.session.openedAt)} ${formatTimeOnly(diary.session.openedAt)}`
+              : "No hay turno abierto. Abra un turno para poder cuadrar la caja correctamente."}
+          </div>
+        </DiarySection>
+
+        <DiarySection title={session ? "Cierre de turno" : "Apertura de turno"}>
+          {session ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <DiaryMetric label="Fondo inicial" value={formatMoney(sym, session.openingCash)} />
+                <DiaryMetric label="Esperado" value={formatMoney(sym, diary.efectivoCajaSugerido)} tone="strong" />
+                <DiaryMetric
+                  label="Diferencia"
+                  value={closingDifference === null ? "—" : formatMoney(sym, closingDifference)}
+                  help={
+                    closingDifference === null
+                      ? "Ingrese el contado real."
+                      : closingDifference === 0
+                        ? "Caja cuadrada"
+                        : closingDifference > 0
+                          ? "Sobrante"
+                          : "Faltante"
+                  }
+                  tone={
+                    closingDifference === null
+                      ? "default"
+                      : closingDifference === 0
+                        ? "strong"
+                        : closingDifference > 0
+                          ? "warn"
+                          : "danger"
+                  }
+                />
+              </div>
+
+              <div className="rounded-xl border border-pf-border bg-pf-surface-soft p-3">
+                <div className="grid gap-4">
+                  <Field label="Efectivo contado al cierre">
+                    <Input type="number" step="any" value={closing} onChange={(e) => setClosing(e.target.value)} />
+                  </Field>
+                  <Field label="Observaciones (opcional)">
+                    <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Faltante, sobrante, retiro, cambio, etc." />
+                  </Field>
+                </div>
+              </div>
+
+              {err ? <p className="text-sm font-medium text-pf-danger">{err}</p> : null}
+
+              <Button type="button" variant="danger" className="w-full min-h-[48px]" onClick={closeSession} disabled={busy}>
+                <DoorClosed className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                {busy ? "Cerrando…" : "Cerrar turno"}
+              </Button>
+
+              <p className={`text-xs font-semibold ${sessionStatusTone}`}>
+                {closingDifference === null
+                  ? "Listo para arqueo."
+                  : closingDifference === 0
+                    ? "La caja cuadra correctamente."
+                    : closingDifference > 0
+                      ? "Hay un sobrante respecto al efectivo esperado."
+                      : "Hay un faltante respecto al efectivo esperado."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-pf-border bg-pf-surface-soft p-3 text-sm text-pf-text-secondary">
+                Abra el turno ingresando solo el fondo inicial. Si la caja empieza vacia, deje <strong>0</strong>.
+              </div>
+              <Field label="Fondo inicial">
+                <Input type="number" step="any" value={opening} onChange={(e) => setOpening(e.target.value)} />
+              </Field>
+              {err ? <p className="text-sm font-medium text-pf-danger">{err}</p> : null}
+              <Button type="button" className="w-full min-h-[48px]" onClick={openSession} disabled={busy}>
+                <DoorOpen className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                {busy ? "Abriendo…" : "Abrir turno"}
+              </Button>
             </div>
           )}
-        </div>
-        {diary.session ? (
-          <p className="text-xs text-pf-muted">
-            Sesión desde {formatDate(diary.session.openedAt)} {formatTimeOnly(diary.session.openedAt)}
-          </p>
-        ) : (
-          <p className="text-sm text-amber-800">Abra caja para registrar ventas en un turno.</p>
-        )}
-        <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-white/95 to-slate-50/80 p-3 shadow-md shadow-stone-900/[0.04] backdrop-blur-sm">
-            <p className="text-xs font-semibold text-stone-500">Ventas (tickets)</p>
-            <p className="text-xl font-extrabold tabular-nums text-stone-900">{diary.saleCount}</p>
-          </div>
-          <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-50/90 to-white/90 p-3 shadow-md backdrop-blur-sm">
-            <p className="text-xs font-semibold text-stone-500">Venta inmediata</p>
-            <p className="mb-0.5 text-xs text-stone-500">Contado / tarjeta / efectivo</p>
-            <p className="text-xl font-extrabold tabular-nums text-stone-900">{formatMoney(sym, diary.contadoTotal)}</p>
-          </div>
-          <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-violet-50/80 to-white/90 p-3 shadow-md backdrop-blur-sm">
-            <p className="text-xs font-semibold text-stone-500">Tarjeta (en turno)</p>
-            <p className="text-xl font-extrabold tabular-nums text-stone-900">{formatMoney(sym, diary.tarjetaTotal)}</p>
-          </div>
-          <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-amber-50/80 to-white/90 p-3 shadow-md backdrop-blur-sm">
-            <p className="text-xs font-semibold text-stone-500">Crédito facturado</p>
-            <p className="text-xl font-extrabold tabular-nums text-stone-900">{formatMoney(sym, diary.creditoTotal)}</p>
-          </div>
-          <div className="rounded-2xl border border-amber-200/50 bg-gradient-to-br from-amber-100/70 to-orange-50/90 p-3 shadow-md">
-            <p className="text-xs font-semibold text-amber-900/80">Pendiente cobro crédito</p>
-            <p className="text-xl font-extrabold tabular-nums text-amber-950">{formatMoney(sym, diary.creditoPendiente)}</p>
-          </div>
-          <div className="rounded-2xl border border-emerald-200/40 bg-gradient-to-br from-emerald-50/90 to-teal-50/50 p-3 shadow-md">
-            <p className="text-xs font-semibold text-stone-500">Facturación total</p>
-            <p className="text-xl font-extrabold tabular-nums text-stone-900">{formatMoney(sym, diary.ventasTotal)}</p>
-          </div>
-        </div>
-        <div className="grid gap-3 text-sm sm:grid-cols-1 lg:grid-cols-3">
-          <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-white/95 to-teal-50/40 p-3 shadow-md backdrop-blur-sm">
-            <p className="text-xs font-semibold text-stone-500">Efectivo y contado (cajón)</p>
-            <p className="mb-0.5 text-xs text-stone-500">Sin tarjeta</p>
-            <p className="text-lg font-extrabold tabular-nums text-stone-900">{formatMoney(sym, diary.efectivoVentasTotal)}</p>
-          </div>
-          <div className="rounded-2xl border border-red-100/80 bg-gradient-to-br from-red-50/60 to-white/90 p-3 shadow-md backdrop-blur-sm">
-            <p className="text-xs font-semibold text-stone-500">Gastos del turno</p>
-            <p className="mb-0.5 text-xs text-stone-500">Registrados con su usuario</p>
-            <p className="text-lg font-extrabold tabular-nums text-red-800">{formatMoney(sym, diary.gastosSesion)}</p>
-          </div>
-          <div className="rounded-2xl border-2 border-orange-300/50 bg-gradient-to-br from-pf-primary/25 via-amber-100/70 to-pf-primary-soft/90 p-3 shadow-lg shadow-orange-500/15 ring-1 ring-white/60">
-            <p className="text-xs font-bold text-stone-600">Efectivo en caja (referencia)</p>
-            <p className="mb-0.5 text-xs text-stone-600">
-              Fondo + efectivo ventas + abonado en créditos <span className="whitespace-nowrap">de ventas de este turno</span> −
-              gastos (no incluye abonos CxC a facturas antiguas)
-            </p>
-            <p className="text-xl font-extrabold tabular-nums text-pf-primary-foreground">{formatMoney(sym, diary.efectivoCajaSugerido)}</p>
-          </div>
-        </div>
-        {diary.sales.length > 0 ? (
-          <div className="max-h-48 overflow-y-auto rounded-2xl border border-white/60 bg-white/85 text-xs shadow-inner backdrop-blur-sm">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-stone-200/80 bg-gradient-to-r from-stone-50 to-pf-primary-soft/30 text-left text-xs font-bold text-stone-600">
-                  <th className="p-2">Hora</th>
-                  <th className="p-2">Doc.</th>
-                  <th className="p-2">Términos</th>
-                  <th className="p-2 text-right">Total</th>
+        </DiarySection>
+      </div>
+
+      {diary.sales.length > 0 ? (
+        <DiarySection title="Movimientos del turno">
+          <div className="max-h-72 overflow-y-auto rounded-xl border border-pf-border bg-white">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-pf-surface-soft">
+                <tr className="border-b border-pf-border text-left text-xs font-bold uppercase tracking-wide text-pf-text-tertiary">
+                  <th className="px-3 py-2">Hora</th>
+                  <th className="px-3 py-2">Documento</th>
+                  <th className="px-3 py-2">Términos</th>
+                  <th className="px-3 py-2 text-right">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {diary.sales.map((s) => (
-                  <tr key={s.id} className="border-b border-stone-100/80 transition hover:bg-pf-primary-soft/25">
-                    <td className="p-2 whitespace-nowrap">{formatTimeOnly(s.saleDate)}</td>
-                    <td className="p-2 font-mono">{s.invoiceNumber ?? s.id.slice(0, 6)}</td>
-                    <td className="p-2">{s.terms}</td>
-                    <td className="p-2 text-right">{formatMoney(sym, s.total)}</td>
+                  <tr key={s.id} className="border-b border-pf-border/70 last:border-b-0">
+                    <td className="px-3 py-2 whitespace-nowrap text-pf-text-secondary">{formatTimeOnly(s.saleDate)}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-pf-text">{s.invoiceNumber ?? s.id.slice(0, 6)}</td>
+                    <td className="px-3 py-2 text-pf-text-secondary">{s.terms}</td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-pf-text">{formatMoney(sym, s.total)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ) : null}
-      </Card>
-
-      {session ? (
-        <Card className="space-y-4 border-white/50 bg-gradient-to-b from-white/95 to-red-50/10 p-5 shadow-lg backdrop-blur-sm">
-          <div>
-            <p className="text-sm text-pf-muted">Sesión abierta</p>
-            <p className="font-medium">{formatDate(session.openedAt)}</p>
-            <p className="text-sm mt-2">
-              Fondo inicial: <strong>{formatMoney(sym, session.openingCash)}</strong>
-            </p>
-          </div>
-          <Field label="Efectivo al cerrar (conteo)">
-            <Input type="number" step="any" value={closing} onChange={(e) => setClosing(e.target.value)} />
-          </Field>
-          <Field
-            label={`Efectivo esperado (opcional)${diary.session ? ` · referencia ${formatMoney(sym, diary.efectivoCajaSugerido)}` : ""}`}
-          >
-            <Input type="number" step="any" value={expected} onChange={(e) => setExpected(e.target.value)} />
-          </Field>
-          <Field label="Notas">
-            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </Field>
-          {err ? <p className="text-sm text-red-600">{err}</p> : null}
-          <Button type="button" variant="danger" className="w-full min-h-[52px] text-base shadow-lg" onClick={closeSession} disabled={busy}>
-            <DoorClosed className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-            {busy ? "Cerrando…" : "Cerrar caja"}
-          </Button>
-        </Card>
-      ) : (
-        <Card className="space-y-4 border-white/50 bg-gradient-to-b from-white/95 via-emerald-50/20 to-pf-primary-soft/25 p-5 shadow-lg backdrop-blur-sm">
-          <p className="text-sm font-medium text-stone-600">No hay sesión abierta para su usuario.</p>
-          <Field label="Fondo inicial en caja">
-            <Input type="number" step="any" value={opening} onChange={(e) => setOpening(e.target.value)} />
-          </Field>
-          {err ? <p className="text-sm text-red-600">{err}</p> : null}
-          <Button type="button" className="w-full min-h-[52px] text-base shadow-lg" onClick={openSession} disabled={busy}>
-            <DoorOpen className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-            {busy ? "Abriendo…" : "Abrir caja"}
-          </Button>
-        </Card>
-      )}
+        </DiarySection>
+      ) : null}
     </div>
   );
 }

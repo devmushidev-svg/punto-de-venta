@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import type { Prisma } from "@prisma/client";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
@@ -1318,21 +1319,29 @@ api.get("/cash-sessions/current", async (c) => {
 api.post("/cash-sessions/:id/close", async (c) => {
   const jwt = c.get("jwt");
   const id = c.req.param("id");
-  const body = await c.req.json<{ closingCash?: number; expectedCash?: number; notes?: string }>();
+  const body = await c.req.json<{ closingCash?: number; notes?: string }>();
   const session = await prisma.cashSession.findFirst({
     where: { id, organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
   });
   if (!session) return c.json({ error: "Sesión no encontrada o ya cerrada" }, 404);
+  if (typeof body.closingCash !== "number" || !Number.isFinite(body.closingCash)) {
+    return c.json({ error: "Debe indicar el efectivo contado al cierre" }, 400);
+  }
+  const closedAt = new Date();
+  const diary = await buildCashDiaryForSession(jwt.orgId, jwt.sub, session, closedAt);
   const updated = await prisma.cashSession.update({
     where: { id },
     data: {
-      closedAt: new Date(),
-      closingCash: body.closingCash ?? null,
-      expectedCash: body.expectedCash ?? null,
+      closedAt,
+      closingCash: body.closingCash,
+      expectedCash: diary.efectivoCajaSugerido,
       notes: body.notes,
     },
   });
-  return c.json(updated);
+  return c.json({
+    ...updated,
+    cashDifference: updated.closingCash !== null && updated.expectedCash !== null ? updated.closingCash - updated.expectedCash : null,
+  });
 });
 
 const emptyCashDiary = () => ({
@@ -1347,6 +1356,7 @@ const emptyCashDiary = () => ({
   ventasTotal: 0,
   gastosSesion: 0,
   efectivoCajaSugerido: 0,
+  cashDifference: null as number | null,
   sales: [] as {
     id: string;
     total: number;
@@ -1366,6 +1376,7 @@ async function buildCashDiaryForSession(
     closedAt: Date | null;
     openingCash: number;
     closingCash: number | null;
+    expectedCash?: number | null;
   },
   end: Date
 ) {
@@ -1426,6 +1437,7 @@ async function buildCashDiaryForSession(
       closedAt: session.closedAt,
       openingCash: session.openingCash,
       closingCash: session.closingCash,
+      expectedCash: session.expectedCash ?? null,
     },
     saleCount: sales.length,
     contadoTotal,
@@ -1437,6 +1449,10 @@ async function buildCashDiaryForSession(
     ventasTotal,
     gastosSesion,
     efectivoCajaSugerido,
+    cashDifference:
+      session.closingCash !== null
+        ? session.closingCash - (session.expectedCash ?? efectivoCajaSugerido)
+        : null,
     sales,
   };
 }

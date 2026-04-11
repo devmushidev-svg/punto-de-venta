@@ -1,21 +1,31 @@
 import {
+  Building2,
   CalendarClock,
   CheckCircle2,
   ClipboardList,
+  Eraser,
+  FileSpreadsheet,
+  FileText,
   Minus,
   Monitor,
   Plus,
+  Search,
+  Pencil,
   Printer,
   Save,
   ShoppingCart,
   Star,
   Trash2,
+  UserPlus,
+  Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
 import { Button, Card, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
 import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
@@ -44,11 +54,76 @@ type Line = {
 
 type Toast = { message: string; kind: "success" | "print" };
 
+function TouchRibbonTile({
+  icon: Icon,
+  line1,
+  line2,
+  onClick,
+  disabled,
+  title,
+  variant = "default",
+}: {
+  icon: LucideIcon;
+  line1: string;
+  line2: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  variant?: "default" | "primary" | "muted" | "danger";
+}) {
+  const iconBg =
+    variant === "primary"
+      ? "bg-gradient-to-b from-[color:var(--pf-primary-soft)] to-[color:var(--pf-warning-soft)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
+      : variant === "muted"
+        ? "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-muted)] text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
+        : variant === "danger"
+          ? "bg-gradient-to-b from-[color:var(--pf-danger-soft)] to-[color:var(--pf-warning-soft)] text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
+          : "pf-ribbon-icon-shell";
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="group flex w-[6.25rem] shrink-0 flex-col items-stretch rounded-md border border-transparent p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:w-28 pf-ribbon-tile-idle"
+    >
+      <div className="flex flex-1 flex-col items-center gap-1 pb-1 pt-1.5">
+        <span className={`flex size-10 shrink-0 items-center justify-center rounded-md leading-none shadow-sm ${iconBg} [&>svg]:block [&>svg]:shrink-0`}>
+          <Icon className="!size-5" strokeWidth={2} aria-hidden />
+        </span>
+        <span className="w-full px-0.5 text-center text-[10px] font-semibold leading-tight text-pf-text sm:text-[11px]">
+          {line1}
+        </span>
+        <span className="w-full px-0.5 text-center text-[9px] font-medium leading-tight text-pf-text-soft sm:text-[10px]">
+          {line2}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function TouchRibbonGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="pf-ribbon-group flex min-w-0 flex-col pl-2 first:border-l-0 first:pl-0 sm:pl-3">
+      <div className="flex flex-row flex-wrap items-stretch gap-0.5 sm:gap-0">{children}</div>
+      <p className="pf-ribbon-group-label mt-0.5 pt-0.5 text-center text-[10px] font-medium uppercase tracking-wide sm:text-[11px]">
+        {title}
+      </p>
+    </div>
+  );
+}
+
 export function TouchSalePage() {
+  const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization } = useAuth();
   const sym = organization?.currencySymbol ?? "L";
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerTaxId, setCustomerTaxId] = useState("");
   const [priceTier, setPriceTier] = useState(1);
   const [terms, setTerms] = useState("CONTADO");
   const [paid, setPaid] = useState("");
@@ -68,6 +143,7 @@ export function TouchSalePage() {
   const [checkoutAmount, setCheckoutAmount] = useState("");
   const [checkoutMode, setCheckoutMode] = useState<"save" | "print">("save");
   const checkoutAmountRef = useRef<HTMLInputElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,13 +154,27 @@ export function TouchSalePage() {
     toastTimerRef.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
+  function applyCustomer(c: Customer) {
+    setCustomerId(c.id);
+    setCustomerName(c.name);
+    setCustomerAddress(c.address ?? "");
+    setCustomerPhone(c.phone ?? "");
+    setCustomerTaxId(c.taxId ?? "");
+  }
+
   useEffect(() => {
     if (!token) return;
     apiFetch<Customer[]>("/api/customers", { token }).then((c) => {
       setCustomers(c);
       const def = c.find((x) => /consumidor/i.test(x.name)) ?? c[0];
-      if (def) setCustomerId(def.id);
-      else setCustomerId("");
+      if (def) applyCustomer(def);
+      else {
+        setCustomerId("");
+        setCustomerName("");
+        setCustomerAddress("");
+        setCustomerPhone("");
+        setCustomerTaxId("");
+      }
     });
     apiFetch<{ general: { touchFavoriteProductIds?: string[] } }>("/api/settings", { token }).then((s) => {
       const ids = s.general?.touchFavoriteProductIds;
@@ -179,6 +269,7 @@ export function TouchSalePage() {
   );
 
   const cartLineCount = lines.length;
+  const hasBillableLines = lines.some((l) => l.qty > 0);
 
   const persistFavorites = useCallback(
     async (nextIds: string[]) => {
@@ -231,6 +322,16 @@ export function TouchSalePage() {
     setTimeout(() => checkoutAmountRef.current?.focus(), 80);
   }
 
+  const clearLines = useCallback(() => {
+    setLines([]);
+    setErr("");
+  }, []);
+
+  const removeLastLine = useCallback(() => {
+    setLines((prev) => prev.slice(0, -1));
+    setErr("");
+  }, []);
+
   async function confirmCheckout() {
     if (!token || lines.length === 0 || busy) return;
     setErr("");
@@ -240,11 +341,26 @@ export function TouchSalePage() {
     }
     setBusy(true);
     try {
+      if (customerId.trim()) {
+        const name = customerName.trim() || "Cliente";
+        await apiFetch(`/api/customers/${customerId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name,
+            address: customerAddress.trim() || null,
+            phone: customerPhone.trim() || null,
+            taxId: customerTaxId.trim() || null,
+          }),
+          token,
+        });
+      }
       const body = {
         customerId: customerId || null,
         terms,
         priceTier,
+        notes: notes.trim() || undefined,
         paid: isCreditSaleTerm(terms) ? Number(paid) || 0 : undefined,
+        saleDate: documentSaleDate.toISOString(),
         lines: lines
           .filter((l) => l.qty > 0)
           .map((l) => ({
@@ -279,8 +395,9 @@ export function TouchSalePage() {
 
       if (token) {
         apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
+          setCustomers(list);
           const def = list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
-          if (def) setCustomerId(def.id);
+          if (def) applyCustomer(def);
         });
       }
     } catch (e) {
@@ -290,67 +407,160 @@ export function TouchSalePage() {
     }
   }
 
-  const cartPanel = (
-    <div className="space-y-3">
-      <Field label="Cliente">
-        <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-          <option value="">Seleccione cliente…</option>
-          {customers.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </Select>
-      </Field>
-      {isCreditSaleTerm(terms) && (
-        <p className="text-xs text-pf-muted -mt-1">Obligatorio para crédito.</p>
-      )}
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="Lista precios">
-          <Select value={priceTier} onChange={(e) => setPriceTier(Number(e.target.value))}>
-            <option value={1}>Precio 1</option>
-            <option value={2}>Precio 2</option>
-            <option value={3}>Precio 3</option>
-            <option value={4}>Precio 4</option>
-          </Select>
+  const saleInfoPanel = (
+    <div className="space-y-3 rounded-xl border border-pf-border-soft bg-pf-surface-elevated/85 p-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Field label="Nº factura" className="min-w-0" compact>
+          <Input
+            readOnly
+            tabIndex={-1}
+            value="—"
+            className="!h-9 cursor-default bg-pf-primary-soft/25 px-2 py-0 text-sm tabular-nums text-pf-text"
+            title="Se asignará al guardar"
+          />
         </Field>
-        <Field label="Condición">
-          <Select value={terms} onChange={(e) => setTerms(e.target.value)}>
+        <Field label="Términos" className="min-w-0" compact>
+          <Select
+            value={terms}
+            onChange={(e) => setTerms(e.target.value)}
+            className="w-full min-w-0"
+          >
             {SALE_TERMS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
             ))}
           </Select>
         </Field>
       </div>
-      {isCreditSaleTerm(terms) && (
-        <Field label="Abono inicial (opcional)">
-          <Input type="number" step="any" value={paid} onChange={(e) => setPaid(e.target.value)} />
-        </Field>
-      )}
-
-      <Field label="Notas (opc.)">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
-      </Field>
 
       <div>
         <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-pf-text-tertiary">Fecha venta</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-pf-text-tertiary">Fecha</span>
           <Button
             type="button"
             variant="ghost"
-            className="h-8 min-h-0 gap-1 px-2 py-0 text-xs font-semibold text-pf-primary"
+            className="h-7 min-h-0 shrink-0 gap-1 px-2 py-0 text-[11px] font-semibold text-pf-primary"
+            title="Cambiar fecha y hora del documento"
             onClick={() => {
               setSaleDateDraft(toDatetimeLocalValue(documentSaleDate));
               setSaleDatePickerOpen(true);
             }}
           >
             <CalendarClock className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
-            Editar
+            Editar fecha
           </Button>
         </div>
-        <p className="rounded-lg border border-pf-border-soft bg-pf-surface-muted/40 px-3 py-2 text-sm font-semibold tabular-nums text-pf-text">
+        <div className="flex min-h-[2.25rem] items-center rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-3 text-sm font-bold tabular-nums text-pf-text shadow-[var(--pf-control-shadow)]">
           {saleDateDisplayStr}
-        </p>
+        </div>
       </div>
 
+      <Field label="Cliente" className="min-w-0" compact>
+        <Select
+          value={customerId}
+          onChange={(e) => {
+            const c = customers.find((x) => x.id === e.target.value);
+            if (c) applyCustomer(c);
+            else {
+              setCustomerId(e.target.value);
+              setCustomerName("");
+              setCustomerAddress("");
+              setCustomerPhone("");
+              setCustomerTaxId("");
+            }
+          }}
+          className="w-full min-w-0"
+        >
+          <option value="">Seleccione cliente…</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <Field label="Nombre / razón social" className="min-w-0" compact>
+        <Input
+          value={customerName}
+          onChange={(e) => setCustomerName(e.target.value)}
+          placeholder="Consumidor final"
+          className="px-3 py-2 text-sm"
+        />
+      </Field>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Field label="DIR" className="min-w-0" compact>
+          <Input
+            value={customerAddress}
+            onChange={(e) => setCustomerAddress(e.target.value)}
+            placeholder="Dirección"
+            className="px-3 py-2 text-sm"
+          />
+        </Field>
+        <Field label="TEL" className="min-w-0" compact>
+          <Input
+            value={customerPhone}
+            onChange={(e) => setCustomerPhone(e.target.value)}
+            placeholder="Teléfono"
+            className="px-3 py-2 text-sm"
+          />
+        </Field>
+        <Field label="RTN" className="min-w-0" compact>
+          <Input
+            value={customerTaxId}
+            onChange={(e) => setCustomerTaxId(e.target.value)}
+            placeholder="RTN"
+            className="px-3 py-2 text-sm"
+          />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Field label="Lista de precios" className="min-w-0" compact>
+          <Select
+            value={priceTier}
+            onChange={(e) => setPriceTier(Number(e.target.value))}
+            className="w-full min-w-0"
+          >
+            <option value={1}>Precio 1</option>
+            <option value={2}>Precio 2</option>
+            <option value={3}>Precio 3</option>
+            <option value={4}>Precio 4</option>
+          </Select>
+        </Field>
+        {isCreditSaleTerm(terms) ? (
+          <Field label="Abono inicial" className="min-w-0" compact>
+            <Input
+              type="number"
+              step="any"
+              value={paid}
+              onChange={(e) => setPaid(e.target.value)}
+              className="px-3 py-2 text-sm"
+            />
+          </Field>
+        ) : null}
+      </div>
+
+      <Field label="Notas (opc.)" className="min-w-0" compact>
+        <Input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Opcional"
+          className="px-3 py-2 text-sm"
+        />
+      </Field>
+
+      {isCreditSaleTerm(terms) ? (
+        <p className="text-xs font-medium text-pf-muted">Cliente obligatorio para crédito.</p>
+      ) : null}
+    </div>
+  );
+
+  const cartPanel = (
+    <div className="space-y-3">
+      {saleInfoPanel}
       <div className="max-h-60 divide-y divide-pf-border-soft overflow-y-auto rounded-xl border border-pf-border-soft bg-pf-surface-elevated/80 text-sm">
         {lines.length === 0 ? (
           <p className="p-6 text-center text-sm font-medium text-pf-muted">Carrito vacío</p>
@@ -433,6 +643,149 @@ export function TouchSalePage() {
     </div>
   );
 
+  const touchRibbonBar = useMemo(
+    () => (
+      <>
+        <TouchRibbonGroup title="Guardar venta final">
+          <TouchRibbonTile
+            variant="primary"
+            icon={Save}
+            line1="F5 Guardar"
+            line2="venta"
+            title="Guardar venta táctil"
+            onClick={() => openCheckout("save")}
+            disabled={busy || !hasBillableLines}
+          />
+          <TouchRibbonTile
+            variant="muted"
+            icon={Printer}
+            line1="F8 Imprimir"
+            line2="venta"
+            title="Guardar e imprimir ticket"
+            onClick={() => openCheckout("print")}
+            disabled={busy || !hasBillableLines}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Productos">
+          <TouchRibbonTile
+            icon={Search}
+            line1="F4 Buscar"
+            line2="Productos"
+            title="Buscar productos"
+            onClick={() => searchInputRef.current?.focus()}
+          />
+          <TouchRibbonTile
+            icon={Plus}
+            line1="F3 Nuevo"
+            line2="Producto"
+            title="Ir al catálogo de productos"
+            onClick={() => navigate("/productos")}
+          />
+          <TouchRibbonTile
+            icon={Pencil}
+            line1="Editar"
+            line2="Producto"
+            title="Abrir catálogo de productos para editar"
+            onClick={() => navigate("/productos")}
+          />
+          <TouchRibbonTile
+            icon={Building2}
+            line1="Buscar"
+            line2="Sucursales"
+            title="Ir a empresa"
+            onClick={() => navigate("/empresa")}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Clientes">
+          <TouchRibbonTile
+            icon={Users}
+            line1="F2 Buscar"
+            line2="Clientes"
+            title="Abrir panel del carrito para elegir cliente"
+            onClick={() => setShowCart(true)}
+          />
+          <TouchRibbonTile
+            icon={UserPlus}
+            line1="F6 Nuevo"
+            line2="Cliente"
+            title="Ir a clientes"
+            onClick={() => navigate("/clientes")}
+          />
+          <TouchRibbonTile
+            icon={Pencil}
+            line1="Editar"
+            line2="Cliente"
+            title="Ir a clientes para editar"
+            onClick={() => navigate("/clientes")}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Vendedor">
+          <TouchRibbonTile
+            icon={Search}
+            line1="F7 Buscar"
+            line2="Vendedores"
+            title="Ir a usuarios"
+            onClick={() => navigate("/usuarios")}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Diario">
+          <TouchRibbonTile
+            icon={FileSpreadsheet}
+            line1="F1 Diario"
+            line2="Digital"
+            title="Ir a caja y diario digital"
+            onClick={() => navigate("/caja")}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Notas">
+          <TouchRibbonTile
+            icon={ClipboardList}
+            line1="Notas"
+            line2=" "
+            title="Abrir carrito para editar notas"
+            onClick={() => setShowCart(true)}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Exonerada">
+          <TouchRibbonTile
+            icon={FileText}
+            line1="Venta"
+            line2="Exonerada"
+            title="Marcar venta exonerada no está implementado aún"
+            onClick={() => setErr("Venta exonerada aun no esta implementada en venta tactil.")}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Filas">
+          <TouchRibbonTile
+            icon={Trash2}
+            line1="F10 Eliminar"
+            line2="Fila"
+            title="Eliminar ultima fila"
+            onClick={removeLastLine}
+            disabled={!lines.length}
+          />
+        </TouchRibbonGroup>
+        <TouchRibbonGroup title="Limpiar">
+          <TouchRibbonTile
+            variant="danger"
+            icon={Eraser}
+            line1="F11 Limpiar"
+            line2=" "
+            title="Vaciar carrito"
+            onClick={clearLines}
+            disabled={!lines.length}
+          />
+        </TouchRibbonGroup>
+      </>
+    ),
+    [busy, hasBillableLines, lines.length, clearLines, navigate, removeLastLine]
+  );
+
+  useLayoutEffect(() => {
+    setSaleToolbar?.(touchRibbonBar);
+    return () => setSaleToolbar?.(null);
+  }, [touchRibbonBar, setSaleToolbar]);
+
   return (
     <div className="space-y-4 pb-28 pf-safe-page xl:pb-4">
       {/* Toast notification */}
@@ -481,6 +834,7 @@ export function TouchSalePage() {
         <div className="space-y-3">
           <Card className="pf-glass-card-panel p-3">
             <Input
+              ref={searchInputRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar producto por nombre, SKU, código…"
