@@ -2,7 +2,7 @@ import { ChevronDown, ChevronUp, Download, Eye, EyeOff, Save } from "lucide-reac
 import { useCallback, useEffect, useState } from "react";
 import { PageHero } from "../components/PageHero";
 import { Link, Navigate } from "react-router-dom";
-import { apiDownload, apiFetch } from "../api/client";
+import { apiDownload, apiFetch, apiUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Textarea } from "../components/ui";
 import type { PfThemeId } from "../theme/pfTheme";
@@ -21,9 +21,22 @@ type ComprobanteSettings = {
   showSku: boolean;
 };
 
+type KitchenSettings = { kitchenPrintEnabled?: boolean; kitchenPrinterName?: string };
+type SarSettings = {
+  autoNumber?: boolean;
+  series?: string;
+  nextNum?: number;
+  rangeEnd?: number;
+  /** Fecha límite de autorización (YYYY-MM-DD); bloquea ventas con fecha posterior. */
+  rangeValidUntil?: string;
+  footerSar?: string;
+};
+
 type InvoiceShape = {
   ticket: TicketSettings;
   comprobante: ComprobanteSettings;
+  kitchen?: KitchenSettings;
+  sar?: SarSettings;
 };
 
 const DEFAULT_TICKET: TicketSettings = { headerLine: "", footerLine: "Gracias por su compra", showTaxBreakdown: true };
@@ -62,12 +75,22 @@ export function SettingsPage() {
 
   const [ticket, setTicket] = useState<TicketSettings>({ ...DEFAULT_TICKET });
   const [comprobante, setComprobante] = useState<ComprobanteSettings>({ ...DEFAULT_COMPROBANTE });
+  const [kitchenPrintEnabled, setKitchenPrintEnabled] = useState(false);
+  const [kitchenPrinterName, setKitchenPrinterName] = useState("");
+  const [sarAutoNumber, setSarAutoNumber] = useState(false);
+  const [sarSeries, setSarSeries] = useState("");
+  const [sarNextNum, setSarNextNum] = useState("");
+  const [sarRangeEnd, setSarRangeEnd] = useState("");
+  const [sarRangeValidUntil, setSarRangeValidUntil] = useState("");
+  const [sarFooter, setSarFooter] = useState("");
 
   const [generalJson, setGeneralJson] = useState("{}");
   const [showRawInvoice, setShowRawInvoice] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
 
@@ -92,6 +115,20 @@ export function SettingsPage() {
           showSku: data.invoice.comprobante.showSku ?? DEFAULT_COMPROBANTE.showSku,
         });
       }
+      const k = data.invoice?.kitchen;
+      if (k) {
+        setKitchenPrintEnabled(!!k.kitchenPrintEnabled);
+        setKitchenPrinterName(typeof k.kitchenPrinterName === "string" ? k.kitchenPrinterName : "");
+      }
+      const sar = data.invoice?.sar;
+      if (sar) {
+        setSarAutoNumber(!!sar.autoNumber);
+        setSarSeries(typeof sar.series === "string" ? sar.series : "");
+        setSarNextNum(sar.nextNum != null ? String(sar.nextNum) : "");
+        setSarRangeEnd(sar.rangeEnd != null ? String(sar.rangeEnd) : "");
+        setSarRangeValidUntil(typeof sar.rangeValidUntil === "string" ? sar.rangeValidUntil : "");
+        setSarFooter(typeof sar.footerSar === "string" ? sar.footerSar : "");
+      }
     } catch {
       /* ignore */
     }
@@ -110,7 +147,22 @@ export function SettingsPage() {
       setErr("JSON inválido en la pestaña Avanzado");
       return;
     }
-    const invoice: InvoiceShape = { ticket, comprobante };
+    const invoice: InvoiceShape = {
+      ticket,
+      comprobante,
+      kitchen: {
+        kitchenPrintEnabled,
+        kitchenPrinterName: kitchenPrinterName.trim() || undefined,
+      },
+      sar: {
+        autoNumber: sarAutoNumber,
+        series: sarSeries.trim() || undefined,
+        nextNum: sarNextNum.trim() ? Math.trunc(Number(sarNextNum)) || undefined : undefined,
+        rangeEnd: sarRangeEnd.trim() ? Math.trunc(Number(sarRangeEnd)) || undefined : undefined,
+        rangeValidUntil: sarRangeValidUntil.trim() || undefined,
+        footerSar: sarFooter.trim() || undefined,
+      },
+    };
     setBusy(true);
     try {
       await apiFetch("/api/settings", {
@@ -124,6 +176,53 @@ export function SettingsPage() {
       setErr(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function uploadExcelImport(kind: "products" | "customers" | "suppliers", file: File | null) {
+    if (!token || !admin || !file) return;
+    setImportMsg("");
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("type", kind);
+      fd.set("file", file);
+      const res = await fetch(apiUrl("/api/import/excel"), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const j = (await res.json()) as { imported?: number; errors?: string[]; error?: string };
+      if (!res.ok) throw new Error(j.error ?? "Error");
+      const errs = j.errors?.length ? ` · Avisos: ${j.errors.slice(0, 5).join("; ")}` : "";
+      setImportMsg(`Importados: ${j.imported ?? 0}${errs}`);
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : "Error");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function mergeBackupMaster(file: File | null) {
+    if (!token || !admin || !file) return;
+    if (!window.confirm("¿Fusionar catálogos desde este respaldo? No borra ventas existentes.")) return;
+    setImportMsg("");
+    setImportBusy(true);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text) as unknown;
+      const r = await apiFetch<{ ok: boolean; products?: number; customers?: number }>("/api/backup/import", {
+        method: "POST",
+        body: JSON.stringify({ payload, confirm: "MERGE_MASTER" }),
+        token,
+      });
+      setImportMsg(
+        `Fusión lista: productos ${r.products ?? 0}, clientes ${r.customers ?? 0}, proveedores ${(r as { suppliers?: number }).suppliers ?? 0}, ubicaciones ${(r as { stockLocations?: number }).stockLocations ?? 0}.`
+      );
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : "Error");
+    } finally {
+      setImportBusy(false);
     }
   }
 
@@ -142,6 +241,21 @@ export function SettingsPage() {
       setErr(e instanceof Error ? e.message : "Error al descargar");
     } finally {
       setBackupBusy(false);
+    }
+  }
+
+  async function downloadImportTemplate(kind: "products" | "customers" | "suppliers") {
+    if (!token || !admin) return;
+    setErr("");
+    try {
+      const blob = await apiDownload(`/api/import/template?type=${kind}`, token);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `plantilla-${kind}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error al descargar plantilla");
     }
   }
 
@@ -262,6 +376,53 @@ export function SettingsPage() {
               />
             </Card>
 
+            <Card className="pf-glass-card-panel space-y-4 p-4 md:p-5">
+              <p className="text-sm font-bold text-pf-text">PreVenta / cocina</p>
+              <p className="text-xs text-pf-text-tertiary">
+                Al guardar cotización o PreVenta, puede abrirse una ventana de impresión con los productos marcados para cocina.
+              </p>
+              <Toggle
+                checked={kitchenPrintEnabled}
+                onChange={setKitchenPrintEnabled}
+                label="Imprimir orden de cocina al guardar"
+              />
+              <Field label="Nombre impresora (referencia / notas)">
+                <Input
+                  value={kitchenPrinterName}
+                  onChange={(e) => setKitchenPrinterName(e.target.value)}
+                  placeholder="Opcional; en web se usa ventana de impresión del navegador"
+                />
+              </Field>
+            </Card>
+
+            <Card className="pf-glass-card-panel space-y-4 p-4 md:p-5">
+              <p className="text-sm font-bold text-pf-text">Facturación SAR (Honduras)</p>
+              <p className="text-xs text-pf-text-tertiary">
+                Numeración automática al crear ventas. El API valida el tope del rango si está configurado.
+              </p>
+              <Toggle checked={sarAutoNumber} onChange={setSarAutoNumber} label="Numeración automática SAR" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Serie">
+                  <Input value={sarSeries} onChange={(e) => setSarSeries(e.target.value)} placeholder="Ej: A" />
+                </Field>
+                <Field label="Siguiente número">
+                  <Input value={sarNextNum} onChange={(e) => setSarNextNum(e.target.value)} inputMode="numeric" />
+                </Field>
+                <Field label="Fin de rango (tope)">
+                  <Input value={sarRangeEnd} onChange={(e) => setSarRangeEnd(e.target.value)} inputMode="numeric" />
+                </Field>
+              </div>
+              <Field label="Válido hasta (autorización SAR)">
+                <Input type="date" value={sarRangeValidUntil} onChange={(e) => setSarRangeValidUntil(e.target.value)} />
+                <p className="mt-1 text-[11px] text-pf-text-tertiary">
+                  Opcional. Bloquea ventas con fecha de documento posterior a este día.
+                </p>
+              </Field>
+              <Field label="Texto pie SAR / CAI">
+                <Input value={sarFooter} onChange={(e) => setSarFooter(e.target.value)} placeholder="Texto legal en factura" />
+              </Field>
+            </Card>
+
             <button
               type="button"
               onClick={() => setShowRawInvoice(!showRawInvoice)}
@@ -274,7 +435,23 @@ export function SettingsPage() {
             {showRawInvoice && (
               <Card className="pf-glass-card-panel p-4">
                 <pre className="overflow-x-auto rounded-lg bg-pf-surface-muted/60 p-3 text-xs font-mono text-pf-text-tertiary">
-                  {JSON.stringify({ ticket, comprobante }, null, 2)}
+                  {JSON.stringify(
+                    {
+                      ticket,
+                      comprobante,
+                      kitchen: { kitchenPrintEnabled, kitchenPrinterName },
+                      sar: {
+                        autoNumber: sarAutoNumber,
+                        series: sarSeries,
+                        nextNum: sarNextNum,
+                        rangeEnd: sarRangeEnd,
+                        rangeValidUntil: sarRangeValidUntil,
+                        footerSar: sarFooter,
+                      },
+                    },
+                    null,
+                    2
+                  )}
                 </pre>
               </Card>
             )}
@@ -318,6 +495,92 @@ export function SettingsPage() {
                 <Download className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
                 {backupBusy ? "Descargando…" : "Descargar respaldo JSON"}
               </Button>
+              <div className="border-t border-pf-border/60 pt-4">
+                <p className="text-sm font-bold text-pf-text">Importar datos maestros (merge)</p>
+                <p className="mt-0.5 text-xs text-pf-text-tertiary">
+                  Fusiona productos, clientes, proveedores, ubicaciones y libros de gastos desde un JSON exportado. No elimina ventas.
+                </p>
+                <Input
+                  type="file"
+                  accept="application/json,.json"
+                  className="mt-2 text-sm"
+                  disabled={importBusy}
+                  onChange={(e) => void mergeBackupMaster(e.target.files?.[0] ?? null)}
+                />
+              </div>
+            </Card>
+
+            <Card className="pf-glass-card-panel space-y-4 p-4 md:p-5">
+              <div>
+                <p className="text-sm font-bold text-pf-text">Importar Excel</p>
+                <p className="mt-0.5 text-xs text-pf-text-tertiary">
+                  Plantillas: productos, clientes o proveedores. Primera fila = encabezados.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-10"
+                  disabled={importBusy}
+                  onClick={() => void downloadImportTemplate("products")}
+                >
+                  Plantilla productos
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-10"
+                  disabled={importBusy}
+                  onClick={() => void downloadImportTemplate("customers")}
+                >
+                  Plantilla clientes
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-10"
+                  disabled={importBusy}
+                  onClick={() => void downloadImportTemplate("suppliers")}
+                >
+                  Plantilla proveedores
+                </Button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <label className="text-xs font-semibold text-pf-text-tertiary">
+                  Productos (.xlsx)
+                  <Input
+                    type="file"
+                    accept=".xlsx"
+                    className="mt-1"
+                    disabled={importBusy}
+                    onChange={(e) => void uploadExcelImport("products", e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <label className="text-xs font-semibold text-pf-text-tertiary">
+                  Clientes (.xlsx)
+                  <Input
+                    type="file"
+                    accept=".xlsx"
+                    className="mt-1"
+                    disabled={importBusy}
+                    onChange={(e) => void uploadExcelImport("customers", e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <label className="text-xs font-semibold text-pf-text-tertiary">
+                  Proveedores (.xlsx)
+                  <Input
+                    type="file"
+                    accept=".xlsx"
+                    className="mt-1"
+                    disabled={importBusy}
+                    onChange={(e) => void uploadExcelImport("suppliers", e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              </div>
+              {importMsg ? (
+                <p className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-medium text-pf-text">{importMsg}</p>
+              ) : null}
             </Card>
           </>
         )}

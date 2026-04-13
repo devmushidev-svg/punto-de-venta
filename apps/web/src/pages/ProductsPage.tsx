@@ -1,7 +1,7 @@
-import { FilterX, History, PackagePlus, Pencil, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { FilterX, History, PackagePlus, Pencil, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHero } from "../components/PageHero";
-import { apiFetch } from "../api/client";
+import { apiFetch, apiUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Modal, Select, Textarea } from "../components/ui";
 import { formatMoney } from "../lib/format";
@@ -15,6 +15,12 @@ type FormTab = "product" | "prices" | "notes" | "kit";
 type KitRow = { componentId: string; sku: string; name: string; qty: string };
 
 type VolumeTierRow = { minQty: string; price: string };
+
+type StockLocRow = {
+  id: string;
+  qty: number;
+  location: { code: string; name: string };
+};
 
 const emptyForm = {
   sku: "",
@@ -38,6 +44,7 @@ const emptyForm = {
   productType: "PRODUCTO",
   supplierId: "",
   esGranel: false,
+  printOnKitchenOrder: true,
   volumeTiers: [] as VolumeTierRow[],
 };
 
@@ -46,7 +53,7 @@ export function ProductsPage() {
   const sym = organization?.currencySymbol ?? "L";
   const admin = user?.role === "admin";
   const [q, setQ] = useState("");
-  const [stockFilter, setStockFilter] = useState<"" | "with" | "without">("");
+  const [stockFilter, setStockFilter] = useState<"" | "with" | "without" | "low">("");
   const [supplierId, setSupplierId] = useState("");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [list, setList] = useState<Product[]>([]);
@@ -63,6 +70,34 @@ export function ProductsPage() {
   const [movements, setMovements] = useState<ProductMovement[]>([]);
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsErr, setMovementsErr] = useState("");
+  const [labelPick, setLabelPick] = useState<Record<string, boolean>>({});
+  const [labelsErr, setLabelsErr] = useState("");
+
+  const labelSelectedCount = useMemo(() => Object.values(labelPick).filter(Boolean).length, [labelPick]);
+  const [stockByLoc, setStockByLoc] = useState<StockLocRow[]>([]);
+  const [stockByLocLoading, setStockByLocLoading] = useState(false);
+
+  useEffect(() => {
+    if (!token || !admin || modal !== "edit" || !editing?.id || form.productType === "KIT") {
+      setStockByLoc([]);
+      return;
+    }
+    let cancelled = false;
+    setStockByLocLoading(true);
+    apiFetch<StockLocRow[]>(`/api/products/stock-by-location?productId=${encodeURIComponent(editing.id)}`, { token })
+      .then((rows) => {
+        if (!cancelled) setStockByLoc(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setStockByLoc([]);
+      })
+      .finally(() => {
+        if (!cancelled) setStockByLocLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, admin, modal, editing?.id, form.productType]);
 
   useEffect(() => {
     if (!token) return;
@@ -187,6 +222,44 @@ export function ProductsPage() {
     setQ("");
     setStockFilter("");
     setSupplierId("");
+    setLabelPick({});
+    setLabelsErr("");
+  }
+
+  async function openLabelsPreview() {
+    setLabelsErr("");
+    if (!token || !admin) return;
+    const ids = Object.keys(labelPick).filter((id) => labelPick[id]);
+    if (!ids.length) {
+      setLabelsErr("Seleccione al menos un producto para imprimir etiquetas.");
+      return;
+    }
+    try {
+      const headers = new Headers();
+      headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(
+        apiUrl(`/api/products/labels/preview?ids=${encodeURIComponent(ids.slice(0, 200).join(","))}`),
+        { headers }
+      );
+      if (!res.ok) {
+        let err = res.statusText;
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j.error) err = j.error;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(err);
+      }
+      const html = await res.text();
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, "_blank", "noopener,noreferrer");
+      if (!w) setLabelsErr("Permita ventanas emergentes para ver la vista previa de etiquetas.");
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (e) {
+      setLabelsErr(e instanceof Error ? e.message : "Error al generar etiquetas");
+    }
   }
 
   function openNew() {
@@ -225,6 +298,7 @@ export function ProductsPage() {
       productType: p.productType || "PRODUCTO",
       supplierId: p.supplierId ?? "",
       esGranel: Boolean(p.esGranel),
+      printOnKitchenOrder: p.printOnKitchenOrder !== false,
       volumeTiers: parseVolumePricesJson(p.volumePricesJson).map((t) => ({
         minQty: String(t.minQty),
         price: String(t.price),
@@ -273,6 +347,7 @@ export function ProductsPage() {
       productType: form.productType,
       supplierId: form.supplierId || null,
       esGranel: form.esGranel,
+      printOnKitchenOrder: form.printOnKitchenOrder,
       volumePricesJson: JSON.stringify(
         form.volumeTiers
           .map((r) => ({ minQty: Number(r.minQty), price: Number(r.price) }))
@@ -310,6 +385,9 @@ export function ProductsPage() {
       setErr(e instanceof Error ? e.message : "Error");
     }
   }
+
+  const allVisibleLabeled = admin && list.length > 0 && list.every((p) => labelPick[p.id]);
+  const someVisibleLabeled = admin && list.some((p) => labelPick[p.id]);
 
   const tabBtn = (id: FormTab, label: string) => (
     <button
@@ -358,12 +436,13 @@ export function ProductsPage() {
           />
           <Select
             value={stockFilter}
-            onChange={(e) => setStockFilter(e.target.value as "" | "with" | "without")}
+            onChange={(e) => setStockFilter(e.target.value as "" | "with" | "without" | "low")}
             aria-label="Filtrar por existencia"
           >
             <option value="">Todas las existencias</option>
             <option value="with">Con existencia</option>
             <option value="without">Sin existencia</option>
+            <option value="low">Bajo mínimo (sugeridos)</option>
           </Select>
           <Select
             value={supplierId}
@@ -386,8 +465,54 @@ export function ProductsPage() {
               <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               Actualizar
             </Button>
+            {admin ? (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-[48px] sm:min-h-10"
+                  onClick={() =>
+                    setLabelPick((m) => ({
+                      ...m,
+                      ...Object.fromEntries(list.map((p) => [p.id, true])),
+                    }))
+                  }
+                >
+                  Marcar lista
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-[48px] sm:min-h-10"
+                  onClick={() => {
+                    setLabelPick((m) => {
+                      const n = { ...m };
+                      for (const p of list) delete n[p.id];
+                      return n;
+                    });
+                    setLabelsErr("");
+                  }}
+                >
+                  Quitar marcas
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-[48px] sm:min-h-10"
+                  onClick={() => void openLabelsPreview()}
+                >
+                  <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                  Etiquetas{labelSelectedCount ? ` (${labelSelectedCount})` : ""}
+                </Button>
+              </>
+            ) : null}
           </div>
         </div>
+        <p className="text-xs text-pf-muted">
+          Búsqueda multi-término: separar con coma (ej. <span className="font-mono">café, 200g</span>) para buscar
+          cualquiera de los términos.
+        </p>
+        {labelsErr ? <p className="text-xs font-medium text-red-600">{labelsErr}</p> : null}
         <p className="text-xs font-medium text-pf-text-soft">
           Mostrando <span className="font-bold text-pf-text">{list.length}</span> producto(s)
         </p>
@@ -398,9 +523,37 @@ export function ProductsPage() {
           <p className="p-4 text-center font-medium text-pf-muted">Cargando…</p>
         ) : (
           <div className="max-h-[min(520px,calc(100vh-15rem))] overflow-auto overscroll-contain rounded-2xl md:rounded-none">
-            <table className="w-full min-w-[980px] border-collapse text-sm">
+            <table className="w-full min-w-[1020px] border-collapse text-sm">
             <thead className="sticky top-0 z-[1]">
               <tr className="pf-table-thead text-left">
+                {admin ? (
+                  <th className="p-2 w-10 font-semibold">
+                    <input
+                      type="checkbox"
+                      title="Marcar o desmarcar todos los visibles"
+                      checked={allVisibleLabeled}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someVisibleLabeled && !allVisibleLabeled;
+                      }}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setLabelPick((m) => ({
+                            ...m,
+                            ...Object.fromEntries(list.map((p) => [p.id, true])),
+                          }));
+                        } else {
+                          setLabelPick((m) => {
+                            const n = { ...m };
+                            for (const p of list) delete n[p.id];
+                            return n;
+                          });
+                        }
+                        setLabelsErr("");
+                      }}
+                      className="h-4 w-4 rounded border-pf-border"
+                    />
+                  </th>
+                ) : null}
                 <th className="p-2 font-semibold">Código</th>
                 <th className="p-2 font-semibold">Descripción</th>
                 <th className="p-2 font-semibold">Und.</th>
@@ -422,6 +575,26 @@ export function ProductsPage() {
                   key={p.id}
                   className="pf-table-row pf-table-row-hoverable"
                 >
+                  {admin ? (
+                    <td className="p-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(labelPick[p.id])}
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setLabelPick((m) => {
+                            const n = { ...m };
+                            if (on) n[p.id] = true;
+                            else delete n[p.id];
+                            return n;
+                          });
+                          setLabelsErr("");
+                        }}
+                        aria-label={`Incluir ${p.name} en etiquetas`}
+                        className="h-4 w-4 rounded border-pf-border"
+                      />
+                    </td>
+                  ) : null}
                   <td className="p-2 font-mono text-xs">{p.sku}</td>
                   <td className="p-2 max-w-[220px]">
                     <span className={p.active ? "" : "text-pf-muted line-through"}>{p.name}</span>
@@ -577,12 +750,26 @@ export function ProductsPage() {
                   Venta a granel (cantidades decimales en venta táctil)
                 </span>
               </label>
-            ) : (
+            ) : null}
+            {form.productType !== "KIT" && form.productType !== "INSUMO" ? (
+              <label className="flex items-center gap-2 sm:col-span-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.printOnKitchenOrder}
+                  onChange={(e) => setForm((f) => ({ ...f, printOnKitchenOrder: e.target.checked }))}
+                  className="h-4 w-4 rounded border-pf-border"
+                />
+                <span className="text-sm font-medium text-pf-text-secondary">
+                  Incluir en impresión de orden cocina / bodega (preventa y cotización)
+                </span>
+              </label>
+            ) : null}
+            {form.productType === "KIT" ? (
               <p className="sm:col-span-2 text-xs text-pf-muted">
                 KIT / combo: precio e ISV de la línea; el inventario se descuenta de cada componente (solo productos tipo
                 PRODUCTO).
               </p>
-            )}
+            ) : null}
             <Field label="Nombre" className="sm:col-span-2">
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </Field>
@@ -663,6 +850,43 @@ export function ProductsPage() {
                   alt=""
                   className="max-h-32 rounded-lg border border-pf-border object-contain"
                 />
+              </div>
+            ) : null}
+            {admin && modal === "edit" && form.productType !== "KIT" ? (
+              <div className="sm:col-span-2 rounded-lg border border-pf-border bg-pf-surface-soft/80 p-3 space-y-2">
+                <p className="text-sm font-semibold text-pf-text">Existencia por bodega / ubicación</p>
+                {stockByLocLoading ? (
+                  <p className="text-xs text-pf-muted">Cargando…</p>
+                ) : stockByLoc.length === 0 ? (
+                  <p className="text-xs text-pf-muted">
+                    Sin desglose por ubicación. Use «Migrar existencias» en configuración avanzada del API o traslados
+                    para repartir stock entre bodegas.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-md border border-pf-border/80 bg-white/60">
+                    <table className="w-full min-w-[280px] text-xs">
+                      <thead>
+                        <tr className="border-b border-pf-border text-left text-pf-muted">
+                          <th className="p-2 font-semibold">Ubicación</th>
+                          <th className="p-2 font-semibold text-right">Cantidad</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockByLoc.map((r) => (
+                          <tr key={r.id} className="border-b border-pf-border/50">
+                            <td className="p-2">
+                              <span className="font-mono text-[11px]">{r.location.code}</span> — {r.location.name}
+                            </td>
+                            <td className="p-2 text-right font-medium tabular-nums">{r.qty}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-[11px] text-pf-muted">
+                  El total del catálogo («Existencia actual») debe coincidir con la suma de bodegas tras migrar.
+                </p>
               </div>
             ) : null}
             <p className="sm:col-span-2 text-xs text-pf-muted">

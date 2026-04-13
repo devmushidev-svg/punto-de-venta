@@ -291,6 +291,7 @@ export function NewSalePage() {
   const [terms, setTerms] = useState("CONTADO");
   const [paid, setPaid] = useState("");
   const [notes, setNotes] = useState("");
+  const [sellerName, setSellerName] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadingSale, setLoadingSale] = useState(false);
@@ -351,6 +352,12 @@ export function NewSalePage() {
   const pickLinePanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (isEditMode) return;
+    const label = user?.displayName?.trim() || user?.username?.trim() || "";
+    setSellerName(label);
+  }, [isEditMode, user?.displayName, user?.username]);
+
+  useEffect(() => {
     if (!token) return;
     if (isEditMode) return;
     setLoadedInvoiceNumber(null);
@@ -395,6 +402,12 @@ export function NewSalePage() {
         setTerms(sale.terms || "CONTADO");
         setPaid(String(sale.paid ?? 0));
         setNotes(sale.notes ?? "");
+        setSellerName(
+          (sale.sellerName && String(sale.sellerName).trim()) ||
+            user?.displayName?.trim() ||
+            user?.username?.trim() ||
+            ""
+        );
         setDocumentSaleDate(new Date(sale.saleDate));
         setLines(
           sale.lines.map((l) => ({
@@ -409,7 +422,7 @@ export function NewSalePage() {
       })
       .catch((e) => setErr(e instanceof Error ? e.message : "No se pudo cargar la venta"))
       .finally(() => setLoadingSale(false));
-  }, [token, isEditMode, editSaleId]);
+  }, [token, isEditMode, editSaleId, user?.displayName, user?.username]);
 
   const addProductById = useCallback(
     async (productId: string) => {
@@ -494,6 +507,18 @@ export function NewSalePage() {
     setCustomerAddress(c.address ?? "");
     setCustomerPhone(c.phone ?? "");
     setCustomerTaxId(c.taxId ?? "");
+    const dt = c.defaultPriceTier;
+    if (dt != null && dt >= 1 && dt <= 4) {
+      const tier = Math.trunc(dt);
+      setPriceTier(tier);
+      priceTierRef.current = tier;
+      setLines((prev) =>
+        prev.map((l) => ({
+          ...l,
+          unitPrice: resolveProductUnitPrice(l.product, l.qty, tier),
+        }))
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -516,6 +541,7 @@ export function NewSalePage() {
         const params = new URLSearchParams();
         if (productSearchQ.trim()) params.set("q", productSearchQ.trim());
         params.set("touch", "1");
+        params.set("forPos", "1");
         params.set("limit", "250");
         if (productInStockOnly) params.set("stock", "with");
         if (productSupplierId.trim()) params.set("supplierId", productSupplierId.trim());
@@ -843,7 +869,7 @@ export function NewSalePage() {
     let focusLineAfter: number | null = null;
     try {
       const list = await apiFetch<Product[]>(
-        `/api/products?q=${encodeURIComponent(raw)}&touch=1&limit=120`,
+        `/api/products?q=${encodeURIComponent(raw)}&touch=1&forPos=1&limit=120`,
         { token }
       );
       const key = raw.toLowerCase();
@@ -1023,6 +1049,7 @@ export function NewSalePage() {
           terms,
           priceTier,
           notes: notes.trim() || undefined,
+          sellerName: sellerName.trim() || undefined,
           paid: isCreditSaleTerm(terms) ? Number(paid) || 0 : undefined,
           saleDate: documentSaleDate.toISOString(),
           lines: lines
@@ -1057,6 +1084,7 @@ export function NewSalePage() {
           setLines([]);
           setSelectedLineIndex(null);
           setNotes("");
+          setSellerName(user?.displayName?.trim() || user?.username?.trim() || "");
           setPaid("");
           setTerms("CONTADO");
           setQuickAddCode("");
@@ -1096,11 +1124,14 @@ export function NewSalePage() {
       priceTier,
       paid,
       notes,
+      sellerName,
       documentSaleDate,
       isEditMode,
       editSaleId,
       navigate,
       showToast,
+      user?.displayName,
+      user?.username,
     ]
   );
 
@@ -1548,6 +1579,14 @@ export function NewSalePage() {
 
             {/* Notas y lista de precios (el total va en subtotal/impuesto y en la cinta) */}
             <div className="flex min-h-0 min-w-0 flex-col gap-0.5 xl:col-span-6">
+              <Field label="Vendedor (opc.)" className="min-w-0 shrink-0" compact>
+                <Input
+                  value={sellerName}
+                  onChange={(e) => setSellerName(e.target.value)}
+                  placeholder="Nombre en ticket / reportes"
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                />
+              </Field>
               <Field label="Notas (opc.)" className="min-w-0 shrink-0" compact>
                 <Input
                   ref={saleNotesRef}

@@ -9,6 +9,12 @@ import { Button, Card, Field, Input, Select, Textarea } from "../components/ui";
 import { formatDate, formatMoney } from "../lib/format";
 import type { ExpenseRow } from "../types";
 
+type ExpenseBookRow = {
+  id: string;
+  name: string;
+  categories: { id: string; name: string }[];
+};
+
 const CATEGORIES = [
   { value: "Servicios públicos", label: "Servicios públicos" },
   { value: "Alquiler", label: "Alquiler" },
@@ -38,6 +44,12 @@ export function ExpensesPage() {
   const [to, setTo] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [category, setCategory] = useState<string>(CATEGORIES[0].value);
+  const [expenseBooks, setExpenseBooks] = useState<ExpenseBookRow[]>([]);
+  const [bookId, setBookId] = useState("");
+  const [expenseCategoryId, setExpenseCategoryId] = useState("");
+  const [newBookName, setNewBookName] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [structureBusy, setStructureBusy] = useState(false);
   const [amount, setAmount] = useState("");
   const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
@@ -66,9 +78,27 @@ export function ExpensesPage() {
     void load();
   }, [load]);
 
+  const loadBooks = useCallback(async () => {
+    if (!token || !canView) return;
+    try {
+      const data = await apiFetch<ExpenseBookRow[]>("/api/expense-books", { token });
+      setExpenseBooks(data);
+    } catch {
+      setExpenseBooks([]);
+    }
+  }, [token, canView]);
+
+  useEffect(() => {
+    void loadBooks();
+  }, [loadBooks]);
+
   async function submit() {
     if (!token || !canRegister) return;
     setErr("");
+    if (bookId && !expenseCategoryId) {
+      setErr("Elija una categoría del libro administrativo.");
+      return;
+    }
     const a = Number(amount);
     if (!Number.isFinite(a) || a <= 0) {
       setErr("Indique un monto válido mayor a cero.");
@@ -96,6 +126,52 @@ export function ExpensesPage() {
     }
   }
 
+  async function addBook() {
+    if (!token || !canRegister) return;
+    const n = newBookName.trim();
+    if (!n) {
+      setErr("Indique el nombre del libro.");
+      return;
+    }
+    setStructureBusy(true);
+    setErr("");
+    try {
+      await apiFetch("/api/expense-books", { method: "POST", body: JSON.stringify({ name: n }), token });
+      setNewBookName("");
+      await loadBooks();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error");
+    } finally {
+      setStructureBusy(false);
+    }
+  }
+
+  async function addCategoryToBook() {
+    if (!token || !canRegister || !bookId) return;
+    const n = newCategoryName.trim();
+    if (!n) {
+      setErr("Indique el nombre de la categoría.");
+      return;
+    }
+    setStructureBusy(true);
+    setErr("");
+    try {
+      await apiFetch(`/api/expense-books/${bookId}/categories`, {
+        method: "POST",
+        body: JSON.stringify({ name: n }),
+        token,
+      });
+      setNewCategoryName("");
+      await loadBooks();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error");
+    } finally {
+      setStructureBusy(false);
+    }
+  }
+
+  const categoriesForBook = expenseBooks.find((b) => b.id === bookId)?.categories ?? [];
+
   if (!canView) {
     return <Navigate to="/" replace />;
   }
@@ -122,43 +198,110 @@ export function ExpensesPage() {
       </div>
 
       {canRegister ? (
-      <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-rose-50/20 to-violet-50/25 p-4 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm md:p-5">
-        <div className="flex items-center gap-2 text-stone-800">
-          <Receipt className="h-5 w-5 shrink-0 text-rose-600/80" strokeWidth={2} aria-hidden />
-          <h2 className="text-lg font-bold text-stone-900">Registrar gasto</h2>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Categoría">
-            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Monto">
-            <Input
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-            />
-          </Field>
-          <Field label="Fecha">
-            <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} />
-          </Field>
-          <Field label="Notas" className="sm:col-span-2 lg:col-span-4">
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
-          </Field>
-        </div>
-        {err ? (
-          <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
-        ) : null}
-        <Button type="button" className="min-h-[52px] w-full text-base shadow-lg sm:w-auto" onClick={() => void submit()} disabled={busy}>
-          Guardar gasto
-        </Button>
-      </Card>
+        <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-rose-50/20 to-violet-50/25 p-4 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm md:p-5">
+          <div className="flex items-center gap-2 text-stone-800">
+            <Receipt className="h-5 w-5 shrink-0 text-rose-600/80" strokeWidth={2} aria-hidden />
+            <h2 className="text-lg font-bold text-stone-900">Libros y categorías</h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Nuevo libro">
+              <Input value={newBookName} onChange={(e) => setNewBookName(e.target.value)} placeholder="Ej: Operaciones" />
+            </Field>
+            <Button type="button" variant="secondary" className="min-h-11 self-end" disabled={structureBusy} onClick={() => void addBook()}>
+              Crear libro
+            </Button>
+            <Field label="Libro (para nueva categoría)">
+              <Select
+                value={bookId}
+                onChange={(e) => {
+                  setBookId(e.target.value);
+                  setExpenseCategoryId("");
+                }}
+              >
+                <option value="">—</option>
+                {expenseBooks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Nombre categoría">
+              <Input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Ej: Combustible" />
+            </Field>
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11 self-end sm:col-span-2"
+              disabled={structureBusy || !bookId}
+              onClick={() => void addCategoryToBook()}
+            >
+              Agregar categoría al libro
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      {canRegister ? (
+        <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-rose-50/20 to-violet-50/25 p-4 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm md:p-5">
+          <div className="flex items-center gap-2 text-stone-800">
+            <Receipt className="h-5 w-5 shrink-0 text-rose-600/80" strokeWidth={2} aria-hidden />
+            <h2 className="text-lg font-bold text-stone-900">Registrar gasto</h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Libro administrativo (opc.)">
+              <Select
+                value={bookId}
+                onChange={(e) => {
+                  setBookId(e.target.value);
+                  setExpenseCategoryId("");
+                }}
+              >
+                <option value="">— Lista rápida —</option>
+                {expenseBooks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={bookId ? "Categoría del libro" : "Categoría rápida"}>
+              {bookId ? (
+                <Select value={expenseCategoryId} onChange={(e) => setExpenseCategoryId(e.target.value)}>
+                  <option value="">Elija…</option>
+                  {categoriesForBook.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+                  {CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Monto">
+              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+            </Field>
+            <Field label="Fecha">
+              <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} />
+            </Field>
+            <Field label="Notas" className="sm:col-span-2 lg:col-span-4">
+              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
+            </Field>
+          </div>
+          {err ? (
+            <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
+          ) : null}
+          <Button type="button" className="min-h-[52px] w-full text-base shadow-lg sm:w-auto" onClick={() => void submit()} disabled={busy}>
+            Guardar gasto
+          </Button>
+        </Card>
       ) : null}
 
       <Card className="pf-glass-card-panel space-y-3 p-4 md:p-5">
@@ -203,6 +346,7 @@ export function ExpensesPage() {
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-stone-200/80 bg-gradient-to-r from-rose-50/90 via-pf-primary-soft/40 to-violet-50/75 text-left text-xs font-bold text-stone-600 shadow-sm backdrop-blur-md">
               <th className="p-3">Fecha</th>
+              <th className="p-3">Libro</th>
               <th className="p-3">Categoría</th>
               <th className="p-3 text-right">Monto</th>
               <th className="p-3">Usuario</th>
@@ -212,13 +356,13 @@ export function ExpensesPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-pf-muted">
+                <td colSpan={6} className="p-6 text-center text-pf-muted">
                   Cargando…
                 </td>
               </tr>
             ) : list.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-pf-muted">
+                <td colSpan={6} className="p-6 text-center text-pf-muted">
                   Sin gastos en el rango.
                 </td>
               </tr>
@@ -226,7 +370,8 @@ export function ExpensesPage() {
               list.map((r) => (
                 <tr key={r.id} className="border-b border-stone-100/90 transition hover:bg-rose-50/35">
                   <td className="p-3 whitespace-nowrap">{formatDate(r.expenseDate)}</td>
-                  <td className="p-3">{r.category}</td>
+                  <td className="p-3 text-pf-muted">{r.book?.name ?? "—"}</td>
+                  <td className="p-3">{r.expenseCategory?.name ?? r.category}</td>
                   <td className="p-3 text-right font-medium tabular-nums">{formatMoney(sym, r.amount)}</td>
                   <td className="p-3 text-pf-muted">{r.user.displayName}</td>
                   <td className="p-3 text-pf-muted max-w-[220px] truncate" title={r.notes ?? ""}>

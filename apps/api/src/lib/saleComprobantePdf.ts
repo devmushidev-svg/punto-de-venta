@@ -9,9 +9,11 @@ export type SaleComprobanteModel = Sale & {
 
 type ComprobanteCfg = { title?: string; showSku?: boolean };
 type TicketCfg = { headerLine?: string; footerLine?: string; showTaxBreakdown?: boolean };
+type SarCfg = { footerSar?: string };
 
-function parseInvoice(invoice: Record<string, unknown>): { comp: ComprobanteCfg; ticket: TicketCfg } {
+function parseInvoice(invoice: Record<string, unknown>): { comp: ComprobanteCfg; ticket: TicketCfg; sar: SarCfg } {
   const ticket = (invoice.ticket as TicketCfg) ?? {};
+  const sar = (invoice.sar as SarCfg) ?? {};
   const c = invoice.comprobante;
   const comp: ComprobanteCfg = {};
   if (c && typeof c === "object") {
@@ -19,7 +21,7 @@ function parseInvoice(invoice: Record<string, unknown>): { comp: ComprobanteCfg;
     if (typeof o.title === "string") comp.title = o.title;
     if (typeof o.showSku === "boolean") comp.showSku = o.showSku;
   }
-  return { comp, ticket };
+  return { comp, ticket, sar };
 }
 
 function money(sym: string, n: number): string {
@@ -72,7 +74,7 @@ export async function buildSaleComprobantePdf(
   sale: SaleComprobanteModel,
   invoiceJson: Record<string, unknown>
 ): Promise<Buffer> {
-  const { comp, ticket } = parseInvoice(invoiceJson);
+  const { comp, ticket, sar } = parseInvoice(invoiceJson);
   const title = comp.title?.trim() || "Comprobante de venta";
   const showSku = comp.showSku !== false;
   const showTax = ticket.showTaxBreakdown !== false;
@@ -230,6 +232,16 @@ export async function buildSaleComprobantePdf(
       width: doc.page.width - 96,
       align: "center",
     });
+
+    const sarFoot = sar.footerSar?.trim();
+    if (sarFoot) {
+      doc.moveDown(0.75);
+      ensureSpace(28);
+      doc.fontSize(7).fillColor("#555555").text(safeLine(sarFoot, 500), 48, doc.y, {
+        width: doc.page.width - 96,
+        align: "center",
+      });
+    }
 
     doc.end();
   });

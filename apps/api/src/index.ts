@@ -24,6 +24,8 @@ import {
   replaceProductKitLines,
   type KitLineInput,
 } from "./lib/kit.js";
+import { cashMovementDelta, isCashMovementCategory } from "./lib/cashMovementMath.js";
+import { adjustProductStock, migrateOrgProductStocks } from "./lib/productStockLocation.js";
 import { normalizeVolumePricesPayload, resolveProductUnitPrice } from "./lib/volumePrice.js";
 import { getProductMovements } from "./lib/productMovements.js";
 import { buildSaleComprobantePdf } from "./lib/saleComprobantePdf.js";
@@ -39,9 +41,18 @@ import {
 import {
   applyTransferReceiveStock,
   applyTransferSendStock,
+  applyTransferUndoSendStock,
   assertStockForTransferSend,
   validateTransferLineProducts,
 } from "./lib/stockTransfer.js";
+import {
+  buildImportTemplateBuffer,
+  importCustomersFromExcel,
+  importProductsFromExcel,
+  importSuppliersFromExcel,
+  type ImportTemplateKind,
+} from "./lib/excelImport.js";
+import { mergeMasterFromBackup } from "./lib/backupImportMaster.js";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
 
@@ -472,6 +483,7 @@ api.get("/products", async (c) => {
   const stock = c.req.query("stock")?.trim();
   const supplierId = c.req.query("supplierId")?.trim();
   const touch = c.req.query("touch")?.trim();
+  const forPos = c.req.query("forPos")?.trim();
 
   const where: {
     organizationId: string;
@@ -480,29 +492,53 @@ api.get("/products", async (c) => {
     supplierId?: string;
     active?: boolean;
     productType?: { not: string };
+    id?: { in: string[] };
   } = { organizationId: jwt.orgId };
 
-  if (touch === "1") {
+  if (touch === "1" || forPos === "1") {
     where.active = true;
     where.productType = { not: "INSUMO" };
   }
 
   if (q) {
-    where.OR = [
-      { name: { contains: q } },
-      { sku: { contains: q } },
-      { barcode: { contains: q } },
-      { quickCode: { contains: q } },
-    ];
+    const tokens = q
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.length > 1) {
+      where.OR = tokens.flatMap((token) => [
+        { name: { contains: token } },
+        { sku: { contains: token } },
+        { barcode: { contains: token } },
+        { quickCode: { contains: token } },
+      ]);
+    } else {
+      const term = tokens[0] ?? q;
+      where.OR = [
+        { name: { contains: term } },
+        { sku: { contains: term } },
+        { barcode: { contains: term } },
+        { quickCode: { contains: term } },
+      ];
+    }
   }
   if (stock === "with") where.stock = { gt: 0 };
   if (stock === "without") where.stock = { lte: 0 };
+  if (stock === "low") {
+    const cand = await prisma.product.findMany({
+      where: { organizationId: jwt.orgId, active: true },
+      select: { id: true, stock: true, minStock: true },
+      take: 12000,
+    });
+    const ids = cand.filter((p) => p.stock <= p.minStock).map((p) => p.id);
+    where.id = { in: ids.length ? ids : ["__none__"] };
+  }
   if (supplierId) where.supplierId = supplierId;
 
   const rawLimit = Number(c.req.query("limit"));
   const parsedLimit = Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 5000;
   const limit = Math.min(8000, Math.max(1, parsedLimit));
-  const take = touch === "1" ? 500 : limit;
+  const take = touch === "1" || forPos === "1" ? 500 : limit;
 
   const products = await prisma.product.findMany({
     where,
@@ -512,6 +548,49 @@ api.get("/products", async (c) => {
   });
   return c.json(products);
 });
+
+api.get("/products/stock-by-location", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const productId = c.req.query("productId")?.trim();
+  if (!productId) return c.json({ error: "productId requerido" }, 400);
+  const rows = await prisma.productStock.findMany({
+    where: { organizationId: jwt.orgId, productId },
+    include: { location: { select: { id: true, code: true, name: true } } },
+  });
+  return c.json(rows);
+});
+
+api.get("/products/labels/preview", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const ids = (c.req.query("ids") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!ids.length) return c.json({ error: "ids requerido" }, 400);
+  const products = await prisma.product.findMany({
+    where: { organizationId: jwt.orgId, id: { in: ids.slice(0, 200) } },
+    select: { sku: true, name: true, barcode: true, price: true },
+  });
+  const rows = products
+    .map(
+      (p) =>
+ `<div class="lbl"><div class="bc">${p.barcode ?? p.sku}</div><strong>${escapeHtml(p.name)}</strong><div>${p.sku}</div><div>L ${p.price.toFixed(2)}</div></div>`
+    )
+    .join("");
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
+    body{font-family:system-ui,sans-serif;margin:12px}.lbl{border:1px solid #ccc;padding:8px;margin:8px;width:200px;display:inline-block;vertical-align:top}
+    .bc{font-family:monospace;font-size:11px}</style></head><body>${rows}<script>window.onload=function(){window.print()}</script></body></html>`;
+  c.header("Content-Type", "text/html; charset=utf-8");
+  return c.body(html);
+});
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 api.get("/products/:id/movements", async (c) => {
   const jwt = c.get("jwt");
@@ -560,6 +639,7 @@ api.post("/products", requireAdmin, async (c) => {
     esGranel?: boolean;
     volumePricesJson?: unknown;
     kitLines?: KitLineInput[];
+    printOnKitchenOrder?: boolean;
   }>();
   const sku = body.sku?.trim();
   if (!sku || !body.name?.trim()) return c.json({ error: "SKU y nombre requeridos" }, 400);
@@ -597,6 +677,7 @@ api.post("/products", requireAdmin, async (c) => {
           productType,
           supplierId: body.supplierId || null,
           esGranel: Boolean(body.esGranel),
+          printOnKitchenOrder: body.printOnKitchenOrder !== false,
           volumePricesJson: normalizeVolumePricesPayload(body.volumePricesJson ?? []),
         },
       });
@@ -649,6 +730,7 @@ api.patch("/products/:id", requireAdmin, async (c) => {
   for (const k of str) if (body[k] !== undefined) data[k] = body[k];
   if (body.active !== undefined) data.active = Boolean(body.active);
   if (body.esGranel !== undefined) data.esGranel = Boolean(body.esGranel);
+  if (body.printOnKitchenOrder !== undefined) data.printOnKitchenOrder = Boolean(body.printOnKitchenOrder);
   if (body.supplierId !== undefined) data.supplierId = body.supplierId === "" ? null : body.supplierId;
   if (body.volumePricesJson !== undefined) {
     data.volumePricesJson = normalizeVolumePricesPayload(body.volumePricesJson);
@@ -733,8 +815,13 @@ api.post("/customers", async (c) => {
     phone?: string;
     taxId?: string;
     notes?: string;
+    defaultPriceTier?: number | null;
   }>();
   if (!body.name?.trim()) return c.json({ error: "Nombre requerido" }, 400);
+  const tier =
+    body.defaultPriceTier == null
+      ? null
+      : Math.min(4, Math.max(1, Math.trunc(Number(body.defaultPriceTier))));
   const cust = await prisma.customer.create({
     data: {
       organizationId: jwt.orgId,
@@ -744,29 +831,28 @@ api.post("/customers", async (c) => {
       phone: body.phone,
       taxId: body.taxId,
       notes: body.notes,
+      defaultPriceTier: tier,
     },
   });
   return c.json(cust, 201);
 });
 
-async function restoreStockForSaleLine(tx: Prisma.TransactionClient, line: { productId: string; qty: number }) {
+async function restoreStockForSaleLine(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  line: { productId: string; qty: number }
+) {
   const prod = await tx.product.findUnique({ where: { id: line.productId } });
   if (!prod) throw new Error("PRODUCT_NOT_FOUND");
   if (prod.productType === "SERVICIO") return;
   if (prod.productType === "KIT") {
     const kitLines = await tx.productKitLine.findMany({ where: { kitProductId: prod.id } });
     for (const kl of kitLines) {
-      await tx.product.update({
-        where: { id: kl.componentProductId },
-        data: { stock: { increment: line.qty * kl.qty } },
-      });
+      await adjustProductStock(tx, orgId, kl.componentProductId, line.qty * kl.qty);
     }
     return;
   }
-  await tx.product.update({
-    where: { id: line.productId },
-    data: { stock: { increment: line.qty } },
-  });
+  await adjustProductStock(tx, orgId, line.productId, line.qty);
 }
 
 api.patch("/customers/:id", async (c) => {
@@ -776,6 +862,11 @@ api.patch("/customers/:id", async (c) => {
   const data: Record<string, unknown> = {};
   for (const k of ["code", "name", "address", "phone", "taxId", "notes"]) {
     if (body[k] !== undefined) data[k] = body[k];
+  }
+  if (body.defaultPriceTier !== undefined) {
+    const t = body.defaultPriceTier;
+    data.defaultPriceTier =
+      t === null ? null : Math.min(4, Math.max(1, Math.trunc(Number(t))));
   }
   const r = await prisma.customer.updateMany({ where: { id, organizationId: jwt.orgId }, data });
   if (r.count === 0) return c.json({ error: "No encontrado" }, 404);
@@ -828,6 +919,28 @@ api.patch("/suppliers/:id", requireAdmin, async (c) => {
   if (r.count === 0) return c.json({ error: "No encontrado" }, 404);
   return c.json(await prisma.supplier.findUnique({ where: { id } }));
 });
+
+/** Fecha límite de autorización SAR (solo fecha YYYY-MM-DD, fin de día local). */
+function endOfYmdDate(ymd: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (y < 1900 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const end = new Date(y, mo - 1, d, 23, 59, 59, 999);
+  return Number.isNaN(end.getTime()) ? null : end;
+}
+
+function assertSarRangeValidUntil(invParsed: Record<string, unknown>, saleDate: Date) {
+  const sar = invParsed.sar as Record<string, unknown> | undefined;
+  if (!sar || typeof sar !== "object") return;
+  const raw = sar.rangeValidUntil;
+  if (typeof raw !== "string" || !raw.trim()) return;
+  const limit = endOfYmdDate(raw);
+  if (!limit) return;
+  if (saleDate.getTime() > limit.getTime()) throw new Error("SAR_AUTH_EXPIRED");
+}
 
 api.post("/sales", async (c) => {
   const jwt = c.get("jwt");
@@ -899,9 +1012,37 @@ api.post("/sales", async (c) => {
     const total = subtotal + tax;
     const paid = resolveSalePaid(total, terms, body.paid);
 
-    const count = await tx.sale.count({ where: { organizationId: jwt.orgId } });
-    const invoiceNumber = String(count + 1).padStart(6, "0");
+    const stSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+    const invParsed = JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>;
     const saleDateResolved = parseClientSaleDate(body.saleDate) ?? new Date();
+    assertSarRangeValidUntil(invParsed, saleDateResolved);
+
+    let invoiceNumber: string;
+    const sar = invParsed.sar as Record<string, unknown> | undefined;
+    if (sar && sar.autoNumber === true) {
+      const next = Number(sar.nextNum ?? 1);
+      const end = Number(sar.rangeEnd ?? 99999999);
+      if (next > end) throw new Error("SAR_RANGE_EXHAUSTED");
+      const ser = String(sar.series ?? "").trim();
+      invoiceNumber = ser ? `${ser}-${String(next).padStart(8, "0")}` : String(next).padStart(8, "0");
+      sar.nextNum = next + 1;
+      if (stSet) {
+        await tx.organizationSettings.update({
+          where: { organizationId: jwt.orgId },
+          data: { invoiceJson: JSON.stringify({ ...invParsed, sar }) },
+        });
+      } else {
+        await tx.organizationSettings.create({
+          data: {
+            organizationId: jwt.orgId,
+            invoiceJson: JSON.stringify({ ...invParsed, sar }),
+          },
+        });
+      }
+    } else {
+      const count = await tx.sale.count({ where: { organizationId: jwt.orgId } });
+      invoiceNumber = String(count + 1).padStart(6, "0");
+    }
 
     const sale = await tx.sale.create({
       data: {
@@ -931,13 +1072,10 @@ api.post("/sales", async (c) => {
       const prod = await tx.product.findUnique({ where: { id: line.productId } });
       if (prod?.productType === "SERVICIO") continue;
       if (prod?.productType === "KIT") {
-        await decrementStockForKitSale(tx, prod.id, line.qty);
+        await decrementStockForKitSale(tx, jwt.orgId, prod.id, line.qty);
         continue;
       }
-      await tx.product.update({
-        where: { id: line.productId },
-        data: { stock: { decrement: line.qty } },
-      });
+      await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
     }
 
     return sale;
@@ -951,6 +1089,15 @@ api.post("/sales", async (c) => {
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se venden en POS" }, 400);
+    if (msg === "SAR_RANGE_EXHAUSTED") {
+      return c.json({ error: "Rango de facturación SAR agotado; actualice configuración" }, 400);
+    }
+    if (msg === "SAR_AUTH_EXPIRED") {
+      return c.json(
+        { error: "Fecha de venta posterior al límite de autorización SAR; revise configuración o la fecha del documento" },
+        400
+      );
+    }
     throw e;
   }
 });
@@ -1031,6 +1178,7 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
     customerId?: string | null;
     terms?: string;
     notes?: string;
+    sellerName?: string | null;
     priceTier?: number;
     paid?: number;
     saleDate?: string;
@@ -1063,7 +1211,7 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       if (existing.receivableSurcharges.length > 0) throw new Error("SALE_HAS_SURCHARGES");
 
       for (const oldLine of existing.lines) {
-        await restoreStockForSaleLine(tx, { productId: oldLine.productId, qty: oldLine.qty });
+        await restoreStockForSaleLine(tx, jwt.orgId, { productId: oldLine.productId, qty: oldLine.qty });
       }
 
       let subtotal = 0;
@@ -1112,6 +1260,18 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       const paidSeed = body.paid ?? existing.paid;
       const paid = resolveSalePaid(total, terms, paidSeed);
 
+      const stSetPatch = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+      const invParsedPatch = JSON.parse(stSetPatch?.invoiceJson || "{}") as Record<string, unknown>;
+      const finalSaleDate = saleDatePatch ?? existing.saleDate;
+      assertSarRangeValidUntil(invParsedPatch, finalSaleDate);
+
+      const sellerPatch =
+        body.sellerName === undefined
+          ? undefined
+          : body.sellerName === null || body.sellerName === ""
+            ? null
+            : String(body.sellerName).trim().slice(0, 120) || null;
+
       await tx.saleLine.deleteMany({ where: { saleId: existing.id } });
       await tx.sale.update({
         where: { id: existing.id },
@@ -1119,6 +1279,7 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
           customerId: body.customerId || null,
           terms,
           notes: body.notes,
+          ...(sellerPatch !== undefined ? { sellerName: sellerPatch } : {}),
           priceTier,
           subtotal,
           tax,
@@ -1133,13 +1294,10 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         const prod = await tx.product.findUnique({ where: { id: line.productId } });
         if (prod?.productType === "SERVICIO") continue;
         if (prod?.productType === "KIT") {
-          await decrementStockForKitSale(tx, prod.id, line.qty);
+          await decrementStockForKitSale(tx, jwt.orgId, prod.id, line.qty);
           continue;
         }
-        await tx.product.update({
-          where: { id: line.productId },
-          data: { stock: { decrement: line.qty } },
-        });
+        await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
       }
 
       return tx.sale.findUnique({
@@ -1164,6 +1322,12 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se venden en POS" }, 400);
+    if (msg === "SAR_AUTH_EXPIRED") {
+      return c.json(
+        { error: "Fecha de venta posterior al límite de autorización SAR; revise configuración o la fecha del documento" },
+        400
+      );
+    }
     throw e;
   }
 });
@@ -1252,12 +1416,10 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
     });
 
     for (const line of linesData) {
+      await adjustProductStock(tx, jwt.orgId, line.productId, line.qty);
       await tx.product.update({
         where: { id: line.productId },
-        data: {
-          stock: { increment: line.qty },
-          cost: line.unitCost,
-        },
+        data: { cost: line.unitCost },
       });
     }
 
@@ -1355,6 +1517,15 @@ const emptyCashDiary = () => ({
   creditoPendiente: 0,
   ventasTotal: 0,
   gastosSesion: 0,
+  movementNet: 0,
+  movements: [] as {
+    id: string;
+    category: string;
+    amount: number;
+    hasVoucher: boolean;
+    note: string | null;
+    createdAt: Date;
+  }[],
   efectivoCajaSugerido: 0,
   cashDifference: null as number | null,
   sales: [] as {
@@ -1427,8 +1598,22 @@ async function buildCashDiaryForSession(
     .filter((s) => isCreditSaleTerm(s.terms))
     .reduce((acc, s) => acc + s.paid, 0);
 
+  const movements = await prisma.cashMovement.findMany({
+    where: { sessionId: session.id },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      category: true,
+      amount: true,
+      hasVoucher: true,
+      note: true,
+      createdAt: true,
+    },
+  });
+  const movementNet = movements.reduce((acc, m) => acc + cashMovementDelta(m.category, m.amount), 0);
+
   const efectivoCajaSugerido =
-    session.openingCash + efectivoVentasTotal + cobradoEfectivoCredito - gastosSesion;
+    session.openingCash + efectivoVentasTotal + cobradoEfectivoCredito - gastosSesion + movementNet;
 
   return {
     session: {
@@ -1448,6 +1633,8 @@ async function buildCashDiaryForSession(
     creditoPendiente: creditoTotal - creditoCobrado,
     ventasTotal,
     gastosSesion,
+    movementNet,
+    movements,
     efectivoCajaSugerido,
     cashDifference:
       session.closingCash !== null
@@ -1479,6 +1666,128 @@ api.get("/cash-sessions/:id/diary", async (c) => {
   const end = session.closedAt ?? new Date();
   const payload = await buildCashDiaryForSession(jwt.orgId, jwt.sub, session, end);
   return c.json(payload);
+});
+
+function dayBounds(d: Date): { start: Date; end: Date } {
+  const start = new Date(d);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(d);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+api.get("/cash-diary", async (c) => {
+  const jwt = c.get("jwt");
+  const targetUserId = c.req.query("userId")?.trim() || jwt.sub;
+  if (targetUserId !== jwt.sub) {
+    const me = await prisma.user.findFirst({
+      where: { id: jwt.sub, organizationId: jwt.orgId },
+      select: { role: true },
+    });
+    if (me?.role !== "admin") return c.json({ error: "Solo administradores" }, 403);
+  }
+  const dateStr = c.req.query("date")?.trim();
+  const day = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+  const { start, end } = dayBounds(day);
+  const session = await prisma.cashSession.findFirst({
+    where: {
+      organizationId: jwt.orgId,
+      userId: targetUserId,
+      openedAt: { lte: end },
+      OR: [{ closedAt: null }, { closedAt: { gte: start } }],
+    },
+    orderBy: { openedAt: "desc" },
+  });
+  if (!session) return c.json(emptyCashDiary());
+  const endTime =
+    session.closedAt && session.closedAt <= end && session.closedAt >= session.openedAt
+      ? session.closedAt
+      : new Date(Math.min(end.getTime(), Date.now()));
+  const payload = await buildCashDiaryForSession(jwt.orgId, targetUserId, session, endTime);
+  return c.json(payload);
+});
+
+api.get("/cash-diary/admin-summary", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const dateStr = c.req.query("date")?.trim() ?? new Date().toISOString().slice(0, 10);
+  const { start, end } = dayBounds(new Date(dateStr + "T12:00:00"));
+  const sessions = await prisma.cashSession.findMany({
+    where: {
+      organizationId: jwt.orgId,
+      openedAt: { gte: start, lte: end },
+    },
+    include: { user: { select: { id: true, displayName: true, username: true } } },
+    orderBy: { openedAt: "asc" },
+  });
+  const rows: unknown[] = [];
+  let sumVentas = 0;
+  let sumEfectivo = 0;
+  for (const s of sessions) {
+    const endT = s.closedAt ?? new Date();
+    const d = await buildCashDiaryForSession(jwt.orgId, s.userId, s, endT);
+    sumVentas += d.ventasTotal;
+    sumEfectivo += d.efectivoCajaSugerido;
+    rows.push({
+      sessionId: s.id,
+      user: s.user,
+      openedAt: s.openedAt,
+      closedAt: s.closedAt,
+      ventasTotal: d.ventasTotal,
+      efectivoCajaSugerido: d.efectivoCajaSugerido,
+      saleCount: d.saleCount,
+    });
+  }
+  return c.json({ date: dateStr, sessions: rows, totals: { ventasTotal: sumVentas, efectivoCajaSugerido: sumEfectivo } });
+});
+
+api.post("/cash-movements", async (c) => {
+  const jwt = c.get("jwt");
+  const body = await c.req.json<{
+    sessionId: string;
+    category: string;
+    amount: number;
+    hasVoucher?: boolean;
+    note?: string;
+  }>();
+  if (!body.sessionId || !isCashMovementCategory(body.category)) {
+    return c.json({ error: "Sesión y categoría válida requeridas" }, 400);
+  }
+  const amt = Number(body.amount);
+  if (!Number.isFinite(amt) || amt <= 0) return c.json({ error: "Monto inválido" }, 400);
+  const sess = await prisma.cashSession.findFirst({
+    where: { id: body.sessionId, organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
+  });
+  if (!sess) return c.json({ error: "Sesión no encontrada o cerrada" }, 404);
+  const row = await prisma.cashMovement.create({
+    data: {
+      organizationId: jwt.orgId,
+      sessionId: sess.id,
+      userId: jwt.sub,
+      category: body.category,
+      amount: amt,
+      hasVoucher: !!body.hasVoucher,
+      note: typeof body.note === "string" ? body.note.trim().slice(0, 500) || null : null,
+    },
+  });
+  return c.json(row, 201);
+});
+
+api.post("/admin/migrate-product-stock", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const r = await prisma.$transaction((tx) => migrateOrgProductStocks(tx, jwt.orgId));
+  return c.json({ ok: true, ...r });
+});
+
+api.post("/auth/verify-password", async (c) => {
+  const jwt = c.get("jwt");
+  const body = await c.req.json<{ password: string }>();
+  const pw = body.password ?? "";
+  if (!pw) return c.json({ ok: false }, 400);
+  const user = await prisma.user.findFirst({
+    where: { id: jwt.sub, organizationId: jwt.orgId },
+  });
+  if (!user || !(await verifyPassword(pw, user.passwordHash))) return c.json({ ok: false }, 401);
+  return c.json({ ok: true });
 });
 
 api.get("/reports/sales-summary", requirePermission(PERMISSION_KEYS.REPORTS_VIEW), async (c) => {
@@ -1670,7 +1979,7 @@ api.post("/accounts/receivable/:saleId/surcharge", requirePermission(PERMISSION_
 api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.ACCOUNTS_RECEIVABLE), async (c) => {
   const jwt = c.get("jwt");
   const saleId = c.req.param("saleId");
-  const body = await c.req.json<{ amount: number }>();
+  const body = await c.req.json<{ amount: number; registerCashMovement?: boolean }>();
   const amount = Number(body.amount);
   if (!amount || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   const sale = await prisma.sale.findFirst({
@@ -1681,9 +1990,29 @@ api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.A
   const surchargesTotal = sale.receivableSurcharges.reduce((a, x) => a + x.amount, 0);
   const balance = sale.total + surchargesTotal - sale.paid;
   if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
-  const updated = await prisma.sale.update({
-    where: { id: saleId },
-    data: { paid: { increment: amount } },
+  const updated = await prisma.$transaction(async (tx) => {
+    const u = await tx.sale.update({
+      where: { id: saleId },
+      data: { paid: { increment: amount } },
+    });
+    if (body.registerCashMovement) {
+      const sess = await tx.cashSession.findFirst({
+        where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
+      });
+      if (sess) {
+        await tx.cashMovement.create({
+          data: {
+            organizationId: jwt.orgId,
+            sessionId: sess.id,
+            userId: jwt.sub,
+            category: "PAGO_ABONO",
+            amount,
+            note: `Abono CxC ${sale.invoiceNumber ?? saleId}`,
+          },
+        });
+      }
+    }
+    return u;
   });
   return c.json(updated);
 });
@@ -1733,7 +2062,7 @@ api.post("/accounts/payable/:purchaseId/surcharge", requirePermission(PERMISSION
 api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.ACCOUNTS_PAYABLE), async (c) => {
   const jwt = c.get("jwt");
   const purchaseId = c.req.param("purchaseId");
-  const body = await c.req.json<{ amount: number }>();
+  const body = await c.req.json<{ amount: number; registerCashMovement?: boolean }>();
   const amount = Number(body.amount);
   if (!amount || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   const purchase = await prisma.purchase.findFirst({
@@ -1744,9 +2073,29 @@ api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.
   const surchargesTotal = purchase.payableSurcharges.reduce((a, x) => a + x.amount, 0);
   const balance = purchase.total + surchargesTotal - purchase.paid;
   if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
-  const updated = await prisma.purchase.update({
-    where: { id: purchaseId },
-    data: { paid: { increment: amount } },
+  const updated = await prisma.$transaction(async (tx) => {
+    const u = await tx.purchase.update({
+      where: { id: purchaseId },
+      data: { paid: { increment: amount } },
+    });
+    if (body.registerCashMovement) {
+      const sess = await tx.cashSession.findFirst({
+        where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
+      });
+      if (sess) {
+        await tx.cashMovement.create({
+          data: {
+            organizationId: jwt.orgId,
+            sessionId: sess.id,
+            userId: jwt.sub,
+            category: "GASTO",
+            amount,
+            note: `Pago CxP compra ${purchase.reference ?? purchaseId}`,
+          },
+        });
+      }
+    }
+    return u;
   });
   return c.json(updated);
 });
@@ -1779,9 +2128,14 @@ api.post("/quotes", async (c) => {
     customerId?: string | null;
     notes?: string;
     validUntil?: string | null;
+    serviceLabel?: string | null;
     lines: { productId: string; qty: number; unitPrice?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  const serviceLabel =
+    body.serviceLabel === undefined || body.serviceLabel === null
+      ? null
+      : String(body.serviceLabel).trim().slice(0, 120) || null;
 
   let quote;
   try {
@@ -1819,6 +2173,7 @@ api.post("/quotes", async (c) => {
         total,
         notes: body.notes,
         validUntil: body.validUntil ? new Date(body.validUntil) : null,
+        serviceLabel,
         lines: { create: linesData },
       },
       include: { lines: { include: { product: true } }, customer: true },
@@ -1841,9 +2196,16 @@ api.patch("/quotes/:id", async (c) => {
     customerId?: string | null;
     notes?: string | null;
     validUntil?: string | null;
+    serviceLabel?: string | null;
     lines: { productId: string; qty: number; unitPrice?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  const serviceLabelPatch =
+    body.serviceLabel === undefined
+      ? undefined
+      : body.serviceLabel === null || body.serviceLabel === ""
+        ? null
+        : String(body.serviceLabel).trim().slice(0, 120) || null;
 
   const existing = await prisma.quote.findFirst({
     where: { id, organizationId: jwt.orgId },
@@ -1885,6 +2247,7 @@ api.patch("/quotes/:id", async (c) => {
         notes?: string | null;
         validUntil?: Date | null;
         customerId?: string | null;
+        serviceLabel?: string | null;
       } = {
         subtotal,
         tax,
@@ -1898,6 +2261,9 @@ api.patch("/quotes/:id", async (c) => {
       }
       if (body.customerId !== undefined) {
         data.customerId = body.customerId?.trim() ? body.customerId.trim() : null;
+      }
+      if (serviceLabelPatch !== undefined) {
+        data.serviceLabel = serviceLabelPatch;
       }
 
       await tx.quote.update({
@@ -2013,13 +2379,10 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
       const prod = await tx.product.findUnique({ where: { id: line.productId } });
       if (prod?.productType === "SERVICIO") continue;
       if (prod?.productType === "KIT") {
-        await decrementStockForKitSale(tx, prod.id, line.qty);
+        await decrementStockForKitSale(tx, jwt.orgId, prod.id, line.qty);
         continue;
       }
-      await tx.product.update({
-        where: { id: line.productId },
-        data: { stock: { decrement: line.qty } },
-      });
+      await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
     }
     await tx.quote.update({ where: { id: quote.id }, data: { status: "CONVERTIDA" } });
     return tx.sale.findUnique({
@@ -2238,10 +2601,14 @@ api.post("/stock-transfers/:id/send", requirePermission(PERMISSION_KEYS.INVENTOR
       if (tr.status !== "BORRADOR") throw new Error("TRANSFER_BAD_STATUS");
       await assertStockForTransferSend(
         tx,
+        jwt.orgId,
+        tr.fromLocationId,
         tr.lines.map((l) => ({ productId: l.productId, qty: l.qty }))
       );
       await applyTransferSendStock(
         tx,
+        jwt.orgId,
+        tr.fromLocationId,
         tr.lines.map((l) => ({ productId: l.productId, qty: l.qty }))
       );
       await tx.stockTransfer.update({
@@ -2274,6 +2641,8 @@ api.post("/stock-transfers/:id/receive", requirePermission(PERMISSION_KEYS.INVEN
       if (tr.status !== "ENVIADA") throw new Error("TRANSFER_BAD_STATUS");
       await applyTransferReceiveStock(
         tx,
+        jwt.orgId,
+        tr.toLocationId,
         tr.lines.map((l) => ({ productId: l.productId, qty: l.qty }))
       );
       await tx.stockTransfer.update({
@@ -2305,8 +2674,10 @@ api.post("/stock-transfers/:id/cancel", requirePermission(PERMISSION_KEYS.INVENT
       if (!tr) return null;
       if (tr.status === "RECIBIDA" || tr.status === "ANULADA") throw new Error("TRANSFER_NO_CANCEL");
       if (tr.status === "ENVIADA") {
-        await applyTransferReceiveStock(
+        await applyTransferUndoSendStock(
           tx,
+          jwt.orgId,
+          tr.fromLocationId,
           tr.lines.map((l) => ({ productId: l.productId, qty: l.qty }))
         );
       }
@@ -2321,6 +2692,101 @@ api.post("/stock-transfers/:id/cancel", requirePermission(PERMISSION_KEYS.INVENT
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "TRANSFER_NO_CANCEL") return c.json({ error: "No se puede anular este traslado" }, 400);
+    throw e;
+  }
+});
+
+api.get("/stock-transfers/:id/export-file", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFERS), async (c) => {
+  const jwt = c.get("jwt");
+  const id = c.req.param("id");
+  const tr = await prisma.stockTransfer.findFirst({
+    where: { id, organizationId: jwt.orgId },
+    include: {
+      fromLocation: { select: { code: true } },
+      toLocation: { select: { code: true } },
+      lines: { include: { product: { select: { sku: true } } } },
+    },
+  });
+  if (!tr) return c.json({ error: "No encontrado" }, 404);
+  const payload = {
+    version: 1 as const,
+    exportType: "punto-flow-stock-transfer" as const,
+    fromLocationCode: tr.fromLocation.code,
+    toLocationCode: tr.toLocation.code,
+    notes: tr.notes,
+    lines: tr.lines.map((l) => ({ sku: l.product.sku, qty: l.qty })),
+  };
+  c.header("Content-Type", "application/json; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="traslado-${tr.transferNumber ?? id}.json"`);
+  return c.body(JSON.stringify(payload, null, 2));
+});
+
+api.post("/stock-transfers/import-file", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFERS), async (c) => {
+  const jwt = c.get("jwt");
+  const body = await c.req.json<{
+    version?: number;
+    exportType?: string;
+    fromLocationCode: string;
+    toLocationCode: string;
+    notes?: string | null;
+    lines: { sku: string; qty: number }[];
+  }>();
+  if (body.exportType !== "punto-flow-stock-transfer" || body.version !== 1) {
+    return c.json({ error: "Formato de archivo no reconocido" }, 400);
+  }
+  if (!body.lines?.length) return c.json({ error: "Sin líneas" }, 400);
+  const fromCode = body.fromLocationCode?.trim();
+  const toCode = body.toLocationCode?.trim();
+  if (!fromCode || !toCode || fromCode === toCode) {
+    return c.json({ error: "Códigos de ubicación inválidos" }, 400);
+  }
+  try {
+    const t = await prisma.$transaction(async (tx) => {
+      const fromLoc = await tx.stockLocation.findFirst({
+        where: { organizationId: jwt.orgId, code: fromCode, active: true },
+      });
+      const toLoc = await tx.stockLocation.findFirst({
+        where: { organizationId: jwt.orgId, code: toCode, active: true },
+      });
+      if (!fromLoc || !toLoc) throw new Error("TRANSFER_LOC_NOT_FOUND");
+      const merged: { productId: string; qty: number }[] = [];
+      for (const line of body.lines) {
+        const sku = line.sku?.trim();
+        const qty = Number(line.qty);
+        if (!sku || !Number.isFinite(qty) || qty <= 0) throw new Error("TRANSFER_BAD_QTY");
+        const p = await tx.product.findFirst({
+          where: { organizationId: jwt.orgId, sku, active: true },
+        });
+        if (!p) throw new Error("TRANSFER_PRODUCT_NOT_FOUND");
+        merged.push({ productId: p.id, qty });
+      }
+      const linesNorm = mergeTransferLines(merged);
+      await validateTransferLineProducts(tx, jwt.orgId, linesNorm);
+      const n = await tx.stockTransfer.count({ where: { organizationId: jwt.orgId } });
+      const transferNumber = `TR-${String(n + 1).padStart(5, "0")}`;
+      return tx.stockTransfer.create({
+        data: {
+          organizationId: jwt.orgId,
+          userId: jwt.sub,
+          transferNumber,
+          fromLocationId: fromLoc.id,
+          toLocationId: toLoc.id,
+          notes: typeof body.notes === "string" ? body.notes.trim().slice(0, 500) || null : null,
+          status: "BORRADOR",
+          lines: { create: linesNorm.map((l) => ({ productId: l.productId, qty: l.qty })) },
+        },
+        include: transferInclude,
+      });
+    });
+    return c.json(t, 201);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "TRANSFER_LOC_NOT_FOUND") return c.json({ error: "Ubicación no válida" }, 400);
+    if (msg === "TRANSFER_BAD_QTY") return c.json({ error: "Cantidad o SKU inválido" }, 400);
+    if (msg === "TRANSFER_PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
+    if (msg === "TRANSFER_BAD_PRODUCT_TYPE") {
+      return c.json({ error: "No se trasladan kits ni servicios" }, 400);
+    }
     throw e;
   }
 });
@@ -2379,10 +2845,7 @@ api.post("/stock-adjustments", requireAdmin, async (c) => {
         },
       });
       for (const line of body.lines) {
-        await tx.product.update({
-          where: { id: line.productId },
-          data: { stock: { increment: Number(line.qtyDelta) } },
-        });
+        await adjustProductStock(tx, jwt.orgId, line.productId, Number(line.qtyDelta));
       }
       return tx.stockAdjustment.findUnique({
         where: { id: created.id },
@@ -2512,7 +2975,70 @@ api.patch("/employees/:id", requireAdmin, async (c) => {
 
 const expenseInclude = {
   user: { select: { id: true, displayName: true, username: true } },
+  book: { select: { id: true, name: true } },
+  expenseCategory: { select: { id: true, name: true } },
 } as const;
+
+api.get("/expense-books", requirePermission(PERMISSION_KEYS.EXPENSES_VIEW), async (c) => {
+  const jwt = c.get("jwt");
+  const list = await prisma.expenseBook.findMany({
+    where: { organizationId: jwt.orgId },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    include: { categories: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } },
+  });
+  return c.json(list);
+});
+
+api.post("/expense-books", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const body = await c.req.json<{ name: string; sortOrder?: number }>();
+  const name = body.name?.trim();
+  if (!name) return c.json({ error: "Nombre requerido" }, 400);
+  const row = await prisma.expenseBook.create({
+    data: {
+      organizationId: jwt.orgId,
+      name,
+      sortOrder: body.sortOrder != null ? Math.trunc(Number(body.sortOrder)) : 0,
+    },
+    include: { categories: true },
+  });
+  return c.json(row, 201);
+});
+
+api.patch("/expense-books/:id", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const id = c.req.param("id");
+  const body = await c.req.json<{ name?: string; sortOrder?: number }>();
+  const cur = await prisma.expenseBook.findFirst({ where: { id, organizationId: jwt.orgId } });
+  if (!cur) return c.json({ error: "No encontrado" }, 404);
+  const row = await prisma.expenseBook.update({
+    where: { id },
+    data: {
+      ...(body.name !== undefined ? { name: body.name.trim() || cur.name } : {}),
+      ...(body.sortOrder !== undefined ? { sortOrder: Math.trunc(Number(body.sortOrder)) } : {}),
+    },
+    include: { categories: true },
+  });
+  return c.json(row);
+});
+
+api.post("/expense-books/:bookId/categories", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const bookId = c.req.param("bookId");
+  const book = await prisma.expenseBook.findFirst({ where: { id: bookId, organizationId: jwt.orgId } });
+  if (!book) return c.json({ error: "Libro no encontrado" }, 404);
+  const body = await c.req.json<{ name: string; sortOrder?: number }>();
+  const name = body.name?.trim();
+  if (!name) return c.json({ error: "Nombre requerido" }, 400);
+  const row = await prisma.expenseCategory.create({
+    data: {
+      bookId,
+      name,
+      sortOrder: body.sortOrder != null ? Math.trunc(Number(body.sortOrder)) : 0,
+    },
+  });
+  return c.json(row, 201);
+});
 
 api.get("/expenses", requirePermission(PERMISSION_KEYS.EXPENSES_VIEW), async (c) => {
   const jwt = c.get("jwt");
@@ -2549,18 +3075,37 @@ api.post("/expenses", requireAdmin, async (c) => {
     amount: number;
     expenseDate?: string;
     notes?: string | null;
+    bookId?: string | null;
+    categoryId?: string | null;
   }>();
-  if (!body.category?.trim()) return c.json({ error: "Indique la categoría" }, 400);
+  let categoryName = body.category?.trim() ?? "";
+  let bookId: string | null = body.bookId?.trim() || null;
+  let categoryId: string | null = body.categoryId?.trim() || null;
+  if (categoryId) {
+    const ec = await prisma.expenseCategory.findFirst({
+      where: { id: categoryId, book: { organizationId: jwt.orgId } },
+    });
+    if (!ec) return c.json({ error: "Categoría no encontrada" }, 400);
+    categoryName = ec.name;
+    bookId = ec.bookId;
+  }
+  if (!categoryName) return c.json({ error: "Indique la categoría" }, 400);
+  if (bookId) {
+    const b = await prisma.expenseBook.findFirst({ where: { id: bookId, organizationId: jwt.orgId } });
+    if (!b) return c.json({ error: "Libro no encontrado" }, 400);
+  }
   const amount = Number(body.amount);
   if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   const row = await prisma.expense.create({
     data: {
       organizationId: jwt.orgId,
       userId: jwt.sub,
-      category: body.category.trim(),
+      category: categoryName,
       amount,
       expenseDate: body.expenseDate ? new Date(body.expenseDate) : new Date(),
       notes: body.notes?.trim() || null,
+      bookId,
+      categoryId,
     },
     include: expenseInclude,
   });
@@ -2866,6 +3411,10 @@ api.get("/backup/export", requireAdmin, async (c) => {
     employees,
     expenses,
     payrollPeriods,
+    cashSessions,
+    cashMovements,
+    productStocks,
+    expenseBooks,
   ] = await Promise.all([
     prisma.organization.findUnique({ where: { id: orgId } }),
     prisma.user.findMany({
@@ -2903,6 +3452,13 @@ api.get("/backup/export", requireAdmin, async (c) => {
       where: { organizationId: orgId },
       include: { lines: { include: { deductionItems: true } } },
     }),
+    prisma.cashSession.findMany({ where: { organizationId: orgId } }),
+    prisma.cashMovement.findMany({ where: { organizationId: orgId } }),
+    prisma.productStock.findMany({ where: { organizationId: orgId } }),
+    prisma.expenseBook.findMany({
+      where: { organizationId: orgId },
+      include: { categories: true },
+    }),
   ]);
   const payload = {
     exportedAt: new Date().toISOString(),
@@ -2922,10 +3478,65 @@ api.get("/backup/export", requireAdmin, async (c) => {
     employees,
     expenses,
     payrollPeriods,
+    cashSessions,
+    cashMovements,
+    productStocks,
+    expenseBooks,
   };
   c.header("Content-Type", "application/json");
   c.header("Content-Disposition", `attachment; filename="punto-flow-backup-${org?.slug ?? "data"}.json"`);
   return c.body(JSON.stringify(payload, null, 2));
+});
+
+api.post("/backup/import", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const body = await c.req.json<{ payload?: unknown; confirm?: string }>();
+  if (body.confirm !== "MERGE_MASTER") {
+    return c.json({ error: 'Confirme con confirm: "MERGE_MASTER" (solo fusiona catálogos; no borra ventas).' }, 400);
+  }
+  try {
+    const r = await mergeMasterFromBackup(prisma, jwt.orgId, body.payload);
+    return c.json({ ok: true, ...r });
+  } catch (e) {
+    if (e instanceof Error && e.message === "INVALID_BACKUP") return c.json({ error: "JSON de respaldo inválido" }, 400);
+    throw e;
+  }
+});
+
+api.get("/import/template", requireAdmin, async (c) => {
+  const q = c.req.query("type")?.trim() ?? "products";
+  if (!["products", "customers", "suppliers"].includes(q)) return c.json({ error: "type inválido" }, 400);
+  const buf = await buildImportTemplateBuffer(q as ImportTemplateKind);
+  return new Response(buf as unknown as BodyInit, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="plantilla-${q}.xlsx"`,
+    },
+  });
+});
+
+api.post("/import/excel", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const b = await c.req.parseBody();
+  const type = String(b.type ?? "");
+  const file = b.file;
+  if (!file || typeof file !== "object" || typeof (file as Blob).arrayBuffer !== "function") {
+    return c.json({ error: "Archivo requerido (campo file)" }, 400);
+  }
+  const buf = new Uint8Array(await (file as Blob).arrayBuffer());
+  if (type === "products") {
+    const r = await importProductsFromExcel(prisma, jwt.orgId, buf);
+    return c.json({ imported: r.imported, errors: r.errors });
+  }
+  if (type === "customers") {
+    const r = await importCustomersFromExcel(prisma, jwt.orgId, buf);
+    return c.json({ imported: r.imported, errors: r.errors });
+  }
+  if (type === "suppliers") {
+    const r = await importSuppliersFromExcel(prisma, jwt.orgId, buf);
+    return c.json({ imported: r.imported, errors: r.errors });
+  }
+  return c.json({ error: "type debe ser products, customers o suppliers" }, 400);
 });
 
 app.route("/api", api);

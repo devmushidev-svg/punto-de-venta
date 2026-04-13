@@ -45,6 +45,9 @@ model Organization {
   employees       Employee[]
   expenses        Expense[]
   payrollPeriods  PayrollPeriod[]
+  cashMovements   CashMovement[]
+  productStocks   ProductStock[]
+  expenseBooks    ExpenseBook[]
 }
 
 model User {
@@ -71,6 +74,7 @@ model User {
   payrollPeriods         PayrollPeriod[]
   receivableSurcharges ReceivableSurcharge[]
   payableSurcharges    PayableSurcharge[]
+  cashMovements        CashMovement[]
 
   @@unique([organizationId, username])
 }
@@ -97,12 +101,39 @@ model Employee {
   @@index([organizationId])
 }
 
+model ExpenseBook {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  sortOrder      Int      @default(0)
+  categories     ExpenseCategory[]
+  expenses       Expense[]
+
+  @@index([organizationId])
+}
+
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  bookId    String
+  book      ExpenseBook @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int      @default(0)
+  expenses  Expense[]
+
+  @@index([bookId])
+}
+
 model Expense {
   id             String   @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String
   user           User     @relation(fields: [userId], references: [id])
+  bookId         String?
+  book           ExpenseBook? @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  categoryId     String?
+  expenseCategory ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   category       String
   amount         Float
   expenseDate    DateTime @default(now())
@@ -111,6 +142,7 @@ model Expense {
 
   @@index([organizationId])
   @@index([expenseDate])
+  @@index([bookId])
 }
 
 /// Planilla por mes (alcance mínimo: totales por empleado).
@@ -186,6 +218,8 @@ model Product {
   imageUrl       String?
   productType    String   @default("PRODUCTO")
   esGranel       Boolean  @default(false)
+  /// Si false, no se incluye en comanda/orden de cocina al guardar preventa/cotización.
+  printOnKitchenOrder Boolean @default(true)
   supplierId     String?
   supplier       Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   active         Boolean  @default(true)
@@ -199,8 +233,25 @@ model Product {
   componentOfKits ProductKitLine[] @relation("KitComponent")
   stockTransferLines StockTransferLine[]
   stockAdjustmentLines StockAdjustmentLine[]
+  productStocks      ProductStock[]
 
   @@unique([organizationId, sku])
+}
+
+/// Existencias por bodega/sucursal; el campo Product.stock se mantiene como suma de filas tras migración.
+model ProductStock {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  locationId     String
+  location       StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  qty            Float    @default(0)
+
+  @@unique([productId, locationId])
+  @@index([organizationId])
+  @@index([locationId])
 }
 
 /// Ajuste manual de inventario (auditoría) con motivo y líneas por producto.
@@ -241,6 +292,7 @@ model StockLocation {
   sortOrder        Int      @default(0)
   transfersFrom    StockTransfer[] @relation("TransferFromLoc")
   transfersTo      StockTransfer[] @relation("TransferToLoc")
+  productStocks    ProductStock[]
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -304,6 +356,8 @@ model Customer {
   phone          String?
   taxId          String?
   notes          String?
+  /// Lista de precio por defecto (1–4) al facturar a este cliente.
+  defaultPriceTier Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   sales          Sale[]
@@ -447,6 +501,26 @@ model CashSession {
   closingCash    Float?
   expectedCash   Float?
   notes          String?
+  movements      CashMovement[]
+}
+
+/// Movimientos del diario digital (GASTO, INGRESO, PAGO_ABONO, RETIRO, AJUSTE_TARJETA).
+model CashMovement {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        CashSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  category       String
+  amount         Float
+  hasVoucher     Boolean  @default(false)
+  note           String?
+  createdAt      DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([organizationId, userId])
 }
 
 model OrganizationSettings {
@@ -472,6 +546,8 @@ model Quote {
   tax            Float
   total          Float
   notes          String?
+  /// Mesa, nombre de mesa o referencia de comanda (PreVenta).
+  serviceLabel   String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   lines          QuoteLine[]

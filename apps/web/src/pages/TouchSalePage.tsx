@@ -115,7 +115,7 @@ function TouchRibbonGroup({ title, children }: { title: string; children: ReactN
 
 export function TouchSalePage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
-  const { token, organization } = useAuth();
+  const { token, organization, user } = useAuth();
   const sym = organization?.currencySymbol ?? "L";
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -128,6 +128,7 @@ export function TouchSalePage() {
   const [terms, setTerms] = useState("CONTADO");
   const [paid, setPaid] = useState("");
   const [notes, setNotes] = useState("");
+  const [sellerName, setSellerName] = useState("");
   const [documentSaleDate, setDocumentSaleDate] = useState(() => new Date());
   const [saleDatePickerOpen, setSaleDatePickerOpen] = useState(false);
   const [saleDateDraft, setSaleDateDraft] = useState("");
@@ -160,7 +161,23 @@ export function TouchSalePage() {
     setCustomerAddress(c.address ?? "");
     setCustomerPhone(c.phone ?? "");
     setCustomerTaxId(c.taxId ?? "");
+    const dt = c.defaultPriceTier;
+    if (dt != null && dt >= 1 && dt <= 4) {
+      const tier = Math.trunc(dt);
+      setPriceTier(tier);
+      setLines((prev) =>
+        prev.map((l) => ({
+          ...l,
+          unitPrice: resolveProductUnitPrice(l.product, l.qty, tier),
+        }))
+      );
+    }
   }
+
+  useEffect(() => {
+    const label = user?.displayName?.trim() || user?.username?.trim() || "";
+    setSellerName(label);
+  }, [user?.displayName, user?.username]);
 
   useEffect(() => {
     if (!token) return;
@@ -180,7 +197,7 @@ export function TouchSalePage() {
       const ids = s.general?.touchFavoriteProductIds;
       if (Array.isArray(ids)) setFavIds(ids.filter((x) => typeof x === "string"));
     });
-    apiFetch<Product[]>("/api/products?touch=1", { token }).then(setProducts).catch(() => setProducts([]));
+    apiFetch<Product[]>("/api/products?touch=1&forPos=1", { token }).then(setProducts).catch(() => setProducts([]));
   }, [token]);
 
   const filtered = useMemo(() => {
@@ -359,6 +376,7 @@ export function TouchSalePage() {
         terms,
         priceTier,
         notes: notes.trim() || undefined,
+        sellerName: sellerName.trim() || undefined,
         paid: isCreditSaleTerm(terms) ? Number(paid) || 0 : undefined,
         saleDate: documentSaleDate.toISOString(),
         lines: lines
@@ -389,6 +407,7 @@ export function TouchSalePage() {
       setLines([]);
       setPaid("");
       setNotes("");
+      setSellerName(user?.displayName?.trim() || user?.username?.trim() || "");
       setDocumentSaleDate(new Date());
       setTerms("CONTADO");
       setErr("");
@@ -543,6 +562,14 @@ export function TouchSalePage() {
         ) : null}
       </div>
 
+      <Field label="Vendedor (opc.)" className="min-w-0" compact>
+        <Input
+          value={sellerName}
+          onChange={(e) => setSellerName(e.target.value)}
+          placeholder="Nombre en ticket"
+          className="!h-9"
+        />
+      </Field>
       <Field label="Notas (opc.)" className="min-w-0" compact>
         <Input
           value={notes}

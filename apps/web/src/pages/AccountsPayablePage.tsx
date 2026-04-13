@@ -29,6 +29,7 @@ export function AccountsPayablePage() {
   const [surNotes, setSurNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  const [registerInCash, setRegisterInCash] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -57,7 +58,7 @@ export function AccountsPayablePage() {
     try {
       await apiFetch(`/api/accounts/payable/${purchaseId}/pay`, {
         method: "POST",
-        body: JSON.stringify({ amount }),
+        body: JSON.stringify({ amount, registerCashMovement: registerInCash }),
         token,
       });
       setAmounts((a) => ({ ...a, [purchaseId]: "" }));
@@ -122,6 +123,16 @@ export function AccountsPayablePage() {
       {err ? (
         <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
       ) : null}
+
+      <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-stone-800 touch-manipulation">
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-stone-300"
+          checked={registerInCash}
+          onChange={(e) => setRegisterInCash(e.target.checked)}
+        />
+        Registrar pagos en el diario de caja (egreso; si tiene turno abierto)
+      </label>
 
       <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-teal-50/18 to-violet-50/20 p-0 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm">
         <table className="w-full min-w-[1020px] text-sm">

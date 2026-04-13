@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { adjustProductStock } from "./productStockLocation.js";
 
 export type KitLineInput = { productId: string; qty: number };
 
@@ -48,13 +49,17 @@ export async function assertKitSaleStock(tx: Tx, kitProductId: string, lineQty: 
   }
 }
 
-export async function decrementStockForKitSale(tx: Tx, kitProductId: string, lineQty: number): Promise<void> {
+export async function decrementStockForKitSale(
+  tx: Tx,
+  orgId: string,
+  kitProductId: string,
+  lineQty: number
+): Promise<void> {
+  const kit = await tx.product.findFirst({ where: { id: kitProductId, organizationId: orgId } });
+  if (!kit) throw new Error("PRODUCT_NOT_FOUND");
   const lines = await tx.productKitLine.findMany({ where: { kitProductId } });
   for (const kl of lines) {
     const dec = lineQty * kl.qty;
-    await tx.product.update({
-      where: { id: kl.componentProductId },
-      data: { stock: { decrement: dec } },
-    });
+    await adjustProductStock(tx, orgId, kl.componentProductId, -dec);
   }
 }

@@ -37,6 +37,7 @@ export type Product = {
   supplier?: ProductSupplier | null;
   active: boolean;
   kitLines?: ProductKitLine[];
+  printOnKitchenOrder?: boolean;
 };
 
 export type Customer = {
@@ -47,6 +48,7 @@ export type Customer = {
   phone: string | null;
   taxId: string | null;
   notes: string | null;
+  defaultPriceTier?: number | null;
 };
 
 export type ProductMovement = {
@@ -128,7 +130,8 @@ export type Sale = {
   paid: number;
   saleDate: string;
   dueDate?: string | null;
-  notes?: string | null;
+   notes?: string | null;
+  sellerName?: string | null;
   customer: Customer | null;
   user?: SaleUser | null;
   lines: SaleLine[];
@@ -157,6 +160,8 @@ export type ExpenseRow = {
   notes: string | null;
   createdAt: string;
   user: SaleUser;
+  book?: { id: string; name: string } | null;
+  expenseCategory?: { id: string; name: string } | null;
 };
 
 export type PayrollPeriodListRow = {

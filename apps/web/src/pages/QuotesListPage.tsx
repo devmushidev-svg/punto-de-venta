@@ -1,5 +1,5 @@
 import { ArrowRightLeft, FilePlus, LayoutGrid, PackageSearch, Pencil } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { PageHero } from "../components/PageHero";
 import { VentasSectionNav } from "../layouts/SalesHubLayout";
@@ -26,6 +26,7 @@ export type QuoteRow = {
   tax: number;
   total: number;
   notes: string | null;
+  serviceLabel?: string | null;
   createdAt: string;
   customer: Customer | null;
   lines: QuoteLine[];
@@ -48,6 +49,7 @@ export function QuotesListPage({
   const [convCustomerId, setConvCustomerId] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [err, setErr] = useState("");
+  const [qMesa, setQMesa] = useState("");
 
   const newPath = variant === "preventas" ? "/ventas/preventas/nueva" : "/cotizaciones/nueva";
   const editPath = (id: string) =>
@@ -114,6 +116,12 @@ export function QuotesListPage({
     }
   }
 
+  const filteredList = useMemo(() => {
+    const t = qMesa.trim().toLowerCase();
+    if (!t) return list;
+    return list.filter((x) => (x.serviceLabel ?? "").toLowerCase().includes(t));
+  }, [list, qMesa]);
+
   return (
     <div className="space-y-4 pf-safe-page">
       {variant === "full" ? <VentasSectionNav /> : null}
@@ -156,16 +164,27 @@ export function QuotesListPage({
 
       {err ? <p className="text-sm text-red-600">{err}</p> : null}
 
+      <Card className="p-3 sm:p-4 border-white/50 shadow-lg shadow-stone-900/[0.04]">
+        <Field label="Filtrar por mesa / equipo / referencia">
+          <Input
+            value={qMesa}
+            onChange={(e) => setQMesa(e.target.value)}
+            placeholder="Ej. Mesa 4, llevar, barra…"
+          />
+        </Field>
+      </Card>
+
       <Card className="overflow-x-auto border-white/50 shadow-lg shadow-stone-900/[0.04]">
         {loading ? (
           <p className="p-4 text-center font-medium text-pf-muted">Cargando…</p>
         ) : (
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead>
               <tr className="border-b border-stone-200/80 bg-gradient-to-r from-violet-100/60 via-pf-primary-soft/40 to-teal-50/50 text-left backdrop-blur-sm">
                 <th className="p-2">N°</th>
                 <th className="p-2">Fecha</th>
                 <th className="p-2">Cliente</th>
+                <th className="p-2">Mesa / equipo</th>
                 <th className="p-2">Estado</th>
                 <th className="p-2 text-right">Total</th>
                 <th className="p-2">Líneas</th>
@@ -173,7 +192,7 @@ export function QuotesListPage({
               </tr>
             </thead>
             <tbody>
-              {list.map((q) => (
+              {filteredList.map((q) => (
                 <tr
                   key={q.id}
                   className="border-b border-stone-100/90 transition hover:bg-gradient-to-r hover:from-violet-50/40 hover:to-transparent"
@@ -181,6 +200,7 @@ export function QuotesListPage({
                   <td className="p-2 font-mono text-xs">{q.quoteNumber ?? q.id.slice(0, 8)}</td>
                   <td className="p-2 whitespace-nowrap">{formatDate(q.createdAt)}</td>
                   <td className="p-2 truncate max-w-[140px]">{q.customer?.name ?? "—"}</td>
+                  <td className="p-2 truncate max-w-[120px] text-pf-muted">{q.serviceLabel?.trim() || "—"}</td>
                   <td className="p-2">{q.status}</td>
                   <td className="p-2 text-right font-medium">{formatMoney(sym, q.total)}</td>
                   <td className="p-2 text-pf-muted">{q.lines?.length ?? 0}</td>
@@ -215,6 +235,8 @@ export function QuotesListPage({
         )}
         {!loading && list.length === 0 ? (
           <p className="p-4 text-center text-pf-muted">Sin cotizaciones</p>
+        ) : !loading && filteredList.length === 0 ? (
+          <p className="p-4 text-center text-pf-muted">Ninguna coincide con el filtro</p>
         ) : null}
       </Card>
 

@@ -13,6 +13,8 @@ type TicketCfg = {
   showTaxBreakdown?: boolean;
 };
 
+type SarCfg = { footerSar?: string };
+
 export function SaleTicketPage() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -20,6 +22,7 @@ export function SaleTicketPage() {
   const sym = organization?.currencySymbol ?? "L";
   const [sale, setSale] = useState<Sale | null>(null);
   const [ticket, setTicket] = useState<TicketCfg>({});
+  const [sarFooter, setSarFooter] = useState("");
 
   useEffect(() => {
     if (!token || !id) return;
@@ -28,9 +31,16 @@ export function SaleTicketPage() {
 
   useEffect(() => {
     if (!token) return;
-    apiFetch<{ invoice: { ticket?: TicketCfg } }>("/api/settings", { token })
-      .then((s) => setTicket(s.invoice?.ticket ?? {}))
-      .catch(() => setTicket({}));
+    apiFetch<{ invoice: { ticket?: TicketCfg; sar?: SarCfg } }>("/api/settings", { token })
+      .then((s) => {
+        setTicket(s.invoice?.ticket ?? {});
+        const f = s.invoice?.sar?.footerSar;
+        setSarFooter(typeof f === "string" ? f : "");
+      })
+      .catch(() => {
+        setTicket({});
+        setSarFooter("");
+      });
   }, [token]);
 
   useEffect(() => {
@@ -135,6 +145,12 @@ export function SaleTicketPage() {
             {sale.customer.name}
           </p>
         ) : null}
+        {sale.sellerName ? (
+          <p className="text-sm mb-3">
+            <span className="text-pf-muted">Vendedor: </span>
+            {sale.sellerName}
+          </p>
+        ) : null}
         <table className="w-full text-sm mb-4">
           <thead>
             <tr className="text-left text-pf-muted border-b border-pf-border">
@@ -184,6 +200,11 @@ export function SaleTicketPage() {
         <p className="text-center text-xs text-pf-muted mt-6 whitespace-pre-line">
           {ticket.footerLine ?? "Gracias por su compra"}
         </p>
+        {sarFooter.trim() ? (
+          <p className="text-center text-[10px] text-stone-600 mt-3 whitespace-pre-line leading-snug px-1">
+            {sarFooter.trim()}
+          </p>
+        ) : null}
       </Card>
     </div>
   );

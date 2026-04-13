@@ -1,8 +1,8 @@
-import { ArrowLeftRight, Ban, ClipboardCheck, PackageCheck, Plus, RefreshCw, Send } from "lucide-react";
+import { ArrowLeftRight, Ban, ClipboardCheck, Download, PackageCheck, Plus, RefreshCw, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHero } from "../components/PageHero";
 import { Navigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
+import { apiDownload, apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import { Button, Card, Field, Input, Select } from "../components/ui";
@@ -186,6 +186,40 @@ export function StockTransfersPage() {
     }
   }
 
+  async function exportTransferFile(id: string, transferNumber: string | null) {
+    if (!token) return;
+    setErr("");
+    try {
+      const blob = await apiDownload(`/api/stock-transfers/${id}/export-file`, token);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `traslado-${transferNumber ?? id.slice(0, 8)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error al exportar");
+    }
+  }
+
+  async function importTransferFile(file: File | null) {
+    if (!token || !file) return;
+    setErr("");
+    setBusy(true);
+    try {
+      const body = JSON.parse(await file.text()) as unknown;
+      await apiFetch("/api/stock-transfers/import-file", {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      });
+      await loadTransfers();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error al importar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function addStockLocation() {
     if (!token || !admin) return;
     const code = newLocCode.trim().toUpperCase();
@@ -361,6 +395,19 @@ export function StockTransfersPage() {
         </Button>
       </Card>
 
+      <Card className="space-y-2 border-white/50 bg-gradient-to-br from-white/92 via-cyan-50/12 to-indigo-50/15 p-4 shadow-lg backdrop-blur-sm">
+        <p className="text-xs font-bold uppercase tracking-wide text-stone-600">Importar archivo de traslado (JSON)</p>
+        <p className="text-xs text-stone-600">
+          Crea un <strong>borrador</strong> con las mismas líneas (SKU y cantidades) entre ubicaciones con los códigos indicados en el archivo.
+        </p>
+        <Input
+          type="file"
+          accept=".json,application/json"
+          disabled={busy}
+          onChange={(e) => void importTransferFile(e.target.files?.[0] ?? null)}
+        />
+      </Card>
+
       <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-cyan-50/12 to-indigo-50/15 p-0 shadow-lg backdrop-blur-sm">
         <h2 className="border-b border-stone-200/80 bg-gradient-to-r from-white/90 to-cyan-50/35 px-4 py-3 text-lg font-bold text-stone-900">
           Historial
@@ -407,6 +454,16 @@ export function StockTransfersPage() {
                   <td className="p-2 text-xs text-pf-muted">{t.user.displayName}</td>
                   <td className="p-2">
                     <div className="flex flex-wrap gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="min-h-10 py-2 text-xs sm:min-h-8 sm:py-1"
+                        title="Descargar JSON para otra tienda"
+                        onClick={() => void exportTransferFile(t.id, t.transferNumber)}
+                      >
+                        <Download className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+                        JSON
+                      </Button>
                       {t.status === "BORRADOR" ? (
                         <>
                           <Button

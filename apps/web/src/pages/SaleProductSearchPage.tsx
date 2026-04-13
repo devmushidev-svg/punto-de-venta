@@ -11,6 +11,7 @@ function buildProductsQuery(q: string, supplierId: string, inStockOnly: boolean)
   const params = new URLSearchParams();
   if (q.trim()) params.set("q", q.trim());
   params.set("touch", "1");
+  params.set("forPos", "1");
   params.set("limit", "500");
   if (inStockOnly) params.set("stock", "with");
   if (supplierId.trim()) params.set("supplierId", supplierId.trim());

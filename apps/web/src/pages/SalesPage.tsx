@@ -27,6 +27,21 @@ function saleStatus(s: Sale): string {
   return "PAGADA";
 }
 
+type SalesColKey = "date" | "invoice" | "customer" | "terms" | "total" | "paid" | "balance" | "time" | "status" | "seller";
+
+const SALES_LIST_COL_DEFAULT: Record<SalesColKey, boolean> = {
+  date: true,
+  invoice: true,
+  customer: true,
+  terms: true,
+  total: true,
+  paid: true,
+  balance: true,
+  time: true,
+  status: true,
+  seller: false,
+};
+
 function RibbonTile({
   icon: Icon,
   line1,
@@ -82,6 +97,7 @@ export function SalesPage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
   const canEditSales = user?.role === "admin";
+  const canConfigColumns = user?.role === "admin";
   const sym = organization?.currencySymbol ?? "L";
   const navigate = useNavigate();
   const [list, setList] = useState<Sale[]>([]);
@@ -95,6 +111,8 @@ export function SalesPage() {
   const [termsFilter, setTermsFilter] = useState("");
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  const [colVis, setColVis] = useState<Record<SalesColKey, boolean>>(SALES_LIST_COL_DEFAULT);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(searchQ), 400);
@@ -127,6 +145,29 @@ export function SalesPage() {
     if (!token) return;
     apiFetch<Customer[]>("/api/customers", { token }).then(setCustomers).catch(() => setCustomers([]));
   }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ general: Record<string, unknown> }>("/api/settings", { token })
+      .then((s) => {
+        const raw = s.general?.salesList as { columns?: Partial<Record<SalesColKey, boolean>> } | undefined;
+        const c = raw?.columns;
+        if (c && typeof c === "object") {
+          setColVis({ ...SALES_LIST_COL_DEFAULT, ...c });
+        }
+      })
+      .catch(() => {});
+  }, [token]);
+
+  function persistColumns(next: Record<SalesColKey, boolean>) {
+    setColVis(next);
+    if (!token || !canConfigColumns) return;
+    void apiFetch("/api/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ general: { salesList: { columns: next } } }),
+      token,
+    }).catch(() => {});
+  }
 
   useEffect(() => {
     load();
@@ -315,6 +356,35 @@ export function SalesPage() {
             </Select>
           </label>
         </div>
+        {canConfigColumns ? (
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-pf-border/60 pt-3 text-[11px] font-semibold text-pf-text-tertiary">
+            <span className="w-full text-pf-text">Columnas visibles:</span>
+            {(
+              [
+                ["date", "Fecha"],
+                ["invoice", "N° factura"],
+                ["customer", "Cliente"],
+                ["terms", "Términos"],
+                ["total", "Total"],
+                ["paid", "Pago"],
+                ["balance", "Saldo"],
+                ["time", "Hora"],
+                ["status", "Estado"],
+                ["seller", "Vendedor"],
+              ] as [SalesColKey, string][]
+            ).map(([key, label]) => (
+              <label key={key} className="flex cursor-pointer items-center gap-1.5 text-pf-text">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-pf-border"
+                  checked={colVis[key]}
+                  onChange={(e) => persistColumns({ ...colVis, [key]: e.target.checked })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        ) : null}
       </Card>
 
       <Card className="pf-table-shell min-h-0 flex-1 overflow-hidden p-0">
@@ -325,15 +395,16 @@ export function SalesPage() {
             <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1]">
                 <tr className="pf-table-thead text-left">
-                  <th className="p-2">Fecha</th>
-                  <th className="p-2">N° Factura</th>
-                  <th className="p-2">Cliente</th>
-                  <th className="p-2">Términos</th>
-                  <th className="p-2 text-right">Total</th>
-                  <th className="p-2 text-right">Pago</th>
-                  <th className="p-2 text-right">Saldo</th>
-                  <th className="p-2">Hora</th>
-                  <th className="p-2">Estado</th>
+                  {colVis.date ? <th className="p-2">Fecha</th> : null}
+                  {colVis.invoice ? <th className="p-2">N° Factura</th> : null}
+                  {colVis.customer ? <th className="p-2">Cliente</th> : null}
+                  {colVis.terms ? <th className="p-2">Términos</th> : null}
+                  {colVis.total ? <th className="p-2 text-right">Total</th> : null}
+                  {colVis.paid ? <th className="p-2 text-right">Pago</th> : null}
+                  {colVis.balance ? <th className="p-2 text-right">Saldo</th> : null}
+                  {colVis.time ? <th className="p-2">Hora</th> : null}
+                  {colVis.status ? <th className="p-2">Estado</th> : null}
+                  {colVis.seller ? <th className="p-2">Vendedor</th> : null}
                 </tr>
               </thead>
               <tbody className="pf-table-body">
@@ -361,27 +432,38 @@ export function SalesPage() {
                         }
                       }}
                     >
-                      <td className="p-2 whitespace-nowrap">{formatDateOnly(s.saleDate)}</td>
-                      <td className="p-2 font-mono text-xs">{s.invoiceNumber ?? "—"}</td>
-                      <td className="p-2 truncate max-w-[180px]">{s.customer?.name ?? "—"}</td>
-                      <td className="p-2">{s.terms}</td>
-                      <td className="p-2 text-right font-medium whitespace-nowrap tabular-nums">{formatMoney(sym, s.total)}</td>
-                      <td className="p-2 text-right whitespace-nowrap tabular-nums">{formatMoney(sym, s.paid)}</td>
-                      <td className="p-2 text-right whitespace-nowrap tabular-nums">{formatMoney(sym, balance)}</td>
-                      <td className="p-2 whitespace-nowrap">{formatTimeOnly(s.saleDate)}</td>
-                      <td className="p-2">
-                        <span
-                          className={
-                            saleStatus(s) === "PAGADA"
-                              ? "text-pf-success font-medium"
-                              : saleStatus(s) === "CRÉDITO"
-                                ? "text-pf-warning font-medium"
-                                : "text-pf-text-soft"
-                          }
-                        >
-                          {saleStatus(s)}
-                        </span>
-                      </td>
+                      {colVis.date ? <td className="p-2 whitespace-nowrap">{formatDateOnly(s.saleDate)}</td> : null}
+                      {colVis.invoice ? <td className="p-2 font-mono text-xs">{s.invoiceNumber ?? "—"}</td> : null}
+                      {colVis.customer ? (
+                        <td className="p-2 truncate max-w-[180px]">{s.customer?.name ?? "—"}</td>
+                      ) : null}
+                      {colVis.terms ? <td className="p-2">{s.terms}</td> : null}
+                      {colVis.total ? (
+                        <td className="p-2 text-right font-medium whitespace-nowrap tabular-nums">{formatMoney(sym, s.total)}</td>
+                      ) : null}
+                      {colVis.paid ? (
+                        <td className="p-2 text-right whitespace-nowrap tabular-nums">{formatMoney(sym, s.paid)}</td>
+                      ) : null}
+                      {colVis.balance ? (
+                        <td className="p-2 text-right whitespace-nowrap tabular-nums">{formatMoney(sym, balance)}</td>
+                      ) : null}
+                      {colVis.time ? <td className="p-2 whitespace-nowrap">{formatTimeOnly(s.saleDate)}</td> : null}
+                      {colVis.status ? (
+                        <td className="p-2">
+                          <span
+                            className={
+                              saleStatus(s) === "PAGADA"
+                                ? "text-pf-success font-medium"
+                                : saleStatus(s) === "CRÉDITO"
+                                  ? "text-pf-warning font-medium"
+                                  : "text-pf-text-soft"
+                            }
+                          >
+                            {saleStatus(s)}
+                          </span>
+                        </td>
+                      ) : null}
+                      {colVis.seller ? <td className="p-2 truncate max-w-[120px]">{s.user?.displayName ?? "—"}</td> : null}
                     </tr>
                   );
                 })}

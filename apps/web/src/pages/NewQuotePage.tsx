@@ -28,8 +28,34 @@ type QuoteApi = {
   customerId: string | null;
   notes: string | null;
   validUntil: string | null;
+  serviceLabel: string | null;
+  quoteNumber?: string | null;
   lines: QuoteApiLine[];
 };
+
+function escapeKitchenHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+function printKitchenOrder(opts: { docLabel: string; serviceLabel: string; lines: { name: string; qty: number }[] }) {
+  const rowsHtml = opts.lines
+    .map(
+      (l) =>
+        `<tr><td>${escapeKitchenHtml(l.name)}</td><td style="text-align:right">${escapeKitchenHtml(String(l.qty))}</td></tr>`
+    )
+    .join("");
+  const refBlock = opts.serviceLabel.trim()
+    ? `<p><strong>Mesa / ref.:</strong> ${escapeKitchenHtml(opts.serviceLabel.trim())}</p>`
+    : "";
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Orden</title>
+<style>body{font-family:system-ui,sans-serif;padding:12px} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ccc;padding:6px}</style></head>
+<body><h2>Orden cocina / preparación</h2><p>${escapeKitchenHtml(opts.docLabel)}</p>${refBlock}<table><thead><tr><th>Producto</th><th>Cant.</th></tr></thead><tbody>${rowsHtml}</tbody></table><script>window.onload=function(){window.print()}</script></body></html>`;
+  const w = window.open("", "_blank");
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+  }
+}
 
 export function NewQuotePage({
   backTo,
@@ -53,6 +79,7 @@ export function NewQuotePage({
   const [hits, setHits] = useState<Product[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [notes, setNotes] = useState("");
+  const [serviceLabel, setServiceLabel] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadErr, setLoadErr] = useState("");
@@ -88,6 +115,7 @@ export function NewQuotePage({
         }
         setCustomerId(q.customerId ?? "");
         setNotes(q.notes ?? "");
+        setServiceLabel(q.serviceLabel ?? "");
         if (q.validUntil) {
           const d = new Date(q.validUntil);
           setValidUntil(d.toISOString().slice(0, 10));
@@ -117,8 +145,11 @@ export function NewQuotePage({
       setHits([]);
       return;
     }
-    const data = await apiFetch<Product[]>(`/api/products?q=${encodeURIComponent(search.trim())}`, { token });
-    setHits(data.filter((p) => p.active && p.productType !== "INSUMO").slice(0, 14));
+    const data = await apiFetch<Product[]>(
+      `/api/products?q=${encodeURIComponent(search.trim())}&forPos=1&limit=40`,
+      { token }
+    );
+    setHits(data.slice(0, 14));
   }, [token, search]);
 
   useEffect(() => {
@@ -186,24 +217,47 @@ export function NewQuotePage({
         customerId: customerId || null,
         notes: notes || undefined,
         validUntil: validUntil || null,
+        serviceLabel: serviceLabel.trim() || null,
         lines: lines.map((l) => ({
           productId: l.productId,
           qty: l.qty,
           unitPrice: l.unitPrice,
         })),
       };
+      let savedNum: string | null | undefined;
       if (isEdit && quoteId) {
-        await apiFetch(`/api/quotes/${quoteId}`, {
+        const q = await apiFetch<QuoteApi>(`/api/quotes/${quoteId}`, {
           method: "PATCH",
           body: JSON.stringify(body),
           token,
         });
+        savedNum = q.quoteNumber ?? undefined;
       } else {
-        await apiFetch("/api/quotes", {
+        const q = await apiFetch<QuoteApi>("/api/quotes", {
           method: "POST",
           body: JSON.stringify(body),
           token,
         });
+        savedNum = q.quoteNumber ?? undefined;
+      }
+      try {
+        const inv = await apiFetch<{ invoice: { kitchen?: { kitchenPrintEnabled?: boolean } } }>("/api/settings", {
+          token,
+        });
+        if (inv.invoice?.kitchen?.kitchenPrintEnabled) {
+          const kLines = lines
+            .filter((l) => l.product.printOnKitchenOrder !== false)
+            .map((l) => ({ name: l.product.name, qty: l.qty }));
+          if (kLines.length) {
+            printKitchenOrder({
+              docLabel: savedNum ? `Documento ${savedNum}` : "PreVenta / cotización",
+              serviceLabel,
+              lines: kLines,
+            });
+          }
+        }
+      } catch {
+        /* ignore */
       }
       navigate(backTo);
     } catch (e) {
@@ -335,6 +389,13 @@ export function NewQuotePage({
           </Field>
           <Field label="Válida hasta (opcional)">
             <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+          </Field>
+          <Field label="Mesa / equipo / referencia (PreVenta)">
+            <Input
+              value={serviceLabel}
+              onChange={(e) => setServiceLabel(e.target.value)}
+              placeholder="Ej: Mesa 4, Para llevar…"
+            />
           </Field>
           <Field label="Notas">
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
