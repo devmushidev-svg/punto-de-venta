@@ -2,6 +2,7 @@ import {
   Eye,
   FileText,
   FilterX,
+  Inbox,
   Pencil,
   Plus,
   Printer,
@@ -14,10 +15,10 @@ import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
-import { Card, Input, Select } from "../components/ui";
+import { Button, Card, EmptyState, Input, PaginationBar, Select } from "../components/ui";
 import { formatDateOnly, formatMoney, formatTimeOnly } from "../lib/format";
 import { isCreditSaleTerm } from "../lib/saleTerms";
-import type { Customer, Sale } from "../types";
+import type { Customer, PaginatedResponse, Sale } from "../types";
 
 function saleStatus(s: Sale): string {
   const balance = s.total - s.paid;
@@ -101,6 +102,9 @@ export function SalesPage() {
   const sym = organization?.currencySymbol ?? "L";
   const navigate = useNavigate();
   const [list, setList] = useState<Sale[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(50);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -113,6 +117,7 @@ export function SalesPage() {
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const [colVis, setColVis] = useState<Record<SalesColKey, boolean>>(SALES_LIST_COL_DEFAULT);
+  const hasFilters = Boolean(dateFrom || dateTo || debouncedQ.trim() || customerId || termsFilter);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(searchQ), 400);
@@ -131,15 +136,24 @@ export function SalesPage() {
       if (termsFilter === "__credit__") params.set("termsGroup", "credit");
       else if (termsFilter === "__immediate__") params.set("termsGroup", "cash");
       else if (termsFilter) params.set("terms", termsFilter);
+      params.set("paginated", "1");
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
       const qs = params.toString();
-      const data = await apiFetch<Sale[]>(`/api/sales${qs ? `?${qs}` : ""}`, { token });
-      setList(data);
+      const data = await apiFetch<PaginatedResponse<Sale>>(`/api/sales${qs ? `?${qs}` : ""}`, { token });
+      setList(data.items);
+      setTotal(data.total);
     } catch {
       setList([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [token, dateFrom, dateTo, debouncedQ, customerId, termsFilter]);
+  }, [token, dateFrom, dateTo, debouncedQ, customerId, termsFilter, page, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [dateFrom, dateTo, debouncedQ, customerId, termsFilter]);
 
   useEffect(() => {
     if (!token) return;
@@ -385,12 +399,46 @@ export function SalesPage() {
             ))}
           </div>
         ) : null}
+        <div className="pf-table-toolbar mt-3">
+          <div className="flex flex-wrap gap-1.5">
+            <span className="pf-filter-chip">{total} venta(s)</span>
+            {debouncedQ.trim() ? <span className="pf-filter-chip">Busqueda: {debouncedQ.trim()}</span> : null}
+            {dateFrom || dateTo ? <span className="pf-filter-chip">Rango de fechas</span> : null}
+            {customerId ? <span className="pf-filter-chip">Cliente filtrado</span> : null}
+            {termsFilter ? <span className="pf-filter-chip">Terminos filtrados</span> : null}
+          </div>
+          <p className="text-xs font-medium text-pf-text-soft">{list.length} visibles en esta pagina</p>
+        </div>
       </Card>
 
       <Card className="pf-table-shell min-h-0 flex-1 overflow-hidden p-0">
         {loading ? (
           <p className="p-4 text-center font-medium text-pf-muted">Cargando…</p>
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon={<Inbox className="h-5 w-5" strokeWidth={2} aria-hidden />}
+            title={hasFilters ? "No hay ventas con esos filtros" : "Todavia no hay ventas registradas"}
+            description={
+              hasFilters
+                ? "Cambie el rango, cliente, termino o busqueda para ampliar los resultados."
+                : "Cuando registre ventas, apareceran aqui para consulta, impresion y seguimiento."
+            }
+            action={
+              hasFilters ? (
+                <Button type="button" variant="secondary" onClick={clearFilters}>
+                  <FilterX className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Limpiar filtros
+                </Button>
+              ) : (
+                <Button type="button" onClick={() => navigate("/venta")}>
+                  <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Nueva venta
+                </Button>
+              )
+            }
+          />
         ) : (
+          <>
           <div className="max-h-[min(600px,calc(100vh-14rem))] overflow-auto overscroll-contain">
             <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1]">
@@ -470,10 +518,32 @@ export function SalesPage() {
               </tbody>
             </table>
           </div>
+          <div className="hidden">
+            <span>
+              Mostrando {list.length} de {total} ventas · PÃ¡gina {page} de {Math.max(1, Math.ceil(total / pageSize))}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-pf-border-soft bg-pf-surface-elevated px-2 py-1 font-semibold disabled:opacity-45"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-pf-border-soft bg-pf-surface-elevated px-2 py-1 font-semibold disabled:opacity-45"
+                disabled={page >= Math.max(1, Math.ceil(total / pageSize))}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+          <PaginationBar page={page} pageSize={pageSize} total={total} itemLabel="ventas" onPageChange={setPage} />
+          </>
         )}
-        {!loading && list.length === 0 ? (
-          <p className="p-4 text-pf-muted text-center">Sin ventas con los filtros actuales</p>
-        ) : null}
       </Card>
     </div>
   );

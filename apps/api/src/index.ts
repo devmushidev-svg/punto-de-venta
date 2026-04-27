@@ -53,6 +53,12 @@ import {
   type ImportTemplateKind,
 } from "./lib/excelImport.js";
 import { mergeMasterFromBackup } from "./lib/backupImportMaster.js";
+import {
+  getSupabaseConfig,
+  pullCloudEvents,
+  pushPendingEvents,
+  testSupabaseConnection,
+} from "./lib/supabaseSync.js";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
 
@@ -68,6 +74,56 @@ const productIncludeKit = {
     },
   },
 } as const;
+
+type PageMeta = { page: number; pageSize: number; skip: number; take: number };
+
+function parsePageParams(query: (name: string) => string | undefined, fallbackPageSize = 50): PageMeta {
+  const rawPage = Number(query("page"));
+  const rawPageSize = Number(query("pageSize") ?? query("limit"));
+  const page = Number.isFinite(rawPage) ? Math.max(1, Math.trunc(rawPage)) : 1;
+  const pageSize = Number.isFinite(rawPageSize) ? Math.min(200, Math.max(1, Math.trunc(rawPageSize))) : fallbackPageSize;
+  return { page, pageSize, skip: (page - 1) * pageSize, take: pageSize };
+}
+
+function wantsPaginated(query: (name: string) => string | undefined): boolean {
+  return query("paginated") === "1" || query("page") !== undefined || query("pageSize") !== undefined;
+}
+
+async function ensureDefaultBranchDevice(organizationId: string) {
+  const branchCode = (process.env.BRANCH_CODE || "PRIN").trim().toUpperCase();
+  const deviceCode = (process.env.DEVICE_CODE || "CAJA-01").trim().toUpperCase();
+  const deviceName = (process.env.DEVICE_NAME || "Caja principal").trim();
+
+  let branch = await prisma.branch.findFirst({ where: { organizationId, code: branchCode } });
+  if (!branch) {
+    branch = await prisma.branch.create({
+      data: { organizationId, code: branchCode, name: "Tienda principal", isDefault: true },
+    });
+  }
+
+  let device = await prisma.device.findFirst({ where: { organizationId, code: deviceCode } });
+  if (!device) {
+    device = await prisma.device.create({
+      data: {
+        organizationId,
+        branchId: branch.id,
+        code: deviceCode,
+        name: deviceName,
+        deviceType: "POS",
+        mode: "LOCAL",
+        invoiceSeries: deviceCode.replace(/[^A-Z0-9]/g, "").slice(-4) || "A",
+        lastSeenAt: new Date(),
+      },
+    });
+  } else {
+    device = await prisma.device.update({
+      where: { id: device.id },
+      data: { lastSeenAt: new Date(), branchId: device.branchId ?? branch.id },
+    });
+  }
+
+  return { branch, device };
+}
 
 type Variables = { jwt: JwtPayload };
 
@@ -155,6 +211,7 @@ app.post("/auth/login", async (c) => {
 
   clearLoginFailures(loginIp);
 
+  const localContext = await ensureDefaultBranchDevice(user.organizationId);
   const effectivePermissions = effectivePermissionList(user.role, user.permissionsJson);
   const token = signToken({
     sub: user.id,
@@ -177,6 +234,18 @@ app.post("/auth/login", async (c) => {
       slug: user.organization.slug,
       name: user.organization.name,
       currencySymbol: user.organization.currencySymbol,
+    },
+    branch: {
+      id: localContext.branch.id,
+      code: localContext.branch.code,
+      name: localContext.branch.name,
+    },
+    device: {
+      id: localContext.device.id,
+      code: localContext.device.code,
+      name: localContext.device.name,
+      mode: localContext.device.mode,
+      invoiceSeries: localContext.device.invoiceSeries,
     },
   });
 });
@@ -292,6 +361,7 @@ api.get("/auth/me", async (c) => {
   if (jwt.permRev !== undefined && user.permissionsRev !== jwt.permRev) {
     return c.json(PERM_STALE_BODY, 401);
   }
+  const localContext = await ensureDefaultBranchDevice(user.organizationId);
   const effectivePermissions = effectivePermissionList(user.role, user.permissionsJson);
   return c.json({
     user: {
@@ -307,6 +377,18 @@ api.get("/auth/me", async (c) => {
       name: user.organization.name,
       currencySymbol: user.organization.currencySymbol,
       country: user.organization.country,
+    },
+    branch: {
+      id: localContext.branch.id,
+      code: localContext.branch.code,
+      name: localContext.branch.name,
+    },
+    device: {
+      id: localContext.device.id,
+      code: localContext.device.code,
+      name: localContext.device.name,
+      mode: localContext.device.mode,
+      invoiceSeries: localContext.device.invoiceSeries,
     },
   });
 });
@@ -325,6 +407,153 @@ api.get("/organizations/current", async (c) => {
   const org = await prisma.organization.findUnique({ where: { id: jwt.orgId } });
   if (!org) return c.json({ error: "No encontrado" }, 404);
   return c.json(org);
+});
+
+api.get("/branches", async (c) => {
+  const jwt = c.get("jwt");
+  await ensureDefaultBranchDevice(jwt.orgId);
+  const rows = await prisma.branch.findMany({
+    where: { organizationId: jwt.orgId },
+    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+  });
+  return c.json(rows);
+});
+
+api.get("/devices", async (c) => {
+  const jwt = c.get("jwt");
+  await ensureDefaultBranchDevice(jwt.orgId);
+  const rows = await prisma.device.findMany({
+    where: { organizationId: jwt.orgId },
+    include: { branch: { select: { id: true, code: true, name: true } } },
+    orderBy: { name: "asc" },
+  });
+  return c.json(rows);
+});
+
+api.post("/devices/register", async (c) => {
+  const jwt = c.get("jwt");
+  const body = await c.req.json<{
+    code?: string;
+    name?: string;
+    branchId?: string | null;
+    mode?: string;
+    invoiceSeries?: string;
+  }>();
+  const fallback = await ensureDefaultBranchDevice(jwt.orgId);
+  const code = (body.code || process.env.DEVICE_CODE || "CAJA-01").trim().toUpperCase();
+  const name = (body.name || body.code || process.env.DEVICE_NAME || "Caja principal").trim();
+  if (!code || !name) return c.json({ error: "code y name requeridos" }, 400);
+  const branchId = body.branchId || fallback.branch.id;
+  const branch = await prisma.branch.findFirst({ where: { id: branchId, organizationId: jwt.orgId } });
+  if (!branch) return c.json({ error: "Sucursal no encontrada" }, 404);
+
+  const existing = await prisma.device.findFirst({ where: { organizationId: jwt.orgId, code } });
+  const data = {
+    branchId: branch.id,
+    name,
+    mode: body.mode?.trim().toUpperCase() || "LOCAL",
+    invoiceSeries: (body.invoiceSeries || code.replace(/[^A-Z0-9]/g, "").slice(-4) || "A").trim().toUpperCase(),
+    active: true,
+    lastSeenAt: new Date(),
+  };
+  const device = existing
+    ? await prisma.device.update({ where: { id: existing.id }, data })
+    : await prisma.device.create({ data: { organizationId: jwt.orgId, code, ...data } });
+  return c.json(device);
+});
+
+api.get("/sync/status", async (c) => {
+  const jwt = c.get("jwt");
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  const supabase = getSupabaseConfig();
+  const [pendingEvents, failedEvents, reviewEvents, lastBatch, supabaseTest] = await Promise.all([
+    prisma.syncEvent.count({ where: { organizationId: jwt.orgId, syncStatus: "PENDING" } }),
+    prisma.syncEvent.count({ where: { organizationId: jwt.orgId, syncStatus: "FAILED" } }),
+    prisma.syncEvent.count({ where: { organizationId: jwt.orgId, syncStatus: "REVIEW" } }),
+    prisma.syncBatch.findFirst({ where: { organizationId: jwt.orgId }, orderBy: { startedAt: "desc" } }),
+    testSupabaseConnection(),
+  ]);
+  return c.json({
+    mode: localContext.device.mode,
+    branch: { id: localContext.branch.id, code: localContext.branch.code, name: localContext.branch.name },
+    device: {
+      id: localContext.device.id,
+      code: localContext.device.code,
+      name: localContext.device.name,
+      invoiceSeries: localContext.device.invoiceSeries,
+    },
+    pendingEvents,
+    failedEvents,
+    reviewEvents,
+    lastBatch,
+    cloudConfigured: supabase.configured,
+    cloudConnected: supabaseTest.ok,
+    cloudMessage: supabaseTest.message,
+    storageBucket: supabase.bucket,
+    syncTable: supabase.syncTable,
+  });
+});
+
+api.get("/sync/test", async (c) => {
+  return c.json(await testSupabaseConnection());
+});
+
+api.post("/sync/push", async (c) => {
+  const jwt = c.get("jwt");
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  const batch = await prisma.syncBatch.create({
+    data: {
+      organizationId: jwt.orgId,
+      direction: "PUSH",
+      status: "RUNNING",
+      source: localContext.device.code,
+      target: process.env.SUPABASE_URL || "SUPABASE_PENDING",
+    },
+  });
+  try {
+    const result = await pushPendingEvents(prisma, jwt.orgId);
+    const done = await prisma.syncBatch.update({
+      where: { id: batch.id },
+      data: { status: "DONE", finishedAt: new Date() },
+    });
+    return c.json({ batch: done, ...result, message: "Cambios locales subidos a Supabase." });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Error de sincronizacion";
+    const failed = await prisma.syncBatch.update({
+      where: { id: batch.id },
+      data: { status: "FAILED", finishedAt: new Date(), error: msg },
+    });
+    return c.json({ batch: failed, error: msg }, msg === "SUPABASE_NOT_CONFIGURED" ? 400 : 502);
+  }
+});
+
+api.post("/sync/pull", async (c) => {
+  const jwt = c.get("jwt");
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  const batch = await prisma.syncBatch.create({
+    data: {
+      organizationId: jwt.orgId,
+      direction: "PULL",
+      status: "RUNNING",
+      source: process.env.SUPABASE_URL || "SUPABASE_PENDING",
+      target: localContext.device.code,
+    },
+  });
+  try {
+    const result = await pullCloudEvents(prisma, jwt.orgId, localContext.device.id);
+    const done = await prisma.syncBatch.update({
+      where: { id: batch.id },
+      data: { status: "DONE", finishedAt: new Date() },
+    });
+    return c.json({ batch: done, ...result, message: "Cambios de Supabase revisados." });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Error de sincronizacion";
+    const failed = await prisma.syncBatch.update({
+      where: { id: batch.id },
+      data: { status: "FAILED", finishedAt: new Date(), error: msg },
+    });
+    return c.json({ batch: failed, error: msg }, msg === "SUPABASE_NOT_CONFIGURED" ? 400 : 502);
+  }
 });
 
 api.patch("/organizations/current", requireAdmin, async (c) => {
@@ -535,6 +764,28 @@ api.get("/products", async (c) => {
   }
   if (supplierId) where.supplierId = supplierId;
 
+  const paginated = wantsPaginated((name) => c.req.query(name));
+  if (paginated) {
+    const page = parsePageParams((name) => c.req.query(name), 50);
+    const [items, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy: { name: "asc" },
+        skip: page.skip,
+        take: page.take,
+        include: { supplier: { select: { id: true, name: true } } },
+      }),
+      prisma.product.count({ where }),
+    ]);
+    return c.json({
+      items,
+      total,
+      page: page.page,
+      pageSize: page.pageSize,
+      filters: { q: q ?? "", stock: stock ?? "", supplierId: supplierId ?? "", touch: touch ?? "", forPos: forPos ?? "" },
+    });
+  }
+
   const rawLimit = Number(c.req.query("limit"));
   const parsedLimit = Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 5000;
   const limit = Math.min(8000, Math.max(1, parsedLimit));
@@ -650,11 +901,13 @@ api.post("/products", requireAdmin, async (c) => {
   if (productType === "KIT" && (!body.kitLines || body.kitLines.length === 0)) {
     return c.json({ error: "Un kit debe incluir al menos un producto (tipo PRODUCTO)" }, 400);
   }
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
   try {
     const p = await prisma.$transaction(async (tx) => {
       const row = await tx.product.create({
         data: {
           organizationId: jwt.orgId,
+          branchId: localContext.branch.id,
           sku,
           name: body.name.trim(),
           description: body.description,
@@ -679,11 +932,26 @@ api.post("/products", requireAdmin, async (c) => {
           esGranel: Boolean(body.esGranel),
           printOnKitchenOrder: body.printOnKitchenOrder !== false,
           volumePricesJson: normalizeVolumePricesPayload(body.volumePricesJson ?? []),
+          syncStatus: "PENDING",
+          originDeviceId: localContext.device.id,
         },
       });
       if (productType === "KIT") {
         await replaceProductKitLines(tx, row.id, jwt.orgId, body.kitLines, "KIT");
       }
+      await tx.syncEvent.create({
+        data: {
+          organizationId: jwt.orgId,
+          branchId: localContext.branch.id,
+          deviceId: localContext.device.id,
+          originDeviceId: localContext.device.id,
+          entityType: "Product",
+          entityId: row.id,
+          action: "CREATE",
+          syncStatus: "PENDING",
+          payloadJson: JSON.stringify({ id: row.id }),
+        },
+      });
       return tx.product.findUnique({
         where: { id: row.id },
         include: productIncludeKit,
@@ -741,6 +1009,11 @@ api.patch("/products/:id", requireAdmin, async (c) => {
     data.productType = pt;
     if (pt === "KIT") data.stock = 0;
   }
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  data.branchId = data.branchId ?? localContext.branch.id;
+  data.originDeviceId = localContext.device.id;
+  data.syncStatus = "PENDING";
+  data.version = { increment: 1 };
   const kitLinesBody = body.kitLines as KitLineInput[] | undefined;
   try {
     const updated = await prisma.$transaction(async (tx) => {
@@ -757,6 +1030,19 @@ api.patch("/products/:id", requireAdmin, async (c) => {
         const n = await tx.productKitLine.count({ where: { kitProductId: id } });
         if (n === 0) throw new Error("KIT_EMPTY");
       }
+      await tx.syncEvent.create({
+        data: {
+          organizationId: jwt.orgId,
+          branchId: localContext.branch.id,
+          deviceId: localContext.device.id,
+          originDeviceId: localContext.device.id,
+          entityType: "Product",
+          entityId: id,
+          action: "UPDATE",
+          syncStatus: "PENDING",
+          payloadJson: JSON.stringify({ id }),
+        },
+      });
       return tx.product.findUnique({
         where: { id },
         include: productIncludeKit,
@@ -959,6 +1245,7 @@ api.post("/sales", async (c) => {
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
 
   if (isCreditSaleTerm(terms)) {
     const cid = typeof body.customerId === "string" ? body.customerId.trim() : "";
@@ -1040,13 +1327,40 @@ api.post("/sales", async (c) => {
         });
       }
     } else {
-      const count = await tx.sale.count({ where: { organizationId: jwt.orgId } });
-      invoiceNumber = String(count + 1).padStart(6, "0");
+      let series = await tx.documentSeries.findFirst({
+        where: {
+          organizationId: jwt.orgId,
+          documentType: "SALE",
+          deviceId: localContext.device.id,
+          active: true,
+        },
+      });
+      if (!series) {
+        series = await tx.documentSeries.create({
+          data: {
+            organizationId: jwt.orgId,
+            branchId: localContext.branch.id,
+            deviceId: localContext.device.id,
+            documentType: "SALE",
+            prefix: `${localContext.device.invoiceSeries}-`,
+            nextNumber: 1,
+            padding: 6,
+          },
+        });
+      }
+      invoiceNumber = `${series.prefix}${String(series.nextNumber).padStart(series.padding, "0")}`;
+      await tx.documentSeries.update({
+        where: { id: series.id },
+        data: { nextNumber: { increment: 1 } },
+      });
     }
 
     const sale = await tx.sale.create({
       data: {
         organizationId: jwt.orgId,
+        branchId: localContext.branch.id,
+        deviceId: localContext.device.id,
+        originDeviceId: localContext.device.id,
         userId: jwt.sub,
         customerId: body.customerId || null,
         invoiceNumber,
@@ -1059,6 +1373,7 @@ api.post("/sales", async (c) => {
         total,
         paid,
         saleDate: saleDateResolved,
+        syncStatus: "PENDING",
         lines: { create: saleLines },
       },
       include: {
@@ -1077,6 +1392,20 @@ api.post("/sales", async (c) => {
       }
       await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
     }
+
+    await tx.syncEvent.create({
+      data: {
+        organizationId: jwt.orgId,
+        branchId: localContext.branch.id,
+        deviceId: localContext.device.id,
+        originDeviceId: localContext.device.id,
+        entityType: "Sale",
+        entityId: sale.id,
+        action: "CREATE",
+        syncStatus: "PENDING",
+        payloadJson: JSON.stringify({ id: sale.id, invoiceNumber }),
+      },
+    });
 
     return sale;
   });
@@ -1142,6 +1471,39 @@ api.get("/sales", async (c) => {
     where.terms = { in: [...immediateTerms] };
   } else if (terms) {
     where.terms = terms;
+  }
+
+  const paginated = wantsPaginated((name) => c.req.query(name));
+  if (paginated) {
+    const page = parsePageParams((name) => c.req.query(name), 50);
+    const [items, total] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: page.skip,
+        take: page.take,
+        include: {
+          customer: true,
+          user: { select: { id: true, displayName: true, username: true } },
+          lines: { include: { product: true } },
+        },
+      }),
+      prisma.sale.count({ where }),
+    ]);
+    return c.json({
+      items,
+      total,
+      page: page.page,
+      pageSize: page.pageSize,
+      filters: {
+        from: from ?? "",
+        to: to ?? "",
+        q: q ?? "",
+        customerId: customerId ?? "",
+        terms: terms ?? "",
+        termsGroup: termsGroup ?? "",
+      },
+    });
   }
 
   const sales = await prisma.sale.findMany({

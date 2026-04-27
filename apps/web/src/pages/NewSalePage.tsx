@@ -1447,7 +1447,7 @@ export function NewSalePage() {
           {isEditMode ? "Editar venta" : "Nueva venta"}
         </h1>
 
-        <div className="w-full min-w-0 rounded-lg border border-pf-border bg-pf-surface-elevated/95 p-1 shadow-sm sm:p-1.5">
+        <div className="w-full min-w-0 rounded-lg border border-slate-300 bg-white p-1.5 shadow-sm ring-1 ring-slate-200/70 sm:p-2">
           <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
             {/* Columna documento: Nº factura, términos, fecha */}
             <div className="min-w-0 space-y-0.5 xl:col-span-2">
@@ -1642,7 +1642,7 @@ export function NewSalePage() {
       </div>
 
       {/* Cuadrícula principal */}
-      <div className="flex-1 overflow-x-auto rounded-b-3xl border border-t-0 border-[var(--pf-glass-border)] bg-[color:var(--pf-surface-overlay)] shadow-[var(--pf-shadow-card)] backdrop-blur-sm md:rounded-b-2xl md:border-pf-border md:bg-white md:shadow-sm md:backdrop-blur-none">
+      <div className="flex-1 overflow-x-auto rounded-b-2xl border border-t-0 border-slate-300 bg-white shadow-lg shadow-slate-900/5">
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="pf-table-thead text-left uppercase tracking-wide">
@@ -1662,7 +1662,7 @@ export function NewSalePage() {
                 <tr
                   key={l.lineKey}
                   onClick={() => setSelectedLineIndex(i)}
-                  className={`pf-table-row cursor-pointer transition hover:bg-gradient-to-r hover:from-pf-primary-soft/20 hover:to-transparent ${
+                  className={`pf-table-row cursor-pointer transition hover:bg-sky-50 ${
                     selectedLineIndex === i
                       ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
                       : tracksStock(l.product) && l.qty > l.product.stock
@@ -1816,13 +1816,13 @@ export function NewSalePage() {
                   className="!min-h-[44px] w-full min-w-[10.5rem] px-2 py-2 font-mono text-sm read-only:bg-pf-surface-elevated/80"
                 />
               </td>
-              <td className="px-3 py-2 align-middle text-xs leading-snug" onClick={(e) => e.stopPropagation()}>
+              <td className="px-3 py-2 align-middle text-xs font-medium leading-snug" onClick={(e) => e.stopPropagation()}>
                 {quickAddErr ? (
                   <span className="font-medium text-red-600">{quickAddErr}</span>
                 ) : quickAddBusy ? (
                   <span className="text-pf-muted">Buscando…</span>
                 ) : (
-                  <span className="text-pf-muted">
+                  <span className="text-slate-600">
                     {lines.length === 0
                       ? "Código o barras y Enter → cantidad; Enter sigue a precio y descuento, luego nuevo código."
                       : "Siguiente: código y Enter → cantidad del producto."}
@@ -1842,22 +1842,22 @@ export function NewSalePage() {
       </div>
 
       {/* Resumen monetario (antes estaba duplicado en la cabecera) */}
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 sm:gap-x-8 rounded-xl border border-pf-border/80 bg-pf-primary-soft/15 px-4 py-3 text-sm">
-        <div className="text-right">
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm shadow-sm sm:gap-x-8">
+        <div className="rounded-lg bg-slate-100 px-3 py-2 text-right">
           <span className="font-medium text-pf-muted">Subtotal</span>
           <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
             {formatMoney(sym, totals.subtotal)}
           </span>
         </div>
-        <div className="text-right">
+        <div className="rounded-lg bg-slate-100 px-3 py-2 text-right">
           <span className="font-medium text-pf-muted">Impuesto</span>
           <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
             {formatMoney(sym, totals.tax)}
           </span>
         </div>
-        <div className="text-right">
-          <span className="font-medium text-pf-muted">Total</span>
-          <span className="ml-2 text-base font-black tabular-nums text-pf-text sm:text-lg">
+        <div className="rounded-lg bg-slate-900 px-4 py-2 text-right text-white shadow-md">
+          <span className="font-bold text-slate-300">Total</span>
+          <span className="ml-2 text-base font-black tabular-nums text-white sm:text-xl">
             {formatMoney(sym, totals.total)}
           </span>
         </div>

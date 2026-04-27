@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   forwardRef,
   useEffect,
@@ -42,6 +43,81 @@ export function Button({
     <button type="button" className={`${base} ${styles[variant]} ${className}`} {...props}>
       {children}
     </button>
+  );
+}
+
+export function EmptyState({
+  title,
+  description,
+  action,
+  icon,
+  className = "",
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  icon?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`pf-empty-state ${className}`}>
+      {icon ? <div className="pf-empty-state-icon">{icon}</div> : null}
+      <p className="text-sm font-bold text-pf-text">{title}</p>
+      {description ? <p className="mt-1 max-w-md text-sm text-pf-muted">{description}</p> : null}
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+    </div>
+  );
+}
+
+export function PaginationBar({
+  page,
+  pageSize,
+  total,
+  itemLabel,
+  onPageChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
+  return (
+    <div className="pf-pagination-bar">
+      <span className="min-w-0 truncate">
+        {start}-{end} de {total} {itemLabel}
+      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="hidden text-pf-muted sm:inline">
+          Pagina {page} de {totalPages}
+        </span>
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-0 rounded-lg px-2 py-1.5 text-xs"
+          disabled={page <= 1}
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          aria-label="Pagina anterior"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+          <span className="hidden sm:inline">Anterior</span>
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-0 rounded-lg px-2 py-1.5 text-xs"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          aria-label="Pagina siguiente"
+        >
+          <span className="hidden sm:inline">Siguiente</span>
+          <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+        </Button>
+      </div>
+    </div>
   );
 }
 

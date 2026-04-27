@@ -1,14 +1,23 @@
-import { ChevronDown, ChevronUp, Download, Eye, EyeOff, Save } from "lucide-react";
+import { ChevronDown, ChevronUp, Cloud, CloudOff, Download, Eye, EyeOff, RefreshCw, Save, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHero } from "../components/PageHero";
 import { Link, Navigate } from "react-router-dom";
-import { apiDownload, apiFetch, apiUrl } from "../api/client";
+import {
+  apiDownload,
+  apiFetch,
+  apiUrl,
+  getCloudApiBase,
+  getConnectionMode,
+  setCloudApiBase,
+  setConnectionMode,
+  type ConnectionMode,
+} from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Textarea } from "../components/ui";
 import type { PfThemeId } from "../theme/pfTheme";
 import { usePfTheme } from "../theme/ThemeProvider";
 
-type Tab = "apariencia" | "ticket" | "avanzado";
+type Tab = "apariencia" | "ticket" | "sync" | "avanzado";
 
 type TicketSettings = {
   headerLine: string;
@@ -37,6 +46,18 @@ type InvoiceShape = {
   comprobante: ComprobanteSettings;
   kitchen?: KitchenSettings;
   sar?: SarSettings;
+};
+
+type SyncStatus = {
+  pendingEvents: number;
+  failedEvents: number;
+  reviewEvents?: number;
+  cloudConfigured: boolean;
+  cloudConnected: boolean;
+  cloudMessage: string;
+  lastBatch?: { direction: string; status: string; startedAt: string; finishedAt?: string | null; error?: string | null } | null;
+  syncTable?: string;
+  storageBucket?: string;
 };
 
 const DEFAULT_TICKET: TicketSettings = { headerLine: "", footerLine: "Gracias por su compra", showTaxBreakdown: true };
@@ -86,6 +107,11 @@ export function SettingsPage() {
 
   const [generalJson, setGeneralJson] = useState("{}");
   const [showRawInvoice, setShowRawInvoice] = useState(false);
+  const [connectionMode, setConnectionModeState] = useState<ConnectionMode>(() => getConnectionMode());
+  const [cloudApiBase, setCloudApiBaseState] = useState(() => getCloudApiBase());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
@@ -135,6 +161,51 @@ export function SettingsPage() {
   }, [token, admin]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadSyncStatus = useCallback(async () => {
+    if (!token || !admin) return;
+    try {
+      const s = await apiFetch<SyncStatus>("/api/sync/status", { token });
+      setSyncStatus(s);
+    } catch {
+      setSyncStatus(null);
+    }
+  }, [token, admin]);
+
+  useEffect(() => {
+    loadSyncStatus();
+  }, [loadSyncStatus]);
+
+  function saveConnectionMode(mode: ConnectionMode) {
+    setConnectionMode(mode);
+    setConnectionModeState(mode);
+  }
+
+  function saveCloudBase() {
+    setCloudApiBase(cloudApiBase);
+    setSyncMsg("URL cloud guardada en este navegador");
+    setTimeout(() => setSyncMsg(""), 3000);
+  }
+
+  async function runSyncAction(action: "test" | "push" | "pull") {
+    if (!token || !admin) return;
+    setSyncBusy(true);
+    setSyncMsg("");
+    try {
+      const path = action === "test" ? "/api/sync/test" : `/api/sync/${action}`;
+      const res = await apiFetch<{ ok?: boolean; message?: string; error?: string; pushed?: number; pulled?: number; applied?: number }>(path, {
+        method: action === "test" ? "GET" : "POST",
+        token,
+      });
+      setSyncMsg(res.message ?? `Sync ${action} ejecutado`);
+      await loadSyncStatus();
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : "Error de sincronizacion");
+      await loadSyncStatus();
+    } finally {
+      setSyncBusy(false);
+    }
+  }
 
   async function save() {
     if (!token || !admin) return;
@@ -264,6 +335,7 @@ export function SettingsPage() {
   const tabs: { id: Tab; label: string }[] = [
     { id: "apariencia", label: "Apariencia" },
     { id: "ticket", label: "Factura y ticket" },
+    { id: "sync", label: "Nube / offline" },
     { id: "avanzado", label: "Avanzado" },
   ];
 
@@ -455,6 +527,113 @@ export function SettingsPage() {
                 </pre>
               </Card>
             )}
+          </>
+        )}
+
+        {/* ─── Nube / Offline ─── */}
+        {tab === "sync" && (
+          <>
+            <Card className="pf-glass-card-panel space-y-4 p-4 md:p-5">
+              <div>
+                <p className="text-sm font-bold text-pf-text">Modo de conexion de este navegador</p>
+                <p className="mt-0.5 text-xs text-pf-text-tertiary">
+                  Normalmente use nube. Si falla internet en Windows, cambie a local para operar con SQLite y sincronizar luego.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => saveConnectionMode("cloud")}
+                  className={`rounded-xl border p-4 text-left transition ${
+                    connectionMode === "cloud" ? "border-pf-primary bg-pf-primary-soft/40" : "border-pf-border-soft bg-pf-surface-elevated"
+                  }`}
+                >
+                  <Cloud className="mb-2 h-5 w-5 text-pf-info" strokeWidth={2} aria-hidden />
+                  <p className="text-sm font-bold text-pf-text">Nube</p>
+                  <p className="text-xs text-pf-muted">Para celular, varias cajas y acceso remoto.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveConnectionMode("local")}
+                  className={`rounded-xl border p-4 text-left transition ${
+                    connectionMode === "local" ? "border-pf-primary bg-pf-primary-soft/40" : "border-pf-border-soft bg-pf-surface-elevated"
+                  }`}
+                >
+                  <CloudOff className="mb-2 h-5 w-5 text-pf-warning" strokeWidth={2} aria-hidden />
+                  <p className="text-sm font-bold text-pf-text">Local offline</p>
+                  <p className="text-xs text-pf-muted">Para Windows con API local y SQLite cuando no hay internet.</p>
+                </button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                <Field label="URL API cloud (opcional)">
+                  <Input
+                    value={cloudApiBase}
+                    onChange={(e) => setCloudApiBaseState(e.target.value)}
+                    placeholder="https://api.tu-dominio.com"
+                  />
+                </Field>
+                <Button type="button" variant="secondary" onClick={saveCloudBase}>
+                  Guardar URL
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="pf-glass-card-panel space-y-4 p-4 md:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-pf-text">Sincronizacion con Supabase</p>
+                  <p className="mt-0.5 text-xs text-pf-text-tertiary">
+                    Supabase es la nube administrada. Esta PC guarda cambios offline y los sube cuando vuelve internet.
+                  </p>
+                </div>
+                <Button type="button" variant="secondary" disabled={syncBusy} onClick={() => void loadSyncStatus()}>
+                  <RefreshCw className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Actualizar
+                </Button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-4">
+                <div className="rounded-xl border border-pf-border-soft bg-pf-surface-soft p-3">
+                  <p className="text-[11px] font-bold uppercase text-pf-muted">Estado nube</p>
+                  <p className={`mt-1 text-sm font-bold ${syncStatus?.cloudConnected ? "text-pf-success" : "text-pf-warning"}`}>
+                    {syncStatus?.cloudConnected ? "Conectada" : syncStatus?.cloudConfigured ? "Configurada con error" : "No configurada"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-pf-border-soft bg-pf-surface-soft p-3">
+                  <p className="text-[11px] font-bold uppercase text-pf-muted">Pendientes</p>
+                  <p className="mt-1 text-sm font-bold text-pf-text">{syncStatus?.pendingEvents ?? 0}</p>
+                </div>
+                <div className="rounded-xl border border-pf-border-soft bg-pf-surface-soft p-3">
+                  <p className="text-[11px] font-bold uppercase text-pf-muted">Revision</p>
+                  <p className="mt-1 text-sm font-bold text-pf-text">{syncStatus?.reviewEvents ?? 0}</p>
+                </div>
+                <div className="rounded-xl border border-pf-border-soft bg-pf-surface-soft p-3">
+                  <p className="text-[11px] font-bold uppercase text-pf-muted">Errores</p>
+                  <p className="mt-1 text-sm font-bold text-pf-danger">{syncStatus?.failedEvents ?? 0}</p>
+                </div>
+              </div>
+              <p className="text-xs text-pf-muted">
+                {syncStatus?.cloudMessage ?? "Configure SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en la API local."}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="secondary" disabled={syncBusy} onClick={() => void runSyncAction("test")}>
+                  Probar Supabase
+                </Button>
+                <Button type="button" disabled={syncBusy} onClick={() => void runSyncAction("push")}>
+                  <UploadCloud className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Subir pendientes
+                </Button>
+                <Button type="button" variant="secondary" disabled={syncBusy} onClick={() => void runSyncAction("pull")}>
+                  Bajar cambios
+                </Button>
+              </div>
+              {syncStatus?.lastBatch ? (
+                <p className="text-xs text-pf-text-tertiary">
+                  Ultimo lote: {syncStatus.lastBatch.direction} / {syncStatus.lastBatch.status}
+                  {syncStatus.lastBatch.error ? ` / ${syncStatus.lastBatch.error}` : ""}
+                </p>
+              ) : null}
+              {syncMsg ? <p className="rounded-lg border border-pf-border-soft bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text">{syncMsg}</p> : null}
+            </Card>
           </>
         )}
 

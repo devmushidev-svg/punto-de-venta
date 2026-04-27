@@ -61,9 +61,9 @@ export function BrandLockup({
     <span className={`inline-flex items-center gap-2.5 min-w-0 ${className}`.trim()}>
       <BrandLogo size={size} withShadow />
       <span className="flex min-w-0 flex-col leading-tight">
-        <span className="text-[15px] font-bold tracking-tight text-stone-900 truncate">MultiPOS</span>
+        <span className="truncate text-[15px] font-bold tracking-tight text-white">MultiPOS</span>
         {showTagline ? (
-          <span className="text-[10px] font-medium uppercase tracking-wider text-pf-muted truncate">
+          <span className="truncate text-[10px] font-medium uppercase tracking-wider text-slate-300">
             Punto de venta
           </span>
         ) : null}

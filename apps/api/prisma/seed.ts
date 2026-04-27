@@ -44,6 +44,63 @@ async function main() {
     });
   }
 
+  let branch = await prisma.branch.findFirst({
+    where: { organizationId: org.id, code: "PRIN" },
+  });
+  if (!branch) {
+    branch = await prisma.branch.create({
+      data: {
+        organizationId: org.id,
+        code: "PRIN",
+        name: "Tienda principal",
+        address: org.address,
+        phone: org.phone,
+        isDefault: true,
+      },
+    });
+  }
+
+  let device = await prisma.device.findFirst({
+    where: { organizationId: org.id, code: "CAJA-01" },
+  });
+  if (!device) {
+    device = await prisma.device.create({
+      data: {
+        organizationId: org.id,
+        branchId: branch.id,
+        code: "CAJA-01",
+        name: "Caja principal",
+        deviceType: "POS",
+        mode: "LOCAL",
+        invoiceSeries: "A",
+        lastSeenAt: new Date(),
+      },
+    });
+  }
+
+  for (const series of [
+    { documentType: "SALE", prefix: `${device.invoiceSeries}-`, nextNumber: 1 },
+    { documentType: "QUOTE", prefix: `Q-${device.invoiceSeries}-`, nextNumber: 1 },
+    { documentType: "CASH", prefix: `C-${device.invoiceSeries}-`, nextNumber: 1 },
+  ] as const) {
+    const exists = await prisma.documentSeries.findFirst({
+      where: { organizationId: org.id, documentType: series.documentType, prefix: series.prefix },
+    });
+    if (!exists) {
+      await prisma.documentSeries.create({
+        data: {
+          organizationId: org.id,
+          branchId: branch.id,
+          deviceId: device.id,
+          documentType: series.documentType,
+          prefix: series.prefix,
+          nextNumber: series.nextNumber,
+          padding: 6,
+        },
+      });
+    }
+  }
+
   const ensureUser = async (username: string, displayName: string, role: string, password: string) => {
     const exists = await prisma.user.findFirst({
       where: { organizationId: org!.id, username },
@@ -51,9 +108,10 @@ async function main() {
     if (exists) return exists;
     const passwordHash = await bcrypt.hash(password, 10);
     return prisma.user.create({
-      data: {
-        organizationId: org!.id,
-        username,
+        data: {
+          organizationId: org!.id,
+          branchId: branch.id,
+          username,
         passwordHash,
         displayName,
         role,
@@ -70,8 +128,9 @@ async function main() {
   if (!demoEmployee) {
     await prisma.employee.create({
       data: {
-        organizationId: org.id,
-        employeeCode: "E001",
+          organizationId: org.id,
+          branchId: branch.id,
+          employeeCode: "E001",
         name: "Juan Pérez (demo RH)",
         position: "Ventas",
         hireDate: daysAgoDate(400),
@@ -88,6 +147,7 @@ async function main() {
     await prisma.expense.create({
       data: {
         organizationId: org.id,
+        branchId: branch.id,
         userId: adminUser.id,
         category: "Oficina / insumos",
         amount: 350,
@@ -120,6 +180,7 @@ async function main() {
       row = await prisma.supplier.create({
         data: {
           organizationId: org.id,
+          branchId: branch.id,
           name: s.name,
           phone: s.phone,
           email: s.email,
@@ -139,6 +200,7 @@ async function main() {
       await prisma.customer.create({
         data: {
           organizationId: org.id,
+          branchId: branch.id,
           code: c.code,
           name: c.name,
           address: c.address,
@@ -151,6 +213,7 @@ async function main() {
 
   const productRows = PRODUCTS.map((p) => ({
     organizationId: org.id,
+    branchId: branch.id,
     sku: p.sku,
     name: p.name,
     price: p.price,
@@ -259,6 +322,9 @@ async function main() {
       await tx.sale.create({
         data: {
           organizationId: org.id,
+          branchId: branch.id,
+          deviceId: device.id,
+          originDeviceId: device.id,
           userId: cajeroUser.id,
           customerId: cust.id,
           invoiceNumber: spec.invoiceNumber,
@@ -334,6 +400,9 @@ async function main() {
       await tx.purchase.create({
         data: {
           organizationId: org.id,
+          branchId: branch.id,
+          deviceId: device.id,
+          originDeviceId: device.id,
           userId: adminUser.id,
           supplierId: supId,
           reference: spec.reference,
@@ -386,6 +455,9 @@ async function main() {
     await prisma.quote.create({
       data: {
         organizationId: org.id,
+        branchId: branch.id,
+        deviceId: device.id,
+        originDeviceId: device.id,
         userId: adminUser.id,
         customerId: cust.id,
         quoteNumber: `SEED-Q-${String(i + 1).padStart(2, "0")}`,
@@ -427,6 +499,7 @@ async function main() {
     await prisma.supplierOrder.create({
       data: {
         organizationId: org.id,
+        branchId: branch.id,
         supplierId: supId,
         userId: adminUser.id,
         orderNumber: so.num,
@@ -458,6 +531,9 @@ async function main() {
     await prisma.cashSession.create({
       data: {
         organizationId: org.id,
+        branchId: branch.id,
+        deviceId: device.id,
+        originDeviceId: device.id,
         userId: cajeroUser.id,
         openedAt: opened,
         closedAt: closed,

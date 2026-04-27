@@ -8,82 +8,228 @@ datasource db {
 }
 
 model Organization {
-  id              String   @id @default(cuid())
-  slug            String   @unique
-  name            String
-  slogan          String?
-  taxId           String?
-  phone           String?
-  email           String?
-  website         String?
-  address         String?
-  city            String?
-  department      String?
-  zip             String?
-  recoveryEmail   String?
-  country         String   @default("HN")
-  currency        String   @default("HNL")
-  currencySymbol  String   @default("L")
-  language        String   @default("es")
-  logoUrl         String?
-  taxIdType       String?  @default("RTN")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  users           User[]
-  products        Product[]
-  customers       Customer[]
-  suppliers       Supplier[]
-  sales           Sale[]
-  purchases       Purchase[]
-  cashSessions    CashSession[]
-  quotes          Quote[]
-  supplierOrders  SupplierOrder[]
-  settings        OrganizationSettings?
-  stockLocations  StockLocation[]
-  stockTransfers  StockTransfer[]
+  id               String                @id @default(cuid())
+  slug             String                @unique
+  name             String
+  slogan           String?
+  taxId            String?
+  phone            String?
+  email            String?
+  website          String?
+  address          String?
+  city             String?
+  department       String?
+  zip              String?
+  recoveryEmail    String?
+  country          String                @default("HN")
+  currency         String                @default("HNL")
+  currencySymbol   String                @default("L")
+  language         String                @default("es")
+  logoUrl          String?
+  taxIdType        String?               @default("RTN")
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  users            User[]
+  products         Product[]
+  customers        Customer[]
+  suppliers        Supplier[]
+  sales            Sale[]
+  purchases        Purchase[]
+  cashSessions     CashSession[]
+  quotes           Quote[]
+  supplierOrders   SupplierOrder[]
+  settings         OrganizationSettings?
+  stockLocations   StockLocation[]
+  stockTransfers   StockTransfer[]
   stockAdjustments StockAdjustment[]
-  employees       Employee[]
-  expenses        Expense[]
-  payrollPeriods  PayrollPeriod[]
-  cashMovements   CashMovement[]
-  productStocks   ProductStock[]
-  expenseBooks    ExpenseBook[]
+  employees        Employee[]
+  expenses         Expense[]
+  payrollPeriods   PayrollPeriod[]
+  cashMovements    CashMovement[]
+  productStocks    ProductStock[]
+  expenseBooks     ExpenseBook[]
+  branches         Branch[]
+  devices          Device[]
+  documentSeries   DocumentSeries[]
+  syncBatches      SyncBatch[]
+  syncEvents       SyncEvent[]
+}
+
+model Branch {
+  id               String            @id @default(cuid())
+  organizationId   String
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code             String
+  name             String
+  address          String?
+  phone            String?
+  active           Boolean           @default(true)
+  isDefault        Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  devices          Device[]
+  documentSeries   DocumentSeries[]
+  users            User[]
+  employees        Employee[]
+  expenses         Expense[]
+  products         Product[]
+  customers        Customer[]
+  suppliers        Supplier[]
+  sales            Sale[]
+  purchases        Purchase[]
+  quotes           Quote[]
+  supplierOrders   SupplierOrder[]
+  cashSessions     CashSession[]
+  cashMovements    CashMovement[]
+  stockTransfers   StockTransfer[]
+  stockAdjustments StockAdjustment[]
+  syncEvents       SyncEvent[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model Device {
+  id               String            @id @default(cuid())
+  organizationId   String
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId         String?
+  branch           Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  code             String
+  name             String
+  deviceType       String            @default("POS")
+  mode             String            @default("LOCAL")
+  invoiceSeries    String            @default("A")
+  active           Boolean           @default(true)
+  lastSeenAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  documentSeries   DocumentSeries[]
+  sales            Sale[]
+  originSales      Sale[]            @relation("SaleOriginDevice")
+  purchases        Purchase[]
+  quotes           Quote[]
+  cashSessions     CashSession[]
+  cashMovements    CashMovement[]
+  stockTransfers   StockTransfer[]
+  stockAdjustments StockAdjustment[]
+  syncEvents       SyncEvent[]
+  originSyncEvents SyncEvent[]       @relation("SyncEventOriginDevice")
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([branchId])
+}
+
+model DocumentSeries {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId       String?
+  device         Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  documentType   String
+  prefix         String
+  nextNumber     Int          @default(1)
+  padding        Int          @default(6)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, documentType, prefix])
+  @@index([organizationId])
+  @@index([branchId])
+  @@index([deviceId])
+}
+
+model SyncBatch {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  direction      String
+  status         String       @default("PENDING")
+  source         String?
+  target         String?
+  startedAt      DateTime     @default(now())
+  finishedAt     DateTime?
+  error          String?
+  events         SyncEvent[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model SyncEvent {
+  id             String       @id @default(cuid())
+  cloudEventId   String?      @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  batchId        String?
+  batch          SyncBatch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId       String?
+  device         Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  originDeviceId String?
+  originDevice   Device?      @relation("SyncEventOriginDevice", fields: [originDeviceId], references: [id], onDelete: SetNull)
+  entityType     String
+  entityId       String
+  action         String
+  syncStatus     String       @default("PENDING")
+  version        Int          @default(1)
+  payloadJson    String       @default("{}")
+  error          String?
+  createdAt      DateTime     @default(now())
+  lastSyncedAt   DateTime?
+
+  @@index([organizationId, syncStatus])
+  @@index([entityType, entityId])
+  @@index([branchId])
+  @@index([deviceId])
+  @@index([originDeviceId])
 }
 
 model User {
-  id             String   @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  username       String
-  passwordHash   String
-  displayName    String
-  role           String   @default("cajero")
+  id                   String                @id @default(cuid())
+  organizationId       String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId             String?
+  branch               Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  username             String
+  passwordHash         String
+  displayName          String
+  role                 String                @default("cajero")
   /// JSON: { "allow": [...], "deny": [...] } — claves: reports.view, inventory.transfers, accounts.receivable, accounts.payable, purchases.record
-  permissionsJson String  @default("{}")
+  permissionsJson      String                @default("{}")
   /// Se incrementa al cambiar rol o permissionsJson; el JWT lleva copia para invalidar sesiones obsoletas.
-  permissionsRev  Int     @default(0)
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  cashSessions   CashSession[]
-  sales          Sale[]
-  purchases      Purchase[]
-  stockTransfers StockTransfer[]
-  stockAdjustments StockAdjustment[]
-  expenses               Expense[]
-  payrollPeriods         PayrollPeriod[]
+  permissionsRev       Int                   @default(0)
+  active               Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  cashSessions         CashSession[]
+  sales                Sale[]
+  purchases            Purchase[]
+  stockTransfers       StockTransfer[]
+  stockAdjustments     StockAdjustment[]
+  expenses             Expense[]
+  payrollPeriods       PayrollPeriod[]
   receivableSurcharges ReceivableSurcharge[]
   payableSurcharges    PayableSurcharge[]
   cashMovements        CashMovement[]
 
   @@unique([organizationId, username])
+  @@index([branchId])
 }
 
 /// Colaborador de la empresa (no confundir con usuario del sistema).
 model Employee {
-  id             String   @id @default(cuid())
+  id             String        @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
   employeeCode   String?
   name           String
   idDocument     String?
@@ -91,22 +237,23 @@ model Employee {
   email          String?
   position       String?
   hireDate       DateTime?
-  active         Boolean  @default(true)
+  active         Boolean       @default(true)
   notes          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   payrollLines   PayrollLine[]
 
   @@unique([organizationId, employeeCode])
   @@index([organizationId])
+  @@index([branchId])
 }
 
 model ExpenseBook {
-  id             String   @id @default(cuid())
+  id             String            @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
-  sortOrder      Int      @default(0)
+  sortOrder      Int               @default(0)
   categories     ExpenseCategory[]
   expenses       Expense[]
 
@@ -114,50 +261,53 @@ model ExpenseBook {
 }
 
 model ExpenseCategory {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   bookId    String
   book      ExpenseBook @relation(fields: [bookId], references: [id], onDelete: Cascade)
   name      String
-  sortOrder Int      @default(0)
+  sortOrder Int         @default(0)
   expenses  Expense[]
 
   @@index([bookId])
 }
 
 model Expense {
-  id             String   @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  userId         String
-  user           User     @relation(fields: [userId], references: [id])
-  bookId         String?
-  book           ExpenseBook? @relation(fields: [bookId], references: [id], onDelete: SetNull)
-  categoryId     String?
+  id              String           @id @default(cuid())
+  organizationId  String
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId        String?
+  branch          Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  userId          String
+  user            User             @relation(fields: [userId], references: [id])
+  bookId          String?
+  book            ExpenseBook?     @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  categoryId      String?
   expenseCategory ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  category       String
-  amount         Float
-  expenseDate    DateTime @default(now())
-  notes          String?
-  createdAt      DateTime @default(now())
+  category        String
+  amount          Float
+  expenseDate     DateTime         @default(now())
+  notes           String?
+  createdAt       DateTime         @default(now())
 
   @@index([organizationId])
+  @@index([branchId])
   @@index([expenseDate])
   @@index([bookId])
 }
 
 /// Planilla por mes (alcance mínimo: totales por empleado).
 model PayrollPeriod {
-  id             String   @id @default(cuid())
+  id             String        @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String
-  user           User     @relation(fields: [userId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
   year           Int
   month          Int
-  status         String   @default("BORRADOR")
+  status         String        @default("BORRADOR")
   notes          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   lines          PayrollLine[]
 
   @@unique([organizationId, year, month])
@@ -165,16 +315,16 @@ model PayrollPeriod {
 }
 
 model PayrollLine {
-  id               String                 @id @default(cuid())
-  periodId         String
-  period           PayrollPeriod          @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  employeeId       String
-  employee         Employee               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  gross            Float
-  deductions       Float                  @default(0)
-  net              Float
-  notes            String?
-  deductionItems   PayrollLineDeduction[]
+  id             String                 @id @default(cuid())
+  periodId       String
+  period         PayrollPeriod          @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employeeId     String
+  employee       Employee               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  gross          Float
+  deductions     Float                  @default(0)
+  net            Float
+  notes          String?
+  deductionItems PayrollLineDeduction[]
 
   @@unique([periodId, employeeId])
 }
@@ -192,62 +342,76 @@ model PayrollLineDeduction {
 }
 
 model Product {
-  id             String   @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sku            String
-  name           String
-  description    String?
-  unit           String   @default("UND")
-  price          Float
-  price2         Float?
-  price3         Float?
-  price4         Float?
+  id                   String                @id @default(cuid())
+  organizationId       String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId             String?
+  branch               Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  sku                  String
+  name                 String
+  description          String?
+  unit                 String                @default("UND")
+  price                Float
+  price2               Float?
+  price3               Float?
+  price4               Float?
   /// JSON: [{ "minQty": number, "price": number }, ...] — precio por volumen sobre la lista elegida
-  volumePricesJson String  @default("[]")
-  cost           Float    @default(0)
-  taxPercent     Float    @default(0)
-  taxName        String   @default("ISV")
-  stock          Float    @default(0)
-  minStock       Float    @default(0)
-  category       String?
-  barcode        String?
-  quickCode      String?
-  location       String?
-  brand          String?
-  imageUrl       String?
-  productType    String   @default("PRODUCTO")
-  esGranel       Boolean  @default(false)
+  volumePricesJson     String                @default("[]")
+  cost                 Float                 @default(0)
+  taxPercent           Float                 @default(0)
+  taxName              String                @default("ISV")
+  stock                Float                 @default(0)
+  minStock             Float                 @default(0)
+  category             String?
+  barcode              String?
+  quickCode            String?
+  location             String?
+  brand                String?
+  imageUrl             String?
+  productType          String                @default("PRODUCTO")
+  esGranel             Boolean               @default(false)
   /// Si false, no se incluye en comanda/orden de cocina al guardar preventa/cotización.
-  printOnKitchenOrder Boolean @default(true)
-  supplierId     String?
-  supplier       Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  saleLines      SaleLine[]
-  purchaseLines  PurchaseLine[]
-  quoteLines     QuoteLine[]
-  orderLines     SupplierOrderLine[]
-  kitLines       ProductKitLine[] @relation("KitParent")
-  componentOfKits ProductKitLine[] @relation("KitComponent")
-  stockTransferLines StockTransferLine[]
+  printOnKitchenOrder  Boolean               @default(true)
+  supplierId           String?
+  supplier             Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  active               Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  syncStatus           String                @default("SYNCED")
+  lastSyncedAt         DateTime?
+  originDeviceId       String?
+  version              Int                   @default(1)
+  deletedAt            DateTime?
+  saleLines            SaleLine[]
+  purchaseLines        PurchaseLine[]
+  quoteLines           QuoteLine[]
+  orderLines           SupplierOrderLine[]
+  kitLines             ProductKitLine[]      @relation("KitParent")
+  componentOfKits      ProductKitLine[]      @relation("KitComponent")
+  stockTransferLines   StockTransferLine[]
   stockAdjustmentLines StockAdjustmentLine[]
-  productStocks      ProductStock[]
+  productStocks        ProductStock[]
 
   @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@index([branchId])
+  @@index([barcode])
+  @@index([quickCode])
+  @@index([supplierId])
+  @@index([active])
+  @@index([syncStatus])
 }
 
 /// Existencias por bodega/sucursal; el campo Product.stock se mantiene como suma de filas tras migración.
 model ProductStock {
-  id             String   @id @default(cuid())
+  id             String        @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   productId      String
-  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product        Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
   locationId     String
   location       StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  qty            Float    @default(0)
+  qty            Float         @default(0)
 
   @@unique([productId, locationId])
   @@index([organizationId])
@@ -256,78 +420,90 @@ model ProductStock {
 
 /// Ajuste manual de inventario (auditoría) con motivo y líneas por producto.
 model StockAdjustment {
-  id                 String   @id @default(cuid())
-  organizationId     String
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  adjustmentNumber   String?
-  userId             String
-  user               User     @relation(fields: [userId], references: [id])
-  reason             String
-  notes              String?
-  createdAt          DateTime @default(now())
-  lines              StockAdjustmentLine[]
+  id               String                @id @default(cuid())
+  organizationId   String
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId         String?
+  branch           Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId         String?
+  device           Device?               @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  adjustmentNumber String?
+  userId           String
+  user             User                  @relation(fields: [userId], references: [id])
+  reason           String
+  notes            String?
+  createdAt        DateTime              @default(now())
+  lines            StockAdjustmentLine[]
 
   @@index([organizationId])
+  @@index([branchId])
+  @@index([deviceId])
 }
 
 model StockAdjustmentLine {
-  id            String          @id @default(cuid())
-  adjustmentId  String
-  adjustment    StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
-  productId     String
-  product       Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
-  qtyDelta      Float
+  id           String          @id @default(cuid())
+  adjustmentId String
+  adjustment   StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  qtyDelta     Float
 
   @@index([adjustmentId])
   @@index([productId])
 }
 
 model StockLocation {
-  id               String   @id @default(cuid())
-  organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  code             String
-  name             String
-  active           Boolean  @default(true)
-  sortOrder        Int      @default(0)
-  transfersFrom    StockTransfer[] @relation("TransferFromLoc")
-  transfersTo      StockTransfer[] @relation("TransferToLoc")
-  productStocks    ProductStock[]
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code           String
+  name           String
+  active         Boolean         @default(true)
+  sortOrder      Int             @default(0)
+  transfersFrom  StockTransfer[] @relation("TransferFromLoc")
+  transfersTo    StockTransfer[] @relation("TransferToLoc")
+  productStocks  ProductStock[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   @@unique([organizationId, code])
   @@index([organizationId])
 }
 
 model StockTransfer {
-  id               String   @id @default(cuid())
-  organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  transferNumber   String?
-  fromLocationId   String
-  fromLocation     StockLocation @relation("TransferFromLoc", fields: [fromLocationId], references: [id], onDelete: Restrict)
-  toLocationId     String
-  toLocation       StockLocation @relation("TransferToLoc", fields: [toLocationId], references: [id], onDelete: Restrict)
-  status           String   @default("BORRADOR")
-  notes            String?
-  userId           String
-  user             User     @relation(fields: [userId], references: [id])
-  createdAt        DateTime @default(now())
-  sentAt           DateTime?
-  receivedAt       DateTime?
-  lines            StockTransferLine[]
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId       String?
+  device         Device?             @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  transferNumber String?
+  fromLocationId String
+  fromLocation   StockLocation       @relation("TransferFromLoc", fields: [fromLocationId], references: [id], onDelete: Restrict)
+  toLocationId   String
+  toLocation     StockLocation       @relation("TransferToLoc", fields: [toLocationId], references: [id], onDelete: Restrict)
+  status         String              @default("BORRADOR")
+  notes          String?
+  userId         String
+  user           User                @relation(fields: [userId], references: [id])
+  createdAt      DateTime            @default(now())
+  sentAt         DateTime?
+  receivedAt     DateTime?
+  lines          StockTransferLine[]
 
   @@index([organizationId])
+  @@index([branchId])
+  @@index([deviceId])
 }
 
 model StockTransferLine {
-  id          String        @id @default(cuid())
-  transferId  String
-  transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
-  qty         Float
+  id         String        @id @default(cuid())
+  transferId String
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  qty        Float
 
   @@index([transferId])
 }
@@ -347,70 +523,106 @@ model ProductKitLine {
 }
 
 model Customer {
-  id             String   @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  code           String   @default("0")
-  name           String
-  address        String?
-  phone          String?
-  taxId          String?
-  notes          String?
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId         String?
+  branch           Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  code             String       @default("0")
+  name             String
+  address          String?
+  phone            String?
+  taxId            String?
+  notes            String?
   /// Lista de precio por defecto (1–4) al facturar a este cliente.
   defaultPriceTier Int?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  sales          Sale[]
-  quotes         Quote[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  syncStatus       String       @default("SYNCED")
+  lastSyncedAt     DateTime?
+  originDeviceId   String?
+  version          Int          @default(1)
+  deletedAt        DateTime?
+  sales            Sale[]
+  quotes           Quote[]
 
   @@index([organizationId])
+  @@index([branchId])
+  @@index([syncStatus])
 }
 
 model Supplier {
-  id             String   @id @default(cuid())
+  id             String          @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
   name           String
   phone          String?
   email          String?
   taxId          String?
   address        String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  syncStatus     String          @default("SYNCED")
+  lastSyncedAt   DateTime?
+  originDeviceId String?
+  version        Int             @default(1)
+  deletedAt      DateTime?
   purchases      Purchase[]
   orders         SupplierOrder[]
   products       Product[]
 
   @@index([organizationId])
+  @@index([branchId])
+  @@index([syncStatus])
 }
 
 model Sale {
-  id             String    @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invoiceNumber  String?
-  customerId     String?
-  customer       Customer? @relation(fields: [customerId], references: [id])
-  userId         String
-  user           User      @relation(fields: [userId], references: [id])
-  sellerName     String?
-  terms          String    @default("CONTADO")
-  status         String    @default("COMPLETADA")
-  notes          String?
-  priceTier      Int       @default(1)
-  subtotal       Float
-  tax            Float
-  discount       Float     @default(0)
-  total          Float
-  paid           Float     @default(0)
-  saleDate       DateTime  @default(now())
-  dueDate        DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  lines                 SaleLine[]
-  receivableSurcharges  ReceivableSurcharge[]
+  id                   String                @id @default(cuid())
+  organizationId       String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId             String?
+  branch               Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId             String?
+  device               Device?               @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  originDeviceId       String?
+  originDevice         Device?               @relation("SaleOriginDevice", fields: [originDeviceId], references: [id], onDelete: SetNull)
+  invoiceNumber        String?
+  customerId           String?
+  customer             Customer?             @relation(fields: [customerId], references: [id])
+  userId               String
+  user                 User                  @relation(fields: [userId], references: [id])
+  sellerName           String?
+  terms                String                @default("CONTADO")
+  status               String                @default("COMPLETADA")
+  notes                String?
+  priceTier            Int                   @default(1)
+  subtotal             Float
+  tax                  Float
+  discount             Float                 @default(0)
+  total                Float
+  paid                 Float                 @default(0)
+  saleDate             DateTime              @default(now())
+  dueDate              DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  syncStatus           String                @default("SYNCED")
+  lastSyncedAt         DateTime?
+  version              Int                   @default(1)
+  deletedAt            DateTime?
+  lines                SaleLine[]
+  receivableSurcharges ReceivableSurcharge[]
 
   @@index([organizationId])
+  @@index([branchId])
+  @@index([deviceId])
+  @@index([originDeviceId])
+  @@index([saleDate])
+  @@index([customerId])
+  @@index([terms])
+  @@index([status])
+  @@index([syncStatus])
 }
 
 /// Recargo sobre venta a crédito (aumenta lo que debe el cliente; no modifica líneas de la factura).
@@ -441,26 +653,41 @@ model SaleLine {
 }
 
 model Purchase {
-  id             String   @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplierId     String?
-  supplier       Supplier? @relation(fields: [supplierId], references: [id])
-  userId         String
-  user           User     @relation(fields: [userId], references: [id])
-  reference      String?
-  terms          String   @default("CONTADO")
-  subtotal       Float
-  tax            Float
-  total          Float
-  paid           Float    @default(0)
-  purchaseDate   DateTime @default(now())
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  lines              PurchaseLine[]
-  payableSurcharges  PayableSurcharge[]
+  id                String             @id @default(cuid())
+  organizationId    String
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId          String?
+  branch            Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId          String?
+  device            Device?            @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  supplierId        String?
+  supplier          Supplier?          @relation(fields: [supplierId], references: [id])
+  userId            String
+  user              User               @relation(fields: [userId], references: [id])
+  reference         String?
+  terms             String             @default("CONTADO")
+  subtotal          Float
+  tax               Float
+  total             Float
+  paid              Float              @default(0)
+  purchaseDate      DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  syncStatus        String             @default("SYNCED")
+  lastSyncedAt      DateTime?
+  originDeviceId    String?
+  version           Int                @default(1)
+  deletedAt         DateTime?
+  lines             PurchaseLine[]
+  payableSurcharges PayableSurcharge[]
 
   @@index([organizationId])
+  @@index([branchId])
+  @@index([deviceId])
+  @@index([supplierId])
+  @@index([purchaseDate])
+  @@index([terms])
+  @@index([syncStatus])
 }
 
 /// Recargo sobre compra a crédito (aumenta lo que debe la empresa al proveedor).
@@ -478,69 +705,101 @@ model PayableSurcharge {
 }
 
 model PurchaseLine {
-  id          String   @id @default(cuid())
-  purchaseId  String
-  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id])
-  qty         Float
-  unitCost    Float
-  taxPercent  Float    @default(0)
-  lineTotal   Float
+  id         String   @id @default(cuid())
+  purchaseId String
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  qty        Float
+  unitCost   Float
+  taxPercent Float    @default(0)
+  lineTotal  Float
 }
 
 model CashSession {
-  id             String    @id @default(cuid())
+  id             String         @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId       String?
+  device         Device?        @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   userId         String
-  user           User      @relation(fields: [userId], references: [id])
-  openedAt       DateTime  @default(now())
+  user           User           @relation(fields: [userId], references: [id])
+  openedAt       DateTime       @default(now())
   closedAt       DateTime?
-  openingCash    Float     @default(0)
+  openingCash    Float          @default(0)
   closingCash    Float?
   expectedCash   Float?
   notes          String?
+  syncStatus     String         @default("SYNCED")
+  lastSyncedAt   DateTime?
+  originDeviceId String?
+  version        Int            @default(1)
+  deletedAt      DateTime?
   movements      CashMovement[]
+
+  @@index([organizationId])
+  @@index([branchId])
+  @@index([deviceId])
+  @@index([openedAt])
+  @@index([syncStatus])
 }
 
 /// Movimientos del diario digital (GASTO, INGRESO, PAGO_ABONO, RETIRO, AJUSTE_TARJETA).
 model CashMovement {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId       String?
+  device         Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   sessionId      String
-  session        CashSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session        CashSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   userId         String
-  user           User     @relation(fields: [userId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
   category       String
   amount         Float
-  hasVoucher     Boolean  @default(false)
+  hasVoucher     Boolean      @default(false)
   note           String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime     @default(now())
+  syncStatus     String       @default("SYNCED")
+  lastSyncedAt   DateTime?
+  originDeviceId String?
+  version        Int          @default(1)
+  deletedAt      DateTime?
 
   @@index([sessionId])
   @@index([organizationId, userId])
+  @@index([branchId])
+  @@index([deviceId])
+  @@index([createdAt])
+  @@index([syncStatus])
 }
 
 model OrganizationSettings {
-  id             String   @id @default(cuid())
-  organizationId String   @unique
+  id             String       @id @default(cuid())
+  organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generalJson    String   @default("{}")
-  invoiceJson    String   @default("{}")
-  updatedAt      DateTime @updatedAt
+  generalJson    String       @default("{}")
+  invoiceJson    String       @default("{}")
+  updatedAt      DateTime     @updatedAt
 }
 
 model Quote {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  deviceId       String?
+  device         Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   customerId     String?
-  customer       Customer? @relation(fields: [customerId], references: [id])
+  customer       Customer?    @relation(fields: [customerId], references: [id])
   userId         String
   quoteNumber    String?
-  status         String   @default("BORRADOR")
+  status         String       @default("BORRADOR")
   validUntil     DateTime?
   subtotal       Float
   tax            Float
@@ -548,11 +807,21 @@ model Quote {
   notes          String?
   /// Mesa, nombre de mesa o referencia de comanda (PreVenta).
   serviceLabel   String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  syncStatus     String       @default("SYNCED")
+  lastSyncedAt   DateTime?
+  originDeviceId String?
+  version        Int          @default(1)
+  deletedAt      DateTime?
   lines          QuoteLine[]
 
   @@index([organizationId])
+  @@index([branchId])
+  @@index([deviceId])
+  @@index([customerId])
+  @@index([status])
+  @@index([syncStatus])
 }
 
 model QuoteLine {
@@ -568,29 +837,32 @@ model QuoteLine {
 }
 
 model SupplierOrder {
-  id             String   @id @default(cuid())
+  id             String              @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
   supplierId     String?
-  supplier       Supplier? @relation(fields: [supplierId], references: [id])
+  supplier       Supplier?           @relation(fields: [supplierId], references: [id])
   userId         String
   orderNumber    String?
-  status         String   @default("PENDIENTE")
+  status         String              @default("PENDIENTE")
   expectedDate   DateTime?
   notes          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
   lines          SupplierOrderLine[]
 
   @@index([organizationId])
+  @@index([branchId])
 }
 
 model SupplierOrderLine {
-  id        String          @id @default(cuid())
+  id        String        @id @default(cuid())
   orderId   String
-  order     SupplierOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId String
-  product   Product         @relation(fields: [productId], references: [id])
+  product   Product       @relation(fields: [productId], references: [id])
   qty       Float
   unitPrice Float?
   notes     String?

@@ -18,10 +18,15 @@ export type OrgInfo = {
   country?: string;
 };
 
+export type BranchInfo = { id: string; code: string; name: string };
+export type DeviceInfo = { id: string; code: string; name: string; mode: string; invoiceSeries: string };
+
 type AuthState = {
   token: string | null;
   user: UserInfo | null;
   organization: OrgInfo | null;
+  branch: BranchInfo | null;
+  device: DeviceInfo | null;
   loading: boolean;
   login: (p: {
     organizationSlug?: string;
@@ -39,6 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("pf_token"));
   const [user, setUser] = useState<UserInfo | null>(null);
   const [organization, setOrganization] = useState<OrgInfo | null>(null);
+  const [branch, setBranch] = useState<BranchInfo | null>(null);
+  const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refreshMe = useCallback(async () => {
@@ -46,18 +53,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!t) {
       setUser(null);
       setOrganization(null);
+      setBranch(null);
+      setDevice(null);
       setLoading(false);
       return;
     }
     try {
-      const me = await apiFetch<{ user: UserInfo; organization: OrgInfo }>("/api/auth/me", { token: t });
+      const me = await apiFetch<{ user: UserInfo; organization: OrgInfo; branch?: BranchInfo; device?: DeviceInfo }>("/api/auth/me", { token: t });
       setUser(me.user);
       setOrganization(me.organization);
+      setBranch(me.branch ?? null);
+      setDevice(me.device ?? null);
     } catch {
       localStorage.removeItem("pf_token");
       setToken(null);
       setUser(null);
       setOrganization(null);
+      setBranch(null);
+      setDevice(null);
     } finally {
       setLoading(false);
     }
@@ -72,6 +85,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(null);
       setUser(null);
       setOrganization(null);
+      setBranch(null);
+      setDevice(null);
     }
     window.addEventListener("pf-auth-stale", onPermStale);
     return () => window.removeEventListener("pf-auth-stale", onPermStale);
@@ -79,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (p: { organizationSlug?: string; organizationId?: string; username: string; password: string }) => {
-      const res = await apiFetch<{ token: string; user: UserInfo; organization: OrgInfo }>("/auth/login", {
+      const res = await apiFetch<{ token: string; user: UserInfo; organization: OrgInfo; branch?: BranchInfo; device?: DeviceInfo }>("/auth/login", {
         method: "POST",
         body: JSON.stringify({
           organizationSlug: p.organizationSlug,
@@ -92,6 +107,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(res.token);
       setUser(res.user);
       setOrganization(res.organization);
+      setBranch(res.branch ?? null);
+      setDevice(res.device ?? null);
     },
     []
   );
@@ -101,11 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
     setOrganization(null);
+    setBranch(null);
+    setDevice(null);
   }, []);
 
   const value = useMemo(
-    () => ({ token, user, organization, loading, login, logout, refreshMe }),
-    [token, user, organization, loading, login, logout, refreshMe]
+    () => ({ token, user, organization, branch, device, loading, login, logout, refreshMe }),
+    [token, user, organization, branch, device, loading, login, logout, refreshMe]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

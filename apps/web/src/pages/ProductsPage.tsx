@@ -1,12 +1,12 @@
-import { FilterX, History, PackagePlus, Pencil, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
+import { FilterX, History, PackagePlus, PackageSearch, Pencil, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHero } from "../components/PageHero";
 import { apiFetch, apiUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { Button, Card, Field, Input, Modal, Select, Textarea } from "../components/ui";
+import { Button, Card, EmptyState, Field, Input, Modal, PaginationBar, Select, Textarea } from "../components/ui";
 import { formatMoney } from "../lib/format";
 import { parseVolumePricesJson } from "../lib/volumePrice";
-import type { Product, ProductMovement, Supplier } from "../types";
+import type { PaginatedResponse, Product, ProductMovement, Supplier } from "../types";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
 
@@ -57,6 +57,9 @@ export function ProductsPage() {
   const [supplierId, setSupplierId] = useState("");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [list, setList] = useState<Product[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(50);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"new" | "edit" | null>(null);
   const [formTab, setFormTab] = useState<FormTab>("product");
@@ -112,21 +115,30 @@ export function ProductsPage() {
       if (q.trim()) params.set("q", q.trim());
       if (stockFilter) params.set("stock", stockFilter);
       if (supplierId) params.set("supplierId", supplierId);
+      params.set("paginated", "1");
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
       const qs = params.toString();
       const path = `/api/products${qs ? `?${qs}` : ""}`;
-      const data = await apiFetch<Product[]>(path, { token });
-      setList(data);
+      const data = await apiFetch<PaginatedResponse<Product>>(path, { token });
+      setList(data.items);
+      setTotal(data.total);
     } catch {
       setList([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [token, q, stockFilter, supplierId]);
+  }, [token, q, stockFilter, supplierId, page, pageSize]);
 
   useEffect(() => {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, stockFilter, supplierId]);
 
   useEffect(() => {
     if (!token || !movementsFor?.id) return;
@@ -388,6 +400,7 @@ export function ProductsPage() {
 
   const allVisibleLabeled = admin && list.length > 0 && list.every((p) => labelPick[p.id]);
   const someVisibleLabeled = admin && list.some((p) => labelPick[p.id]);
+  const hasFilters = Boolean(q.trim() || stockFilter || supplierId);
 
   const tabBtn = (id: FormTab, label: string) => (
     <button
@@ -513,15 +526,45 @@ export function ProductsPage() {
           cualquiera de los términos.
         </p>
         {labelsErr ? <p className="text-xs font-medium text-red-600">{labelsErr}</p> : null}
-        <p className="text-xs font-medium text-pf-text-soft">
-          Mostrando <span className="font-bold text-pf-text">{list.length}</span> producto(s)
-        </p>
+        <div className="pf-table-toolbar">
+          <div className="flex flex-wrap gap-1.5">
+            <span className="pf-filter-chip">{total} producto(s)</span>
+            {q.trim() ? <span className="pf-filter-chip">Busqueda: {q.trim()}</span> : null}
+            {stockFilter ? <span className="pf-filter-chip">Existencia: {stockFilter}</span> : null}
+            {supplierId ? <span className="pf-filter-chip">Proveedor filtrado</span> : null}
+          </div>
+          <p className="text-xs font-medium text-pf-text-soft">{list.length} visibles en esta pagina</p>
+        </div>
       </Card>
 
       <Card className="pf-table-shell min-h-0 flex-1 overflow-hidden p-0">
         {loading ? (
           <p className="p-4 text-center font-medium text-pf-muted">Cargando…</p>
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon={<PackageSearch className="h-5 w-5" strokeWidth={2} aria-hidden />}
+            title={hasFilters ? "No encontramos productos con esos filtros" : "Todavia no hay productos"}
+            description={
+              hasFilters
+                ? "Ajuste la busqueda, quite filtros o revise si el producto esta inactivo."
+                : "Cree el primer producto para empezar a vender y controlar inventario."
+            }
+            action={
+              hasFilters ? (
+                <Button type="button" variant="secondary" onClick={clearFilters}>
+                  <FilterX className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Limpiar filtros
+                </Button>
+              ) : admin ? (
+                <Button type="button" onClick={openNew}>
+                  <PackagePlus className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Nuevo producto
+                </Button>
+              ) : null
+            }
+          />
         ) : (
+          <>
           <div className="max-h-[min(520px,calc(100vh-15rem))] overflow-auto overscroll-contain rounded-2xl md:rounded-none">
             <table className="w-full min-w-[1020px] border-collapse text-sm">
             <thead className="sticky top-0 z-[1]">
@@ -634,6 +677,27 @@ export function ProductsPage() {
             </tbody>
           </table>
           </div>
+          <div className="hidden">
+            <span>
+              PÃ¡gina {page} de {Math.max(1, Math.ceil(total / pageSize))}
+            </span>
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" className="min-h-0 px-2 py-1 text-xs" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-0 px-2 py-1 text-xs"
+                disabled={page >= Math.max(1, Math.ceil(total / pageSize))}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Siguiente
+              </Button>
+            </div>
+          </div>
+          <PaginationBar page={page} pageSize={pageSize} total={total} itemLabel="productos" onPageChange={setPage} />
+          </>
         )}
       </Card>
 

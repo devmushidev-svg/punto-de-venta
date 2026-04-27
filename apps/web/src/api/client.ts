@@ -1,4 +1,28 @@
-const base = () => localStorage.getItem("pf_api_base") || "";
+export type ConnectionMode = "local" | "cloud";
+
+export function getConnectionMode(): ConnectionMode {
+  return localStorage.getItem("pf_connection_mode") === "cloud" ? "cloud" : "local";
+}
+
+export function setConnectionMode(mode: ConnectionMode) {
+  localStorage.setItem("pf_connection_mode", mode);
+}
+
+export function setCloudApiBase(url: string) {
+  if (url.trim()) localStorage.setItem("pf_cloud_api_base", url.replace(/\/$/, ""));
+  else localStorage.removeItem("pf_cloud_api_base");
+}
+
+export function getCloudApiBase(): string {
+  return localStorage.getItem("pf_cloud_api_base") || "";
+}
+
+const base = () => {
+  if (getConnectionMode() === "cloud") {
+    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || "";
+  }
+  return localStorage.getItem("pf_api_base") || "";
+};
 
 export function setApiBase(url: string) {
   if (url.trim()) localStorage.setItem("pf_api_base", url.replace(/\/$/, ""));

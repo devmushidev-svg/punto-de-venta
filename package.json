@@ -11,6 +11,7 @@
     "db:push": "npm run db:push -w apps/api",
     "db:seed": "npm run db:seed -w apps/api",
     "db:snapshot-schema": "npm run db:snapshot-schema -w apps/api",
+    "windows:local": "powershell -ExecutionPolicy Bypass -File scripts/windows-local-start.ps1",
     "manual:extract": "node scripts/extract-manual-pdf.cjs"
   },
   "devDependencies": {

@@ -6,6 +6,8 @@ import {
   BarChart3,
   Briefcase,
   Building2,
+  Cloud,
+  CloudOff,
   ClipboardList,
   CreditCard,
   FileText,
@@ -354,7 +356,7 @@ function MobileNavDrawer({ onNavigate }: { onNavigate: () => void }) {
 }
 
 export function AppShell({ children }: { children?: ReactNode }) {
-  const { token, user, organization, logout } = useAuth();
+  const { token, user, organization, branch, device, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -367,6 +369,35 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const [saleToolbarSlot, setSaleToolbarSlot] = useState<ReactNode>(null);
   const [salesListTabOpen, setSalesListTabOpen] = useState(false);
   const [saleDocTabOpen, setSaleDocTabOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{
+    pendingEvents: number;
+    failedEvents: number;
+    cloudConfigured: boolean;
+    mode: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!token) {
+      setSyncStatus(null);
+      return;
+    }
+    let cancelled = false;
+    const loadSync = () => {
+      apiFetch<{ pendingEvents: number; failedEvents: number; cloudConfigured: boolean; mode: string }>("/api/sync/status", { token })
+        .then((s) => {
+          if (!cancelled) setSyncStatus(s);
+        })
+        .catch(() => {
+          if (!cancelled) setSyncStatus(null);
+        });
+    };
+    loadSync();
+    const id = window.setInterval(loadSync, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [token]);
 
   useEffect(() => {
     setActiveTab(tabFromPath(location.pathname));
@@ -428,6 +459,16 @@ export function AppShell({ children }: { children?: ReactNode }) {
         </div>
       </div>
     ) : null;
+  const syncLabel = syncStatus
+    ? syncStatus.failedEvents > 0
+      ? `${syncStatus.failedEvents} error sync`
+      : syncStatus.pendingEvents > 0
+        ? `${syncStatus.pendingEvents} pendientes`
+        : syncStatus.cloudConfigured
+          ? "Nube lista"
+          : "Local activo"
+    : "Local";
+  const SyncIcon = syncStatus?.cloudConfigured ? Cloud : CloudOff;
 
   return (
     <SaleDocumentToolbarSetterContext.Provider value={setSaleToolbarSlot}>
@@ -442,7 +483,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <BrandLogo size={40} withShadow className="ring-2 ring-white/80 shadow-lg shadow-[var(--pf-shadow-btn-soft)]" />
           <div className="min-w-0">
             <p className="truncate text-sm font-bold tracking-tight text-pf-text">MultiPOS</p>
-            <p className="truncate text-xs font-medium text-pf-text-tertiary">{organization?.name}</p>
+            <p className="truncate text-xs font-medium text-pf-text-tertiary">
+              {[organization?.name, branch?.code, device?.code].filter(Boolean).join(" / ")}
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -714,13 +757,23 @@ export function AppShell({ children }: { children?: ReactNode }) {
             })}
           </nav>
 
-          <div className="hidden shrink-0 items-center gap-2 text-sm text-pf-text-soft lg:flex">
-            <Building2 className="h-4 w-4 shrink-0 text-pf-muted" strokeWidth={2} aria-hidden />
+          <div className="hidden shrink-0 items-center gap-2 text-sm font-medium text-slate-200 lg:flex">
+            <Building2 className="h-4 w-4 shrink-0 text-slate-300" strokeWidth={2} aria-hidden />
             <span className="max-w-[160px] truncate" title={organization?.name}>
               {organization?.name}
             </span>
           </div>
-          <div className="flex shrink-0 items-center gap-2 border-l border-[var(--pf-border-soft)] pl-2 lg:pl-3">
+          <div
+            className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-2 py-1 text-xs font-semibold text-slate-100 shadow-sm xl:inline-flex"
+            title={`${branch?.name ?? "Sucursal local"} / ${device?.name ?? "Dispositivo local"}`}
+          >
+            <SyncIcon className="h-3.5 w-3.5 shrink-0 text-slate-300" strokeWidth={2} aria-hidden />
+            <span className="max-w-[130px] truncate">{branch?.code ?? "LOCAL"} / {device?.code ?? "CAJA"}</span>
+            <span className={syncStatus?.failedEvents ? "text-red-300" : syncStatus?.pendingEvents ? "text-amber-300" : "text-emerald-300"}>
+              {syncLabel}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 border-l border-white/15 pl-2 lg:pl-3">
             {buildVersion ? (
               <span className="hidden text-[10px] font-mono text-pf-text-tertiary xl:inline" title="Versión de compilación">
                 {buildVersion}
