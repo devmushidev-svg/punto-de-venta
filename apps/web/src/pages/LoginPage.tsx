@@ -142,6 +142,12 @@ export function LoginPage() {
         </form>
         <div className="mt-4 flex flex-col items-center gap-2">
           <Link
+            to="/olvido-contrasena"
+            className="text-sm font-medium text-pf-primary-hover underline-offset-2 hover:underline"
+          >
+            Olvidé mi contraseña
+          </Link>
+          <Link
             to="/ayuda-publica"
             className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-pf-primary-hover underline-offset-2 hover:underline"
           >

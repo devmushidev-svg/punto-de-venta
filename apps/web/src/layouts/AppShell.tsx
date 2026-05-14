@@ -74,6 +74,38 @@ type TabId = "inicio" | "facturacion" | "administracion" | "empresa";
 
 type RibbonGroupDef = { title: string; items: NavItem[] };
 
+/** Valores de `general.salesWorkflow` (Settings → Apariencia). */
+type SalesWorkflow = "mixed" | "preorder_focus" | "pos_focus";
+
+function normalizeSalesWorkflow(v: unknown): SalesWorkflow {
+  if (v === "preorder_focus" || v === "pos_focus" || v === "mixed") return v;
+  return "mixed";
+}
+
+/** Reordena el grupo Cotizaciones en la cinta Facturación según el manual Smart (PreVenta vs POS). */
+function facturacionRibbonOrdered(workflow: SalesWorkflow): RibbonGroupDef[] {
+  const base = RIBBON.facturacion;
+  if (workflow === "mixed") return base;
+  const cotIdx = base.findIndex((g) => g.title === "Cotizaciones");
+  if (cotIdx < 0) return base;
+  const arr = base.slice();
+  const [cotGroup] = arr.splice(cotIdx, 1);
+  if (workflow === "preorder_focus") {
+    const posIdx = arr.findIndex((g) => g.title === "Punto de venta");
+    arr.splice(posIdx >= 0 ? posIdx + 1 : 0, 0, cotGroup);
+  } else {
+    const cliIdx = arr.findIndex((g) => g.title === "Clientes y prov.");
+    if (cliIdx >= 0) arr.splice(cliIdx, 0, cotGroup);
+    else arr.push(cotGroup);
+  }
+  return arr;
+}
+
+function ribbonGroupsRaw(tabId: TabId, salesWorkflow: SalesWorkflow): RibbonGroupDef[] {
+  if (tabId === "facturacion") return facturacionRibbonOrdered(salesWorkflow);
+  return RIBBON[tabId];
+}
+
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: "inicio", label: "Inicio", icon: Home },
   { id: "facturacion", label: "Facturación", icon: ShoppingBag },
@@ -292,7 +324,7 @@ function RibbonLink({
   );
 }
 
-function MobileNavDrawer({ onNavigate }: { onNavigate: () => void }) {
+function MobileNavDrawer({ onNavigate, salesWorkflow }: { onNavigate: () => void; salesWorkflow: SalesWorkflow }) {
   const { user } = useAuth();
   return (
     <div className="flex flex-col gap-5 p-3">
@@ -323,7 +355,7 @@ function MobileNavDrawer({ onNavigate }: { onNavigate: () => void }) {
             </div>
           );
         }
-        const groups = RIBBON[tab.id]
+        const groups = ribbonGroupsRaw(tab.id, salesWorkflow)
           .map((g) => ({
             title: g.title,
             items: g.items.filter((item) => canSeeNavItem(user, item)),
@@ -399,6 +431,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
     };
   }, [token]);
 
+  const [salesWorkflow, setSalesWorkflow] = useState<SalesWorkflow>("mixed");
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ general?: { salesWorkflow?: unknown } }>("/api/settings", { token })
+      .then((s) => setSalesWorkflow(normalizeSalesWorkflow(s.general?.salesWorkflow)))
+      .catch(() => setSalesWorkflow("mixed"));
+  }, [token]);
+
   useEffect(() => {
     setActiveTab(tabFromPath(location.pathname));
     if (isSalesListPath(location.pathname)) setSalesListTabOpen(true);
@@ -412,7 +453,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   useEffect(() => {
     if (!saleDoc) setSaleToolbarSlot(null);
   }, [saleDoc]);
-  const ribbonGroupsFiltered = RIBBON[activeTab]
+  const ribbonGroupsFiltered = ribbonGroupsRaw(activeTab, salesWorkflow)
     .map((g) => ({
       title: g.title,
       items: g.items.filter((item) => canSeeNavItem(user, item)),
@@ -632,7 +673,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto overscroll-contain">
-              <MobileNavDrawer onNavigate={() => setMenuOpen(false)} />
+              <MobileNavDrawer onNavigate={() => setMenuOpen(false)} salesWorkflow={salesWorkflow} />
             </div>
             <div className="pf-mobile-drawer-foot p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2 backdrop-blur-sm">
               <p className="truncate text-xs text-pf-muted">{user?.displayName}</p>

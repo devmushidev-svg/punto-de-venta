@@ -153,6 +153,8 @@ export async function mergeMasterFromBackup(
           volumePricesJson,
           printOnKitchenOrder: Boolean(raw.printOnKitchenOrder),
           supplierId: null,
+          lotCode: raw.lotCode != null ? String(raw.lotCode) : null,
+          expiresAt: raw.expiresAt ? new Date(String(raw.expiresAt)) : null,
         },
         update: {
           name,
@@ -178,6 +180,8 @@ export async function mergeMasterFromBackup(
           active: raw.active !== false,
           ...(volumePricesJson != null ? { volumePricesJson } : {}),
           printOnKitchenOrder: Boolean(raw.printOnKitchenOrder),
+          lotCode: raw.lotCode != null ? String(raw.lotCode) : null,
+          expiresAt: raw.expiresAt ? new Date(String(raw.expiresAt)) : null,
         },
       });
       products++;

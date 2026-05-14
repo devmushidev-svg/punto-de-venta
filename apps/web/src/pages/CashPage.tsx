@@ -2,7 +2,7 @@ import { DoorClosed, DoorOpen } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
-import { apiFetch } from "../api/client";
+import { apiDownload, apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Field, Input, Select } from "../components/ui";
 import { formatDate, formatMoney, formatTimeOnly } from "../lib/format";
@@ -78,6 +78,83 @@ const MOVEMENT_CATEGORIES = [
   { value: "RETIRO", label: "Retiro" },
   { value: "AJUSTE_TARJETA", label: "Ajuste tarjeta" },
 ] as const;
+
+function CashMovementTableRow({
+  movement: m,
+  sym,
+  token,
+  isAdmin,
+  onPatched,
+}: {
+  movement: DiaryMovement;
+  sym: string;
+  token: string | null;
+  isAdmin: boolean;
+  onPatched: () => void;
+}) {
+  const [category, setCategory] = useState(m.category);
+  const [note, setNote] = useState(m.note ?? "");
+  const [busy, setBusy] = useState(false);
+  const [localErr, setLocalErr] = useState("");
+  useEffect(() => {
+    setCategory(m.category);
+    setNote(m.note ?? "");
+  }, [m.id, m.category, m.note]);
+  const dirty = category !== m.category || (note.trim() || "") !== (m.note?.trim() ?? "");
+  async function save() {
+    if (!token || !dirty) return;
+    setLocalErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/cash-movements/${m.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ category, note: note.trim() || null }),
+        token,
+      });
+      onPatched();
+    } catch (e) {
+      setLocalErr(e instanceof Error ? e.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!isAdmin) {
+    return (
+      <tr className="border-b border-pf-border/70">
+        <td className="px-3 py-2 whitespace-nowrap text-pf-text-secondary">{formatTimeOnly(m.createdAt)}</td>
+        <td className="px-3 py-2 font-medium text-pf-text">{m.category}</td>
+        <td className="px-3 py-2 text-right tabular-nums">{formatMoney(sym, m.amount)}</td>
+        <td className="px-3 py-2 text-pf-text-secondary">{m.note ?? "—"}</td>
+      </tr>
+    );
+  }
+  return (
+    <tr className="border-b border-pf-border/70">
+      <td className="px-3 py-2 whitespace-nowrap text-pf-text-secondary">{formatTimeOnly(m.createdAt)}</td>
+      <td className="px-3 py-2 font-medium text-pf-text">{m.category}</td>
+      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(sym, m.amount)}</td>
+      <td className="px-3 py-2 text-pf-text-secondary">{m.note ?? "—"}</td>
+      <td className="px-3 py-2">
+        <Select value={category} onChange={(e) => setCategory(e.target.value)} className="min-h-9 text-xs">
+          {MOVEMENT_CATEGORIES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+      </td>
+      <td className="px-3 py-2">
+        <Input value={note} onChange={(e) => setNote(e.target.value)} className="min-h-9 text-xs" placeholder="Corregir nota" />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <Button type="button" variant="secondary" className="min-h-9 text-xs" disabled={!dirty || busy} onClick={() => void save()}>
+          {busy ? "…" : "Guardar"}
+        </Button>
+        {localErr ? <p className="mt-1 text-[10px] font-medium text-pf-danger">{localErr}</p> : null}
+      </td>
+    </tr>
+  );
+}
 
 type AdminSummaryRow = {
   sessionId: string;
@@ -181,6 +258,23 @@ export function CashPage() {
     const d = new Date(viewDate + "T12:00:00");
     d.setDate(d.getDate() + delta);
     setViewDate(d.toISOString().slice(0, 10));
+  }
+
+  async function printCloseReport() {
+    if (!token) return;
+    setErr("");
+    try {
+      const qs = new URLSearchParams();
+      qs.set("date", viewDate);
+      if (viewUserId.trim()) qs.set("userId", viewUserId.trim());
+      qs.set("print", "1");
+      const blob = await apiDownload(`/api/cash-diary/close-report.html?${qs.toString()}`, token);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error");
+    }
   }
 
   function refresh() {
@@ -318,32 +412,37 @@ export function CashPage() {
                 efectivo esperado contra efectivo contado.
               </p>
             </div>
-            {(canCxc || canCxp || canGastosLink) && (
-              <div className="flex flex-wrap gap-2">
-                {canCxc ? (
-                  <Link to="/cxc" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
-                    Pagos clientes
-                  </Link>
-                ) : null}
-                {canCxp ? (
-                  <Link to="/cxp" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
-                    Pagos proveedores
-                  </Link>
-                ) : null}
-                {canGastosLink ? (
-                  <Link to="/gastos" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
-                    Gastos
-                  </Link>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={refresh}
-                  className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted"
-                >
-                  Actualizar
-                </button>
-              </div>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {canCxc ? (
+                <Link to="/cxc" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                  Pagos clientes
+                </Link>
+              ) : null}
+              {canCxp ? (
+                <Link to="/cxp" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                  Pagos proveedores
+                </Link>
+              ) : null}
+              {canGastosLink ? (
+                <Link to="/gastos" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                  Gastos
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                onClick={refresh}
+                className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted"
+              >
+                Actualizar
+              </button>
+              <button
+                type="button"
+                onClick={() => void printCloseReport()}
+                className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted"
+              >
+                Imprimir cierre
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -552,6 +651,11 @@ export function CashPage() {
 
       {diary.movements.length > 0 ? (
         <DiarySection title="Movimientos manuales registrados">
+          {isAdmin ? (
+            <p className="mb-2 text-xs text-pf-text-secondary">
+              Como administrador puede corregir la categoría o la nota de un movimiento ya registrado (el monto no se altera).
+            </p>
+          ) : null}
           <div className="max-h-56 overflow-y-auto rounded-xl border border-pf-border bg-white">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-pf-surface-soft">
@@ -560,16 +664,25 @@ export function CashPage() {
                   <th className="px-3 py-2">Tipo</th>
                   <th className="px-3 py-2 text-right">Monto</th>
                   <th className="px-3 py-2">Nota</th>
+                  {isAdmin ? (
+                    <>
+                      <th className="px-3 py-2">Corregir tipo</th>
+                      <th className="px-3 py-2">Corregir nota</th>
+                      <th className="px-3 py-2 w-24" />
+                    </>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
                 {diary.movements.map((m) => (
-                  <tr key={m.id} className="border-b border-pf-border/70">
-                    <td className="px-3 py-2 whitespace-nowrap text-pf-text-secondary">{formatTimeOnly(m.createdAt)}</td>
-                    <td className="px-3 py-2 font-medium text-pf-text">{m.category}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatMoney(sym, m.amount)}</td>
-                    <td className="px-3 py-2 text-pf-text-secondary">{m.note ?? "—"}</td>
-                  </tr>
+                  <CashMovementTableRow
+                    key={m.id}
+                    movement={m}
+                    sym={sym}
+                    token={token}
+                    isAdmin={isAdmin}
+                    onPatched={refresh}
+                  />
                 ))}
               </tbody>
             </table>

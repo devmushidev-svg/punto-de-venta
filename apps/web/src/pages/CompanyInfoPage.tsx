@@ -1,7 +1,7 @@
 import { Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PageHero } from "../components/PageHero";
-import { apiFetch } from "../api/client";
+import { apiFetch, apiUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Select, Textarea } from "../components/ui";
 
@@ -66,6 +66,13 @@ const LANG_OPTIONS = [
   { code: "en", label: "English" },
 ] as const;
 
+function logoPreviewSrc(url: string | null | undefined): string {
+  const u = (url ?? "").trim();
+  if (!u) return "";
+  if (u.startsWith("/")) return apiUrl(u);
+  return u;
+}
+
 function mergeOrg(o: OrganizationFull): OrganizationFull {
   return {
     ...empty,
@@ -85,6 +92,7 @@ export function CompanyInfoPage() {
   const [form, setForm] = useState<OrganizationFull>(empty);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
@@ -116,6 +124,40 @@ export function CompanyInfoPage() {
       .catch(() => setOrg(null))
       .finally(() => setLoading(false));
   }, [token]);
+
+  async function uploadLogoFile(file: File | null) {
+    if (!token || !admin || !file) return;
+    setErr("");
+    setMsg("");
+    setLogoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const headers = new Headers();
+      headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(apiUrl("/api/org/logo"), { method: "POST", body: fd, headers });
+      if (!res.ok) {
+        let m = res.statusText;
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j.error) m = j.error;
+        } catch {
+          /* */
+        }
+        throw new Error(m);
+      }
+      const data = (await res.json()) as { logoUrl?: string | null };
+      if (data.logoUrl != null) setForm((f) => ({ ...f, logoUrl: data.logoUrl ?? null }));
+      setMsg("Logo subido correctamente.");
+      await refreshMe();
+      const updated = await apiFetch<OrganizationFull>("/api/organizations/current", { token });
+      setForm(mergeOrg(updated as OrganizationFull));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo subir el logo");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
 
   async function save() {
     if (!token || !admin) return;
@@ -306,19 +348,32 @@ export function CompanyInfoPage() {
           <div className="space-y-8">
             <section>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-pf-muted mb-3">Logo</h2>
-              <p className="text-xs text-pf-muted mb-2">URL pública de la imagen (en web no subimos archivo local).</p>
-              <Field label="URL del logo">
+              <p className="text-xs text-pf-muted mb-2">
+                Puede subir PNG, JPEG o WebP (se guarda en el servidor) o pegar una URL pública.
+              </p>
+              {admin ? (
+                <Field label="Subir imagen" className="mb-3">
+                  <Input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={logoUploading}
+                    className="text-sm"
+                    onChange={(e) => void uploadLogoFile(e.target.files?.[0] ?? null)}
+                  />
+                </Field>
+              ) : null}
+              <Field label="URL del logo (opcional)">
                 <Input
                   value={form.logoUrl ?? ""}
                   disabled={ro}
                   onChange={(e) => setForm((f) => ({ ...f, logoUrl: e.target.value }))}
-                  placeholder="https://…"
+                  placeholder="https://… o ruta /uploads/…"
                 />
               </Field>
               <div className="mt-3 flex min-h-[120px] items-center justify-center rounded-[var(--radius-pf)] border-2 border-dashed border-pf-border bg-pf-surface p-4">
                 {form.logoUrl ? (
                   <img
-                    src={form.logoUrl}
+                    src={logoPreviewSrc(form.logoUrl)}
                     alt=""
                     className="max-h-28 max-w-full object-contain"
                   />

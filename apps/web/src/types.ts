@@ -46,6 +46,9 @@ export type Product = {
   active: boolean;
   kitLines?: ProductKitLine[];
   printOnKitchenOrder?: boolean;
+  lotCode?: string | null;
+  /** ISO date string */
+  expiresAt?: string | null;
 };
 
 export type Customer = {

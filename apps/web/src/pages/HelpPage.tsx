@@ -23,6 +23,27 @@ export function HelpPage() {
         </p>
       </PageHero>
 
+      <Section title="Modo de operación (PreVenta / POS)">
+        <p>
+          En <strong>Configuración → Apariencia → Flujo de ventas</strong> puede elegir cómo se ordena la cinta <strong>Facturación</strong>:
+        </p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>
+            <strong>Mixto</strong>: orden estándar (nueva venta y cotizaciones en sus bloques habituales).
+          </li>
+          <li>
+            <strong>Énfasis en PreVentas</strong>: el bloque <strong>Cotizaciones / PreVentas</strong> aparece justo después de <strong>Nueva venta</strong> para
+            priorizar pedidos y preventas.
+          </li>
+          <li>
+            <strong>Énfasis en caja</strong>: cotizaciones quedan al final de la cinta (siguen accesibles, pero el flujo principal favorece venta en caja).
+          </li>
+        </ul>
+        <p className="text-xs text-pf-text-tertiary">
+          Equivale a la clave <code className="rounded bg-stone-100 px-1 text-[11px]">salesWorkflow</code> en el JSON general del API.
+        </p>
+      </Section>
+
       <Section title="Impresión térmica (80 mm)">
         <p>
           Abra el ticket desde la <strong>lista de ventas</strong> (enlace en cada fila) o desde el comprobante carta. La ruta es{" "}

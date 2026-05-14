@@ -4,7 +4,7 @@ import { PageHero } from "../components/PageHero";
 import { apiFetch, apiUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, EmptyState, Field, Input, Modal, PaginationBar, Select, Textarea } from "../components/ui";
-import { formatMoney } from "../lib/format";
+import { formatDateOnly, formatMoney } from "../lib/format";
 import { parseVolumePricesJson } from "../lib/volumePrice";
 import type { PaginatedResponse, Product, ProductMovement, Supplier } from "../types";
 
@@ -46,6 +46,8 @@ const emptyForm = {
   esGranel: false,
   printOnKitchenOrder: true,
   volumeTiers: [] as VolumeTierRow[],
+  lotCode: "",
+  expiresAt: "",
 };
 
 export function ProductsPage() {
@@ -55,6 +57,8 @@ export function ProductsPage() {
   const [q, setQ] = useState("");
   const [stockFilter, setStockFilter] = useState<"" | "with" | "without" | "low">("");
   const [supplierId, setSupplierId] = useState("");
+  const [expiresAfter, setExpiresAfter] = useState("");
+  const [expiresBefore, setExpiresBefore] = useState("");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [list, setList] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
@@ -118,6 +122,8 @@ export function ProductsPage() {
       params.set("paginated", "1");
       params.set("page", String(page));
       params.set("pageSize", String(pageSize));
+      if (expiresAfter.trim()) params.set("expiresAfter", expiresAfter.trim());
+      if (expiresBefore.trim()) params.set("expiresBefore", expiresBefore.trim());
       const qs = params.toString();
       const path = `/api/products${qs ? `?${qs}` : ""}`;
       const data = await apiFetch<PaginatedResponse<Product>>(path, { token });
@@ -129,7 +135,7 @@ export function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, q, stockFilter, supplierId, page, pageSize]);
+  }, [token, q, stockFilter, supplierId, page, pageSize, expiresAfter, expiresBefore]);
 
   useEffect(() => {
     const t = setTimeout(load, 250);
@@ -138,7 +144,7 @@ export function ProductsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [q, stockFilter, supplierId]);
+  }, [q, stockFilter, supplierId, expiresAfter, expiresBefore]);
 
   useEffect(() => {
     if (!token || !movementsFor?.id) return;
@@ -234,6 +240,8 @@ export function ProductsPage() {
     setQ("");
     setStockFilter("");
     setSupplierId("");
+    setExpiresAfter("");
+    setExpiresBefore("");
     setLabelPick({});
     setLabelsErr("");
   }
@@ -315,6 +323,8 @@ export function ProductsPage() {
         minQty: String(t.minQty),
         price: String(t.price),
       })),
+      lotCode: p.lotCode ?? "",
+      expiresAt: p.expiresAt ? String(p.expiresAt).slice(0, 10) : "",
     });
     setFormTab("product");
     setErr("");
@@ -360,6 +370,8 @@ export function ProductsPage() {
       supplierId: form.supplierId || null,
       esGranel: form.esGranel,
       printOnKitchenOrder: form.printOnKitchenOrder,
+      lotCode: form.lotCode.trim() || undefined,
+      expiresAt: form.expiresAt.trim() ? form.expiresAt.trim() : null,
       volumePricesJson: JSON.stringify(
         form.volumeTiers
           .map((r) => ({ minQty: Number(r.minQty), price: Number(r.price) }))
@@ -440,12 +452,13 @@ export function ProductsPage() {
       </div>
 
       <Card className="space-y-2.5 p-3 sm:p-3.5">
-        <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <Input
             placeholder="Buscar nombre, SKU, código de barras o rápido…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             aria-label="Buscar productos"
+            className="min-w-0 xl:col-span-2"
           />
           <Select
             value={stockFilter}
@@ -469,7 +482,13 @@ export function ProductsPage() {
               </option>
             ))}
           </Select>
-          <div className="flex flex-wrap items-center gap-2">
+          <Field label="Vence desde" className="min-w-0">
+            <Input type="date" value={expiresAfter} onChange={(e) => setExpiresAfter(e.target.value)} className="min-h-10" />
+          </Field>
+          <Field label="Vence hasta" className="min-w-0">
+            <Input type="date" value={expiresBefore} onChange={(e) => setExpiresBefore(e.target.value)} className="min-h-10" />
+          </Field>
+          <div className="flex flex-wrap items-center gap-2 xl:col-span-6">
             <Button type="button" variant="secondary" className="min-h-[48px] sm:min-h-10" onClick={clearFilters}>
               <FilterX className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               Limpiar
@@ -566,7 +585,7 @@ export function ProductsPage() {
         ) : (
           <>
           <div className="max-h-[min(520px,calc(100vh-15rem))] overflow-auto overscroll-contain rounded-2xl md:rounded-none">
-            <table className="w-full min-w-[1020px] border-collapse text-sm">
+            <table className="w-full min-w-[1120px] border-collapse text-sm">
             <thead className="sticky top-0 z-[1]">
               <tr className="pf-table-thead text-left">
                 {admin ? (
@@ -606,6 +625,7 @@ export function ProductsPage() {
                 <th className="p-2 font-semibold">Ubic.</th>
                 <th className="p-2 font-semibold">Cód. rápido</th>
                 <th className="p-2 font-semibold text-right">ISV %</th>
+                <th className="p-2 font-semibold whitespace-nowrap">Vence</th>
                 <th className="p-2 font-semibold">Tipo</th>
                 <th className="p-2 font-semibold">Granel</th>
                 <th className="p-2 w-24 font-semibold">Historial</th>
@@ -650,6 +670,9 @@ export function ProductsPage() {
                   <td className="p-2 truncate max-w-[80px]">{p.location ?? "—"}</td>
                   <td className="p-2 font-mono text-xs">{p.quickCode ?? "—"}</td>
                   <td className="p-2 text-right">{p.taxPercent}%</td>
+                  <td className="p-2 text-xs whitespace-nowrap text-pf-muted">
+                    {p.expiresAt ? formatDateOnly(p.expiresAt) : "—"}
+                  </td>
                   <td className="p-2 text-xs">{p.productType}</td>
                   <td className="p-2 text-xs">{p.esGranel ? "Sí" : "—"}</td>
                   <td className="p-2">
@@ -780,6 +803,16 @@ export function ProductsPage() {
             </Field>
             <Field label="Código rápido">
               <Input value={form.quickCode} onChange={(e) => setForm((f) => ({ ...f, quickCode: e.target.value }))} />
+            </Field>
+            <Field label="Lote (opc.)">
+              <Input value={form.lotCode} onChange={(e) => setForm((f) => ({ ...f, lotCode: e.target.value }))} placeholder="ej. L-2026-A" />
+            </Field>
+            <Field label="Vencimiento (opc.)">
+              <Input
+                type="date"
+                value={form.expiresAt}
+                onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))}
+              />
             </Field>
             <Field label="Tipo">
               <Select

@@ -5,8 +5,10 @@ import { AppShell } from "./layouts/AppShell";
 import { SalesHubLayout } from "./layouts/SalesHubLayout";
 import { hasPermission, PERMISSION_KEYS, type PermissionKey } from "./lib/permissions";
 import { HelpPage } from "./pages/HelpPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PublicHelpPage } from "./pages/PublicHelpPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const ProductsPage = lazy(() => import("./pages/ProductsPage").then((m) => ({ default: m.ProductsPage })));
@@ -94,6 +96,8 @@ export default function App() {
     <Routes>
       <Route path="/ayuda-publica" element={<PublicHelpPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/olvido-contrasena" element={<ForgotPasswordPage />} />
+      <Route path="/restablecer-contrasena" element={<ResetPasswordPage />} />
       <Route
         path="/"
         element={

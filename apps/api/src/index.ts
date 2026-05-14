@@ -1,3 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { Prisma } from "@prisma/client";
 import { Hono } from "hono";
@@ -59,8 +62,14 @@ import {
   pushPendingEvents,
   testSupabaseConnection,
 } from "./lib/supabaseSync.js";
+import { replaceFullOrganizationFromBackup } from "./lib/backupReplaceFull.js";
+import { buildCashCloseReportHtml } from "./lib/cashCloseReportHtml.js";
+import { createSmtpTransport } from "./lib/smtpSend.js";
+import { buildStockTransferPrintHtml } from "./lib/stockTransferPrintHtml.js";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
+
+const LOGO_UPLOAD_DIR = join(process.cwd(), "uploads", "logos");
 
 function isValidProductType(pt: string): pt is (typeof PRODUCT_TYPES)[number] {
   return (PRODUCT_TYPES as readonly string[]).includes(pt);
@@ -157,6 +166,154 @@ app.use("*", async (c, next) => {
 });
 
 app.get("/health", (c) => c.json({ ok: true }));
+
+app.get("/uploads/logos/:file", async (c) => {
+  const file = c.req.param("file");
+  if (!/^[a-zA-Z0-9._-]+$/.test(file)) return c.json({ error: "Nombre inválido" }, 400);
+  const path = join(LOGO_UPLOAD_DIR, file);
+  try {
+    const buf = await readFile(path);
+    const ext = file.split(".").pop()?.toLowerCase();
+    const ct =
+      ext === "png"
+        ? "image/png"
+        : ext === "jpg" || ext === "jpeg"
+          ? "image/jpeg"
+          : ext === "webp"
+            ? "image/webp"
+            : "application/octet-stream";
+    return new Response(buf, { headers: { "Content-Type": ct, "Cache-Control": "public, max-age=86400" } });
+  } catch {
+    return c.json({ error: "No encontrado" }, 404);
+  }
+});
+
+function slugifyOrgName(name: string): string {
+  const base = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (base.slice(0, 48) || "org").replace(/^-+|-+$/g, "") || "org";
+}
+
+/** Primera organización sin JWT. Requiere `BOOTSTRAP_SECRET` y cabecera `X-Bootstrap-Secret`. */
+app.post("/admin/bootstrap-org", async (c) => {
+  const secret = process.env.BOOTSTRAP_SECRET?.trim();
+  if (!secret) {
+    return c.json({ error: "Bootstrap deshabilitado (defina BOOTSTRAP_SECRET en el servidor)." }, 503);
+  }
+  if ((c.req.header("X-Bootstrap-Secret") || "").trim() !== secret) {
+    return c.json({ error: "Secreto inválido" }, 401);
+  }
+  const body = await c.req.json<{ name?: string; slug?: string; adminUsername?: string; adminPassword?: string }>();
+  const name = body.name?.trim();
+  const adminUsername = body.adminUsername?.trim().toUpperCase();
+  const adminPassword = body.adminPassword ?? "";
+  if (!name || !adminUsername || adminPassword.length < 6) {
+    return c.json({ error: "name, adminUsername y adminPassword (mín. 6 caracteres) requeridos" }, 400);
+  }
+  const slug = (body.slug?.trim().toLowerCase() || slugifyOrgName(name)).slice(0, 48) || "org";
+  const taken = await prisma.organization.findUnique({ where: { slug } });
+  if (taken) return c.json({ error: "El slug ya existe" }, 409);
+  const passwordHash = await hashPassword(adminPassword);
+  const org = await prisma.organization.create({
+    data: {
+      slug,
+      name,
+      taxIdType: "RTN",
+      country: "HN",
+      currency: "HNL",
+      currencySymbol: "L",
+      language: "es",
+    },
+  });
+  await prisma.organizationSettings.create({ data: { organizationId: org.id } });
+  const user = await prisma.user.create({
+    data: {
+      organizationId: org.id,
+      username: adminUsername,
+      passwordHash,
+      displayName: "Administrador",
+      role: "admin",
+    },
+  });
+  return c.json({ ok: true, organizationId: org.id, slug: org.slug, userId: user.id });
+});
+
+app.post("/auth/forgot-password", async (c) => {
+  const body = await c.req.json<{ username?: string; organizationId?: string }>();
+  const username = body.username?.trim().toUpperCase();
+  const organizationId = body.organizationId?.trim();
+  if (!username || !organizationId) {
+    return c.json({ error: "Usuario y empresa requeridos" }, 400);
+  }
+  const user = await prisma.user.findFirst({
+    where: { organizationId, username, active: true },
+    include: { organization: true },
+  });
+  if (!user) {
+    return c.json({ ok: true, message: "Si los datos coinciden, se enviará un enlace al correo de recuperación de la empresa." });
+  }
+  const recovery = user.organization.recoveryEmail?.trim();
+  if (!recovery) {
+    return c.json(
+      { error: "La empresa no tiene correo de recuperación. Configúrelo en Empresa → información (recovery email)." },
+      400
+    );
+  }
+  const transport = createSmtpTransport();
+  if (!transport) {
+    return c.json({ error: "Servidor de correo no configurado (SMTP_URL o SMTP_HOST)." }, 503);
+  }
+  const from = process.env.SMTP_FROM?.trim() || process.env.SMTP_USER?.trim() || "noreply@localhost";
+  const webOrigin = (process.env.WEB_APP_ORIGIN || "http://localhost:5173").replace(/\/$/, "");
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+  await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+  await prisma.passwordResetToken.create({
+    data: { userId: user.id, tokenHash, expiresAt },
+  });
+  const url = `${webOrigin}/restablecer-contrasena?token=${encodeURIComponent(token)}`;
+  try {
+    await transport.sendMail({
+      from,
+      to: recovery,
+      subject: `Recuperación de contraseña — ${user.organization.name}`,
+      text: `Usuario: ${user.username}\n\nRestablezca su contraseña en:\n${url}\n\nSi no solicitó esto, ignore el mensaje.`,
+      html: `<p>Usuario: <strong>${user.username}</strong></p><p><a href="${url}">Restablecer contraseña</a></p><p>El enlace expira en 1 hora.</p>`,
+    });
+  } catch {
+    return c.json({ error: "No se pudo enviar el correo. Revise SMTP." }, 500);
+  }
+  return c.json({ ok: true, message: "Revise el correo de recuperación configurado en la empresa." });
+});
+
+app.post("/auth/reset-password", async (c) => {
+  const body = await c.req.json<{ token?: string; newPassword?: string }>();
+  const token = body.token?.trim();
+  const newPassword = body.newPassword ?? "";
+  if (!token || newPassword.length < 6) {
+    return c.json({ error: "Token y nueva contraseña (mín. 6 caracteres) requeridos" }, 400);
+  }
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const row = await prisma.passwordResetToken.findFirst({
+    where: { tokenHash, expiresAt: { gt: new Date() } },
+    include: { user: true },
+  });
+  if (!row) return c.json({ error: "Enlace inválido o expirado" }, 400);
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: row.userId },
+      data: { passwordHash, permissionsRev: { increment: 1 } },
+    });
+    await tx.passwordResetToken.delete({ where: { id: row.id } });
+  });
+  return c.json({ ok: true });
+});
 
 app.get("/auth/organizations", async (c) => {
   const orgs = await prisma.organization.findMany({
@@ -586,6 +743,28 @@ api.patch("/organizations/current", requireAdmin, async (c) => {
   return c.json(org);
 });
 
+api.post("/org/logo", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const b = await c.req.parseBody();
+  const file = b.file;
+  if (!file || typeof file !== "object" || typeof (file as Blob).arrayBuffer !== "function") {
+    return c.json({ error: "Archivo requerido (campo file)" }, 400);
+  }
+  const blob = file as Blob;
+  const type = blob.type || "";
+  const ext =
+    type === "image/png" ? "png" : type === "image/jpeg" || type === "image/jpg" ? "jpg" : type === "image/webp" ? "webp" : null;
+  if (!ext) return c.json({ error: "Use imagen PNG, JPEG o WebP" }, 400);
+  await mkdir(LOGO_UPLOAD_DIR, { recursive: true });
+  const buf = Buffer.from(await blob.arrayBuffer());
+  const filename = `${jwt.orgId}.${ext}`;
+  await writeFile(join(LOGO_UPLOAD_DIR, filename), buf);
+  const base = process.env.API_PUBLIC_URL?.replace(/\/$/, "") ?? "";
+  const logoUrl = base ? `${base}/uploads/logos/${filename}` : `/uploads/logos/${filename}`;
+  const org = await prisma.organization.update({ where: { id: jwt.orgId }, data: { logoUrl } });
+  return c.json({ logoUrl: org.logoUrl });
+});
+
 const userListSelect = {
   id: true,
   username: true,
@@ -713,6 +892,8 @@ api.get("/products", async (c) => {
   const supplierId = c.req.query("supplierId")?.trim();
   const touch = c.req.query("touch")?.trim();
   const forPos = c.req.query("forPos")?.trim();
+  const expiresBefore = c.req.query("expiresBefore")?.trim();
+  const expiresAfter = c.req.query("expiresAfter")?.trim();
 
   const where: {
     organizationId: string;
@@ -722,6 +903,7 @@ api.get("/products", async (c) => {
     active?: boolean;
     productType?: { not: string };
     id?: { in: string[] };
+    expiresAt?: { gte?: Date; lte?: Date };
   } = { organizationId: jwt.orgId };
 
   if (touch === "1" || forPos === "1") {
@@ -763,6 +945,12 @@ api.get("/products", async (c) => {
     where.id = { in: ids.length ? ids : ["__none__"] };
   }
   if (supplierId) where.supplierId = supplierId;
+  if (expiresBefore || expiresAfter) {
+    const range: { gte?: Date; lte?: Date } = {};
+    if (expiresAfter) range.gte = new Date(expiresAfter + "T00:00:00");
+    if (expiresBefore) range.lte = new Date(expiresBefore + "T23:59:59.999");
+    where.expiresAt = range;
+  }
 
   const paginated = wantsPaginated((name) => c.req.query(name));
   if (paginated) {
@@ -891,6 +1079,8 @@ api.post("/products", requireAdmin, async (c) => {
     volumePricesJson?: unknown;
     kitLines?: KitLineInput[];
     printOnKitchenOrder?: boolean;
+    lotCode?: string | null;
+    expiresAt?: string | null;
   }>();
   const sku = body.sku?.trim();
   if (!sku || !body.name?.trim()) return c.json({ error: "SKU y nombre requeridos" }, 400);
@@ -934,6 +1124,11 @@ api.post("/products", requireAdmin, async (c) => {
           volumePricesJson: normalizeVolumePricesPayload(body.volumePricesJson ?? []),
           syncStatus: "PENDING",
           originDeviceId: localContext.device.id,
+          lotCode: body.lotCode?.trim() ? String(body.lotCode).trim() : null,
+          expiresAt:
+            body.expiresAt && String(body.expiresAt).trim()
+              ? new Date(String(body.expiresAt).trim() + "T12:00:00")
+              : null,
         },
       });
       if (productType === "KIT") {
@@ -993,9 +1188,17 @@ api.patch("/products/:id", requireAdmin, async (c) => {
     "brand",
     "imageUrl",
     "productType",
+    "lotCode",
   ];
   for (const k of num) if (body[k] !== undefined) data[k] = Number(body[k]);
   for (const k of str) if (body[k] !== undefined) data[k] = body[k];
+  if (body.expiresAt !== undefined) {
+    const raw = body.expiresAt;
+    data.expiresAt =
+      raw === null || raw === ""
+        ? null
+        : new Date(String(raw).trim() + "T12:00:00");
+  }
   if (body.active !== undefined) data.active = Boolean(body.active);
   if (body.esGranel !== undefined) data.esGranel = Boolean(body.esGranel);
   if (body.printOnKitchenOrder !== undefined) data.printOnKitchenOrder = Boolean(body.printOnKitchenOrder);
@@ -1264,6 +1467,11 @@ api.post("/sales", async (c) => {
     let tax = 0;
     const saleLines: { productId: string; qty: number; unitPrice: number; discountPercent: number; taxPercent: number; lineTotal: number }[] = [];
 
+    const stPos = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+    const genPos = JSON.parse(stPos?.generalJson || "{}") as Record<string, unknown>;
+    const posBeh = genPos.posBehavior as Record<string, unknown> | undefined;
+    const allowOversell = posBeh?.warnOutOfStock === true;
+
     for (const line of body.lines) {
       const product = await tx.product.findFirst({
         where: { id: line.productId, organizationId: jwt.orgId },
@@ -1273,8 +1481,8 @@ api.post("/sales", async (c) => {
       const isService = product.productType === "SERVICIO";
       const isKit = product.productType === "KIT";
       if (isKit) {
-        await assertKitSaleStock(tx, product.id, line.qty);
-      } else if (!isService && product.stock < line.qty) {
+        if (!allowOversell) await assertKitSaleStock(tx, product.id, line.qty);
+      } else if (!isService && product.stock < line.qty && !allowOversell) {
         throw new Error("INSUFFICIENT_STOCK");
       }
       const unitPrice =
@@ -1572,8 +1780,15 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       if (!existing) throw new Error("SALE_NOT_FOUND");
       if (existing.receivableSurcharges.length > 0) throw new Error("SALE_HAS_SURCHARGES");
 
-      for (const oldLine of existing.lines) {
-        await restoreStockForSaleLine(tx, jwt.orgId, { productId: oldLine.productId, qty: oldLine.qty });
+      const stRetainSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+      const genRetain = JSON.parse(stRetainSet?.generalJson || "{}") as Record<string, unknown>;
+      const posRetain = genRetain.posBehavior as Record<string, unknown> | undefined;
+      const retainInventoryOnSaleEdit = posRetain?.retainInventoryOnSaleEdit === true;
+
+      if (!retainInventoryOnSaleEdit) {
+        for (const oldLine of existing.lines) {
+          await restoreStockForSaleLine(tx, jwt.orgId, { productId: oldLine.productId, qty: oldLine.qty });
+        }
       }
 
       let subtotal = 0;
@@ -1652,14 +1867,16 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         },
       });
 
-      for (const line of saleLines) {
-        const prod = await tx.product.findUnique({ where: { id: line.productId } });
-        if (prod?.productType === "SERVICIO") continue;
-        if (prod?.productType === "KIT") {
-          await decrementStockForKitSale(tx, jwt.orgId, prod.id, line.qty);
-          continue;
+      if (!retainInventoryOnSaleEdit) {
+        for (const line of saleLines) {
+          const prod = await tx.product.findUnique({ where: { id: line.productId } });
+          if (prod?.productType === "SERVICIO") continue;
+          if (prod?.productType === "KIT") {
+            await decrementStockForKitSale(tx, jwt.orgId, prod.id, line.qty);
+            continue;
+          }
+          await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
         }
-        await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
       }
 
       return tx.sale.findUnique({
@@ -2102,6 +2319,59 @@ api.get("/cash-diary/admin-summary", requireAdmin, async (c) => {
   return c.json({ date: dateStr, sessions: rows, totals: { ventasTotal: sumVentas, efectivoCajaSugerido: sumEfectivo } });
 });
 
+api.get("/cash-diary/close-report.html", async (c) => {
+  const jwt = c.get("jwt");
+  const targetUserId = c.req.query("userId")?.trim() || jwt.sub;
+  if (targetUserId !== jwt.sub) {
+    const me = await prisma.user.findFirst({
+      where: { id: jwt.sub, organizationId: jwt.orgId },
+      select: { role: true },
+    });
+    if (me?.role !== "admin") return c.json({ error: "Solo administradores" }, 403);
+  }
+  const dateStr = c.req.query("date")?.trim() ?? new Date().toISOString().slice(0, 10);
+  const day = new Date(dateStr + "T12:00:00");
+  const { start, end } = dayBounds(day);
+  const session = await prisma.cashSession.findFirst({
+    where: {
+      organizationId: jwt.orgId,
+      userId: targetUserId,
+      openedAt: { lte: end },
+      OR: [{ closedAt: null }, { closedAt: { gte: start } }],
+    },
+    orderBy: { openedAt: "desc" },
+  });
+  const diary = session
+    ? await buildCashDiaryForSession(
+        jwt.orgId,
+        targetUserId,
+        session,
+        session.closedAt && session.closedAt <= end && session.closedAt >= session.openedAt
+          ? session.closedAt
+          : new Date(Math.min(end.getTime(), Date.now()))
+      )
+    : emptyCashDiary();
+
+  const [org, targetUser] = await Promise.all([
+    prisma.organization.findUnique({ where: { id: jwt.orgId }, select: { name: true, currencySymbol: true } }),
+    prisma.user.findFirst({
+      where: { id: targetUserId, organizationId: jwt.orgId },
+      select: { displayName: true, username: true },
+    }),
+  ]);
+  const userLabel = targetUser ? `${targetUser.displayName} (${targetUser.username})` : targetUserId;
+  const autoPrint = c.req.query("print") === "1";
+  const html = buildCashCloseReportHtml({
+    orgName: org?.name ?? "Organización",
+    dateStr,
+    userDisplay: userLabel,
+    currencySymbol: org?.currencySymbol?.trim() || "L",
+    diary,
+    autoPrint,
+  });
+  return c.html(html);
+});
+
 api.post("/cash-movements", async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{
@@ -2132,6 +2402,27 @@ api.post("/cash-movements", async (c) => {
     },
   });
   return c.json(row, 201);
+});
+
+api.patch("/cash-movements/:id", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const id = c.req.param("id");
+  const body = await c.req.json<{ category?: string; note?: string | null }>();
+  const row = await prisma.cashMovement.findFirst({ where: { id, organizationId: jwt.orgId } });
+  if (!row) return c.json({ error: "No encontrado" }, 404);
+  const data: { category?: string; note?: string | null } = {};
+  if (body.category !== undefined) {
+    if (!isCashMovementCategory(body.category)) return c.json({ error: "Categoría inválida" }, 400);
+    data.category = body.category;
+  }
+  if (body.note !== undefined) {
+    data.note = body.note === null || body.note === "" ? null : String(body.note).trim().slice(0, 500) || null;
+  }
+  if (data.category === undefined && data.note === undefined) {
+    return c.json({ error: "Sin cambios" }, 400);
+  }
+  const updated = await prisma.cashMovement.update({ where: { id }, data });
+  return c.json(updated);
 });
 
 api.post("/admin/migrate-product-stock", requireAdmin, async (c) => {
@@ -2885,6 +3176,32 @@ api.get("/stock-transfers", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFER
     include: transferInclude,
   });
   return c.json(list);
+});
+
+api.get("/stock-transfers/:id/print.html", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFERS), async (c) => {
+  const jwt = c.get("jwt");
+  const id = c.req.param("id");
+  const row = await prisma.stockTransfer.findFirst({
+    where: { id, organizationId: jwt.orgId },
+    include: transferInclude,
+  });
+  if (!row) return c.json({ error: "No encontrado" }, 404);
+  const org = await prisma.organization.findUnique({ where: { id: jwt.orgId }, select: { name: true } });
+  const autoPrint = c.req.query("print") === "1";
+  const html = buildStockTransferPrintHtml({
+    orgName: org?.name ?? "",
+    transferNumber: row.transferNumber,
+    status: row.status,
+    fromName: `${row.fromLocation.code} — ${row.fromLocation.name}`,
+    toName: `${row.toLocation.code} — ${row.toLocation.name}`,
+    notes: row.notes,
+    lines: row.lines.map((l) => ({
+      product: { sku: l.product.sku, name: l.product.name, unit: l.product.unit },
+      qty: l.qty,
+    })),
+    autoPrint,
+  });
+  return c.html(html);
 });
 
 api.get("/stock-transfers/:id", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFERS), async (c) => {
@@ -3789,9 +4106,11 @@ api.get("/backup/export", requireAdmin, async (c) => {
         active: true,
         createdAt: true,
         permissionsJson: true,
+        permissionsRev: true,
+        passwordHash: true,
       },
     }),
-    prisma.product.findMany({ where: { organizationId: orgId } }),
+    prisma.product.findMany({ where: { organizationId: orgId }, include: { kitLines: true } }),
     prisma.customer.findMany({ where: { organizationId: orgId } }),
     prisma.supplier.findMany({ where: { organizationId: orgId } }),
     prisma.sale.findMany({
@@ -3852,9 +4171,50 @@ api.get("/backup/export", requireAdmin, async (c) => {
 
 api.post("/backup/import", requireAdmin, async (c) => {
   const jwt = c.get("jwt");
-  const body = await c.req.json<{ payload?: unknown; confirm?: string }>();
+  const body = await c.req.json<{
+    payload?: unknown;
+    confirm?: string;
+    typedOrgName?: string;
+    ackExport?: boolean;
+  }>();
+  if (body.confirm === "REPLACE_FULL") {
+    const org = await prisma.organization.findUnique({ where: { id: jwt.orgId } });
+    if (!org) return c.json({ error: "Organización no encontrada" }, 400);
+    if ((body.typedOrgName ?? "").trim() !== org.name) {
+      return c.json({ error: "Debe tipear el nombre exacto de la empresa para confirmar el reemplazo total." }, 400);
+    }
+    if (body.ackExport !== true) {
+      return c.json({ error: "Confirme que descargó un respaldo reciente (ackExport: true)." }, 400);
+    }
+    try {
+      await replaceFullOrganizationFromBackup(prisma, jwt.orgId, body.payload);
+      return c.json({ ok: true, replaced: true });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "INVALID_BACKUP") return c.json({ error: "JSON de respaldo inválido" }, 400);
+      if (msg === "BACKUP_ORG_MISMATCH") {
+        return c.json({ error: "El respaldo no corresponde a esta organización (organization.id distinto)." }, 400);
+      }
+      if (msg === "BACKUP_MISSING_PASSWORD_HASH") {
+        return c.json(
+          {
+            error:
+              "El respaldo no incluye passwordHash en usuarios. Descargue un respaldo nuevo desde esta versión del sistema.",
+          },
+          400
+        );
+      }
+      throw e;
+    }
+  }
   if (body.confirm !== "MERGE_MASTER") {
-    return c.json({ error: 'Confirme con confirm: "MERGE_MASTER" (solo fusiona catálogos; no borra ventas).' }, 400);
+    return c.json(
+      {
+        error:
+          'Use confirm: "MERGE_MASTER" (fusionar catálogos) o "REPLACE_FULL" con typedOrgName y ackExport (reemplazo total; muyriesgoso).',
+      },
+      400
+    );
   }
   try {
     const r = await mergeMasterFromBackup(prisma, jwt.orgId, body.payload);

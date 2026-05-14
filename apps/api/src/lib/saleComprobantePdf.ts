@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Customer, Organization, Product, Sale, SaleLine, User } from "@prisma/client";
 import PDFDocument from "pdfkit";
 
@@ -46,6 +48,12 @@ async function loadLogoBufferForPdf(logoUrl: string | null | undefined): Promise
   const raw = logoUrl?.trim();
   if (!raw) return null;
   try {
+    if (raw.startsWith("/uploads/")) {
+      const rel = raw.replace(/^\//, "");
+      const full = join(process.cwd(), rel);
+      const buf = await readFile(full);
+      return buf;
+    }
     if (raw.startsWith("data:image/")) {
       const m = raw.match(/^data:image\/[\w+.-]+;base64,(.+)$/i);
       if (!m) return null;

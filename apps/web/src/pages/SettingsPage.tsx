@@ -13,9 +13,14 @@ import {
   type ConnectionMode,
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { Button, Card, Field, Input, Textarea } from "../components/ui";
+import { Button, Card, Field, Input, Select, Textarea } from "../components/ui";
 import type { PfThemeId } from "../theme/pfTheme";
 import { usePfTheme } from "../theme/ThemeProvider";
+import {
+  DEFAULT_POS_BEHAVIOR,
+  parsePosBehavior,
+  type PosBehavior,
+} from "../lib/posBehavior";
 
 type Tab = "apariencia" | "ticket" | "sync" | "avanzado";
 
@@ -63,6 +68,15 @@ type SyncStatus = {
 const DEFAULT_TICKET: TicketSettings = { headerLine: "", footerLine: "Gracias por su compra", showTaxBreakdown: true };
 const DEFAULT_COMPROBANTE: ComprobanteSettings = { title: "Comprobante de venta", showSku: true };
 
+/** Alineado a `general.salesWorkflow` en el API (Manual Smart: modos operación). */
+export type SalesWorkflow = "mixed" | "preorder_focus" | "pos_focus";
+
+function normalizeSalesWorkflow(v: unknown): SalesWorkflow {
+  if (v === "preorder_focus" || v === "pos_focus" || v === "mixed") return v;
+  return "mixed";
+}
+
+
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <label className="flex cursor-pointer items-center gap-3 touch-manipulation">
@@ -106,6 +120,8 @@ export function SettingsPage() {
   const [sarFooter, setSarFooter] = useState("");
 
   const [generalJson, setGeneralJson] = useState("{}");
+  const [salesWorkflow, setSalesWorkflow] = useState<SalesWorkflow>("mixed");
+  const [posBehavior, setPosBehavior] = useState<PosBehavior>({ ...DEFAULT_POS_BEHAVIOR });
   const [showRawInvoice, setShowRawInvoice] = useState(false);
   const [connectionMode, setConnectionModeState] = useState<ConnectionMode>(() => getConnectionMode());
   const [cloudApiBase, setCloudApiBaseState] = useState(() => getCloudApiBase());
@@ -127,7 +143,10 @@ export function SettingsPage() {
         "/api/settings",
         { token }
       );
-      setGeneralJson(JSON.stringify(data.general ?? {}, null, 2));
+      const gen = (data.general ?? {}) as Record<string, unknown>;
+      setSalesWorkflow(normalizeSalesWorkflow(gen.salesWorkflow));
+      setPosBehavior(parsePosBehavior(gen.posBehavior));
+      setGeneralJson(JSON.stringify(gen, null, 2));
       if (data.invoice?.ticket) {
         setTicket({
           headerLine: data.invoice.ticket.headerLine ?? DEFAULT_TICKET.headerLine,
@@ -218,6 +237,8 @@ export function SettingsPage() {
       setErr("JSON inválido en la pestaña Avanzado");
       return;
     }
+    general.salesWorkflow = salesWorkflow;
+    general.posBehavior = posBehavior;
     const invoice: InvoiceShape = {
       ticket,
       comprobante,
@@ -242,6 +263,7 @@ export function SettingsPage() {
         token,
       });
       setOk("Configuración guardada correctamente");
+      window.dispatchEvent(new Event("pf-settings-saved"));
       setTimeout(() => setOk(""), 4000);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
@@ -267,6 +289,59 @@ export function SettingsPage() {
       if (!res.ok) throw new Error(j.error ?? "Error");
       const errs = j.errors?.length ? ` · Avisos: ${j.errors.slice(0, 5).join("; ")}` : "";
       setImportMsg(`Importados: ${j.imported ?? 0}${errs}`);
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : "Error");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function replaceBackupFull(file: File | null) {
+    if (!token || !admin || !file) return;
+    setImportMsg("");
+    let orgName = "";
+    try {
+      const o = await apiFetch<{ name: string }>("/api/organizations/current", { token });
+      orgName = o.name;
+    } catch {
+      setImportMsg("No se pudo leer la empresa actual.");
+      return;
+    }
+    const typed = window.prompt(
+      `REEMPLAZO TOTAL: se borrarán ventas, caja, usuarios (se restauran desde el JSON) y todo lo demás.\n` +
+        `Descargue un respaldo reciente antes de continuar.\n\n` +
+        `Tipee el nombre exacto de la empresa:\n«${orgName}»`
+    );
+    if (typed == null) return;
+    if (typed.trim() !== orgName) {
+      setImportMsg("El nombre no coincide. Operación cancelada.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Última confirmación: el archivo debe ser un respaldo de ESTA misma organización (mismo organization.id). ¿Continuar?"
+      )
+    ) {
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const payload = JSON.parse(await file.text()) as unknown;
+      await apiFetch("/api/backup/import", {
+        method: "POST",
+        body: JSON.stringify({
+          payload,
+          confirm: "REPLACE_FULL",
+          typedOrgName: typed.trim(),
+          ackExport: true,
+        }),
+        token,
+      });
+      setImportMsg("Restauración completa. Debe iniciar sesión de nuevo.");
+      window.setTimeout(() => {
+        localStorage.removeItem("pf_token");
+        window.location.href = "/login";
+      }, 1500);
     } catch (e) {
       setImportMsg(e instanceof Error ? e.message : "Error");
     } finally {
@@ -400,6 +475,57 @@ export function SettingsPage() {
                   </div>
                 </button>
               ))}
+            </div>
+            <div className="border-t border-pf-border-soft pt-5">
+              <p className="text-sm font-bold text-pf-text">Flujo de ventas (cinta)</p>
+              <p className="mt-0.5 text-xs text-pf-text-tertiary">
+                Orden y énfasis en el menú Facturación (PreVentas vs punto de venta). Equivale a <code className="text-[11px]">general.salesWorkflow</code>{" "}
+                en Avanzado.
+              </p>
+              <Field label="Modo de operación" className="mt-3">
+                <Select
+                  value={salesWorkflow}
+                  onChange={(e) => setSalesWorkflow(normalizeSalesWorkflow(e.target.value))}
+                  className="w-full max-w-md"
+                >
+                  <option value="mixed">Mixto — orden estándar</option>
+                  <option value="preorder_focus">Énfasis en PreVentas / cotizaciones</option>
+                  <option value="pos_focus">Énfasis en caja / venta rápida</option>
+                </Select>
+              </Field>
+            </div>
+            <div className="border-t border-pf-border-soft pt-5">
+              <p className="text-sm font-bold text-pf-text">Comportamiento en punto de venta</p>
+              <p className="mt-0.5 text-xs text-pf-text-tertiary">
+                Opciones en <code className="text-[11px]">general.posBehavior</code>. La venta nueva y táctil las consumen al vuelo.
+              </p>
+              <div className="mt-3 space-y-3">
+                <Toggle
+                  checked={posBehavior.warnOutOfStock}
+                  onChange={(v) => setPosBehavior({ ...posBehavior, warnOutOfStock: v })}
+                  label="Permitir vender sin stock suficiente (advertencia; inventario puede quedar negativo)"
+                />
+                <Toggle
+                  checked={posBehavior.barcodeAddsLineDirectly}
+                  onChange={(v) => setPosBehavior({ ...posBehavior, barcodeAddsLineDirectly: v })}
+                  label="Código de barras agrega línea directamente (si está apagado, abre el catálogo al escanear)"
+                />
+                <Toggle
+                  checked={posBehavior.showStockWhileSelling}
+                  onChange={(v) => setPosBehavior({ ...posBehavior, showStockWhileSelling: v })}
+                  label="Mostrar existencias al vender (tabla de líneas y buscador)"
+                />
+                <Toggle
+                  checked={posBehavior.roundTotals}
+                  onChange={(v) => setPosBehavior({ ...posBehavior, roundTotals: v })}
+                  label="Redondear totales a 2 decimales en pantalla (visual)"
+                />
+                <Toggle
+                  checked={posBehavior.retainInventoryOnSaleEdit}
+                  onChange={(v) => setPosBehavior({ ...posBehavior, retainInventoryOnSaleEdit: v })}
+                  label="Al editar venta (admin): no recalcular inventario automáticamente"
+                />
+              </div>
             </div>
           </Card>
         )}
@@ -685,6 +811,20 @@ export function SettingsPage() {
                   className="mt-2 text-sm"
                   disabled={importBusy}
                   onChange={(e) => void mergeBackupMaster(e.target.files?.[0] ?? null)}
+                />
+              </div>
+              <div className="border-t border-red-200/80 bg-red-50/40 pt-4">
+                <p className="text-sm font-bold text-red-900">Restauración total (peligro)</p>
+                <p className="mt-0.5 text-xs text-red-900/80">
+                  Solo si descargó un JSON de respaldo <strong>nuevo</strong> (incluye <code className="text-[11px]">passwordHash</code> en
+                  usuarios). El archivo debe ser de <strong>esta misma</strong> organización.
+                </p>
+                <Input
+                  type="file"
+                  accept="application/json,.json"
+                  className="mt-2 text-sm"
+                  disabled={importBusy}
+                  onChange={(e) => void replaceBackupFull(e.target.files?.[0] ?? null)}
                 />
               </div>
             </Card>

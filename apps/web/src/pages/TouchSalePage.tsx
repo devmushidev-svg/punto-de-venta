@@ -31,8 +31,13 @@ import { formatMoney } from "../lib/format";
 import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
+import { DEFAULT_POS_BEHAVIOR, parsePosBehavior, type PosBehavior } from "../lib/posBehavior";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
 import type { Customer, Product, Sale } from "../types";
+
+function roundMoney2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 function toDatetimeLocalValue(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -148,6 +153,7 @@ export function TouchSalePage() {
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [posBehavior, setPosBehavior] = useState<PosBehavior>(DEFAULT_POS_BEHAVIOR);
 
   const showToast = useCallback((message: string, kind: Toast["kind"]) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -193,10 +199,13 @@ export function TouchSalePage() {
         setCustomerTaxId("");
       }
     });
-    apiFetch<{ general: { touchFavoriteProductIds?: string[] } }>("/api/settings", { token }).then((s) => {
-      const ids = s.general?.touchFavoriteProductIds;
-      if (Array.isArray(ids)) setFavIds(ids.filter((x) => typeof x === "string"));
-    });
+    apiFetch<{ general: { touchFavoriteProductIds?: string[]; posBehavior?: unknown } }>("/api/settings", { token }).then(
+      (s) => {
+        const ids = s.general?.touchFavoriteProductIds;
+        if (Array.isArray(ids)) setFavIds(ids.filter((x) => typeof x === "string"));
+        setPosBehavior(parsePosBehavior(s.general?.posBehavior));
+      }
+    );
     apiFetch<Product[]>("/api/products?touch=1&forPos=1", { token }).then(setProducts).catch(() => setProducts([]));
   }, [token]);
 
@@ -245,7 +254,7 @@ export function TouchSalePage() {
       let newQty = l.qty + delta * step;
       if (!l.product.esGranel) newQty = Math.round(newQty);
       if (newQty < 0) newQty = 0;
-      if (tracksStock(l.product) && newQty > l.product.stock) {
+      if (!posBehavior.warnOutOfStock && tracksStock(l.product) && newQty > l.product.stock) {
         queueMicrotask(() =>
           setErr(`«${l.product.name}»: máximo ${l.product.stock} en existencia.`)
         );
@@ -270,8 +279,10 @@ export function TouchSalePage() {
       sub += base;
       tax += t;
     }
-    return { subtotal: sub, tax, total: sub + tax };
-  }, [lines]);
+    const rawTotal = sub + tax;
+    if (!posBehavior.roundTotals) return { subtotal: sub, tax, total: rawTotal };
+    return { subtotal: roundMoney2(sub), tax: roundMoney2(tax), total: roundMoney2(rawTotal) };
+  }, [lines, posBehavior.roundTotals]);
 
   const saleDateDisplayStr = useMemo(
     () =>
@@ -322,7 +333,7 @@ export function TouchSalePage() {
       return;
     }
     const stockProblems = lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock);
-    if (stockProblems.length > 0) {
+    if (stockProblems.length > 0 && !posBehavior.warnOutOfStock) {
       const detail = stockProblems
         .map((l) =>
           l.product.stock <= 0
@@ -877,7 +888,7 @@ export function TouchSalePage() {
               </p>
               <div className="flex gap-2.5 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
                 {favorites.map((p) => {
-                  const outOfStock = tracksStock(p) && p.stock <= 0;
+                  const outOfStock = posBehavior.showStockWhileSelling && tracksStock(p) && p.stock <= 0;
                   return (
                     <button
                       key={p.id}
@@ -902,7 +913,7 @@ export function TouchSalePage() {
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4">
             {filtered.map((p) => {
-              const outOfStock = tracksStock(p) && p.stock <= 0;
+              const outOfStock = posBehavior.showStockWhileSelling && tracksStock(p) && p.stock <= 0;
               const isFav = favIds.includes(p.id);
               return (
                 <div
@@ -921,11 +932,11 @@ export function TouchSalePage() {
                     <span className="line-clamp-2 text-sm font-semibold leading-snug text-pf-text">{p.name}</span>
                     {p.productType === "SERVICIO" ? null : p.productType === "KIT" ? (
                       <span className="mt-0.5 text-[11px] font-medium text-pf-info">Combo</span>
-                    ) : (
+                    ) : posBehavior.showStockWhileSelling ? (
                       <span className={`mt-0.5 text-[11px] font-medium ${p.stock <= 5 ? "text-pf-warning" : "text-pf-muted"}`}>
                         Stock {p.stock}
                       </span>
-                    )}
+                    ) : null}
                     <span className="mt-auto block pt-2 text-base font-bold tabular-nums text-pf-primary-hover">
                       {formatMoney(sym, resolveProductUnitPrice(p, 1, priceTier))}
                     </span>

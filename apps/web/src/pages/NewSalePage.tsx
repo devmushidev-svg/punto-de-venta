@@ -37,8 +37,13 @@ import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
+import { DEFAULT_POS_BEHAVIOR, parsePosBehavior, type PosBehavior } from "../lib/posBehavior";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
 import type { Customer, Product, Sale, Supplier } from "../types";
+
+function roundMoney2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 type Line = {
   lineKey: string;
@@ -350,6 +355,14 @@ export function NewSalePage() {
   const [productSearchHighlight, setProductSearchHighlight] = useState(0);
   const [pickLineHighlight, setPickLineHighlight] = useState(0);
   const pickLinePanelRef = useRef<HTMLDivElement | null>(null);
+  const [posBehavior, setPosBehavior] = useState<PosBehavior>(DEFAULT_POS_BEHAVIOR);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ general?: { posBehavior?: unknown } }>("/api/settings", { token })
+      .then((s) => setPosBehavior(parsePosBehavior(s.general?.posBehavior)))
+      .catch(() => setPosBehavior(DEFAULT_POS_BEHAVIOR));
+  }, [token]);
 
   useEffect(() => {
     if (isEditMode) return;
@@ -465,7 +478,8 @@ export function NewSalePage() {
     [token]
   );
 
-  const openProductSearchModal = useCallback(() => {
+  const openProductSearchModal = useCallback((opts?: { initialQuery?: string }) => {
+    if (opts?.initialQuery !== undefined) setProductSearchQ(opts.initialQuery);
     setProductSearchOpen(true);
   }, []);
 
@@ -883,6 +897,15 @@ export function NewSalePage() {
         setQuickAddErr("El producto no existe.");
         return;
       }
+      if (!posBehavior.barcodeAddsLineDirectly) {
+        setQuickAddCode("");
+        setQuickAddErr("");
+        quickAddBusyRef.current = false;
+        setQuickAddBusy(false);
+        setProductSearchQ(raw);
+        setProductSearchOpen(true);
+        return;
+      }
       const tier = priceTierRef.current;
       /* Commit síncrono: la fila existe y useLayoutEffect enfoca cantidad antes de otro Enter del lector. */
       flushSync(() => {
@@ -929,7 +952,7 @@ export function NewSalePage() {
         }, 0);
       }
     }
-  }, [token, quickAddCode]);
+  }, [token, quickAddCode, posBehavior.barcodeAddsLineDirectly]);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -995,8 +1018,14 @@ export function NewSalePage() {
       sub += base;
       tax += t;
     }
-    return { subtotal: sub, tax, total: sub + tax };
-  }, [lines]);
+    const rawTotal = sub + tax;
+    if (!posBehavior.roundTotals) return { subtotal: sub, tax, total: rawTotal };
+    return {
+      subtotal: roundMoney2(sub),
+      tax: roundMoney2(tax),
+      total: roundMoney2(rawTotal),
+    };
+  }, [lines, posBehavior.roundTotals]);
 
   const hasBillableLines = useMemo(() => lines.some((l) => l.qty > 0), [lines]);
 
@@ -1018,7 +1047,7 @@ export function NewSalePage() {
         return;
       }
       const stockProblems = lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock);
-      if (stockProblems.length > 0) {
+      if (stockProblems.length > 0 && !posBehavior.warnOutOfStock) {
         const detail = stockProblems
           .map((l) =>
             l.product.stock <= 0
@@ -1132,6 +1161,7 @@ export function NewSalePage() {
       showToast,
       user?.displayName,
       user?.username,
+      posBehavior.warnOutOfStock,
     ]
   );
 
@@ -1148,7 +1178,7 @@ export function NewSalePage() {
         return;
       }
       const stockProblems = lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock);
-      if (stockProblems.length > 0) {
+      if (stockProblems.length > 0 && !posBehavior.warnOutOfStock) {
         const detail = stockProblems
           .map((l) =>
             l.product.stock <= 0
@@ -1164,7 +1194,7 @@ export function NewSalePage() {
       setCheckoutOpen(true);
       setTimeout(() => checkoutAmountInputRef.current?.focus(), 80);
     },
-    [token, lines, terms, customerId]
+    [token, lines, terms, customerId, posBehavior.warnOutOfStock]
   );
 
   useEffect(() => {
@@ -1658,14 +1688,14 @@ export function NewSalePage() {
             </tr>
           </thead>
           <tbody>
-            {lines.map((l, i) => (
+                       {lines.map((l, i) => (
                 <tr
                   key={l.lineKey}
                   onClick={() => setSelectedLineIndex(i)}
                   className={`pf-table-row cursor-pointer transition hover:bg-sky-50 ${
                     selectedLineIndex === i
                       ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
-                      : tracksStock(l.product) && l.qty > l.product.stock
+                      : posBehavior.showStockWhileSelling && tracksStock(l.product) && l.qty > l.product.stock
                         ? "bg-pf-danger-soft/30"
                         : ""
                   }`}
@@ -1675,23 +1705,27 @@ export function NewSalePage() {
                   </td>
                   <td className="px-3 py-2">
                     <span className="font-medium text-pf-text">{l.product.name}</span>
-                    <span className="block text-[11px] text-pf-muted">
-                      {l.product.productType === "KIT"
-                        ? "Combo (exist. por componentes)"
-                        : `Exist. ${l.product.stock}`}
-                    </span>
-                    {tracksStock(l.product) && l.product.stock <= 0 && (
-                      <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
-                        <AlertTriangle className="h-3 w-3 shrink-0" />
-                        Sin existencia
-                      </span>
-                    )}
-                    {tracksStock(l.product) && l.product.stock > 0 && l.qty > l.product.stock && (
-                      <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
-                        <AlertTriangle className="h-3 w-3 shrink-0" />
-                        Excede existencia por {(l.qty - l.product.stock).toFixed(l.product.esGranel ? 2 : 0)}
-                      </span>
-                    )}
+                    {posBehavior.showStockWhileSelling ? (
+                      <>
+                        <span className="block text-[11px] text-pf-muted">
+                          {l.product.productType === "KIT"
+                            ? "Combo (exist. por componentes)"
+                            : `Exist. ${l.product.stock}`}
+                        </span>
+                        {tracksStock(l.product) && l.product.stock <= 0 && (
+                          <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            Sin existencia
+                          </span>
+                        )}
+                        {tracksStock(l.product) && l.product.stock > 0 && l.qty > l.product.stock && (
+                          <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            Excede existencia por {(l.qty - l.product.stock).toFixed(l.product.esGranel ? 2 : 0)}
+                          </span>
+                        )}
+                      </>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                     <Input
@@ -1707,7 +1741,7 @@ export function NewSalePage() {
                         const parsed = Number(e.target.value);
                         let qty = Number.isFinite(parsed) ? Math.max(0, parsed) : l.qty;
 
-                        if (tracksStock(l.product)) {
+                        if (tracksStock(l.product) && !posBehavior.warnOutOfStock) {
                           const cap = l.product.stock;
                           if (!l.product.esGranel) qty = Math.round(qty);
                           if (qty > cap) {
@@ -1864,12 +1898,24 @@ export function NewSalePage() {
       </div>
 
       {stockIssueCount > 0 && (
-        <div className="mt-2 flex items-start gap-2 rounded-xl border border-pf-danger/40 bg-pf-danger-soft/30 px-4 py-3 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-pf-danger" />
-          <p className="font-medium text-pf-danger">
-            {stockIssueCount === 1
-              ? "1 producto excede la existencia disponible. Ajuste la cantidad para poder guardar."
-              : `${stockIssueCount} productos exceden la existencia disponible. Ajuste las cantidades para poder guardar.`}
+        <div
+          className={`mt-2 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${
+            posBehavior.warnOutOfStock
+              ? "border-amber-300/80 bg-amber-50/90"
+              : "border-pf-danger/40 bg-pf-danger-soft/30"
+          }`}
+        >
+          <AlertTriangle
+            className={`mt-0.5 h-4 w-4 shrink-0 ${posBehavior.warnOutOfStock ? "text-amber-700" : "text-pf-danger"}`}
+          />
+          <p className={`font-medium ${posBehavior.warnOutOfStock ? "text-amber-950" : "text-pf-danger"}`}>
+            {posBehavior.warnOutOfStock
+              ? stockIssueCount === 1
+                ? "1 producto excede la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo)."
+                : `${stockIssueCount} productos exceden la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo).`
+              : stockIssueCount === 1
+                ? "1 producto excede la existencia disponible. Ajuste la cantidad para poder guardar."
+                : `${stockIssueCount} productos exceden la existencia disponible. Ajuste las cantidades para poder guardar.`}
           </p>
         </div>
       )}
@@ -2064,7 +2110,7 @@ export function NewSalePage() {
                 <th className="px-3 py-2.5">Código</th>
                 <th className="px-3 py-2.5">Descripción</th>
                 <th className="px-3 py-2.5">Und.</th>
-                <th className="px-3 py-2.5 text-right">Exist.</th>
+                {posBehavior.showStockWhileSelling ? <th className="px-3 py-2.5 text-right">Exist.</th> : null}
                 <th className="px-3 py-2.5 text-right">Precio</th>
                 <th className="px-3 py-2.5">Categoría</th>
                 <th className="px-3 py-2.5">Ubicación</th>
@@ -2075,19 +2121,19 @@ export function NewSalePage() {
             <tbody className="pf-table-body">
               {productSearchLoading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-pf-muted">
+                  <td colSpan={posBehavior.showStockWhileSelling ? 9 : 8} className="px-4 py-12 text-center text-pf-muted">
                     Cargando…
                   </td>
                 </tr>
               ) : productSearchRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-pf-muted">
+                  <td colSpan={posBehavior.showStockWhileSelling ? 9 : 8} className="px-4 py-12 text-center text-pf-muted">
                     No hay productos para mostrar. Ajuste filtros o la búsqueda.
                   </td>
                 </tr>
               ) : (
                 productSearchRows.map((p, idx) => {
-                  const outOfStock = tracksStock(p) && p.stock <= 0;
+                  const outOfStock = posBehavior.showStockWhileSelling && tracksStock(p) && p.stock <= 0;
                   const isHi = idx === productSearchHighlight;
                   return (
                     <tr
@@ -2114,9 +2160,11 @@ export function NewSalePage() {
                         )}
                       </td>
                       <td className="px-3 py-2 text-pf-text-secondary">{p.unit}</td>
-                      <td className={`px-3 py-2 text-right tabular-nums ${outOfStock ? "font-semibold text-pf-danger" : ""}`}>
-                        {p.stock}
-                      </td>
+                      {posBehavior.showStockWhileSelling ? (
+                        <td className={`px-3 py-2 text-right tabular-nums ${outOfStock ? "font-semibold text-pf-danger" : ""}`}>
+                          {p.stock}
+                        </td>
+                      ) : null}
                       <td className="px-3 py-2 text-right tabular-nums font-medium">{formatMoney(sym, p.price)}</td>
                       <td className="px-3 py-2 text-pf-text-tertiary">{p.category ?? "—"}</td>
                       <td className="px-3 py-2 text-pf-text-tertiary">{p.location ?? "—"}</td>

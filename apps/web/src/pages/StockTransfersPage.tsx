@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Ban, ClipboardCheck, Download, PackageCheck, Plus, RefreshCw, Send } from "lucide-react";
+import { ArrowLeftRight, Ban, ClipboardCheck, Download, PackageCheck, Plus, Printer, RefreshCw, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHero } from "../components/PageHero";
 import { Navigate } from "react-router-dom";
@@ -183,6 +183,19 @@ export function StockTransfersPage() {
       await loadTransfers();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
+    }
+  }
+
+  async function printTransferHtml(id: string) {
+    if (!token) return;
+    setErr("");
+    try {
+      const blob = await apiDownload(`/api/stock-transfers/${id}/print.html?print=1`, token);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error al imprimir");
     }
   }
 
@@ -454,6 +467,16 @@ export function StockTransfersPage() {
                   <td className="p-2 text-xs text-pf-muted">{t.user.displayName}</td>
                   <td className="p-2">
                     <div className="flex flex-wrap gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="min-h-10 py-2 text-xs sm:min-h-8 sm:py-1"
+                        title="Vista para impresión"
+                        onClick={() => void printTransferHtml(t.id)}
+                      >
+                        <Printer className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+                        Imprimir
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
