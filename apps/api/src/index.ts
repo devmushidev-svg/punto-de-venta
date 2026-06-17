@@ -826,6 +826,18 @@ api.post("/users", requireAdmin, async (c) => {
       },
       select: userListSelect,
     });
+    // Notificación por correo (fire-and-forget)
+    void (async () => {
+      const t = createSmtpTransport();
+      if (!t) return;
+      const from = process.env.SMTP_FROM?.trim() || process.env.SMTP_USER?.trim() || "noreply@localhost";
+      const to = process.env.SMTP_NOTIFY?.trim() || from;
+      await t.sendMail({
+        from, to,
+        subject: `PuntoFlow — Nuevo usuario: ${user.displayName}`,
+        text: `Usuario: ${user.username}\nNombre: ${user.displayName}\nRol: ${user.role}`,
+      }).catch((e: unknown) => console.error("[email] usuario:", e));
+    })();
     return c.json(user, 201);
   } catch {
     return c.json({ error: "Usuario duplicado" }, 409);
@@ -1323,6 +1335,18 @@ api.post("/customers", async (c) => {
       defaultPriceTier: tier,
     },
   });
+  // Notificación por correo (fire-and-forget)
+  void (async () => {
+    const t = createSmtpTransport();
+    if (!t) return;
+    const from = process.env.SMTP_FROM?.trim() || process.env.SMTP_USER?.trim() || "noreply@localhost";
+    const to = process.env.SMTP_NOTIFY?.trim() || from;
+    await t.sendMail({
+      from, to,
+      subject: `PuntoFlow — Nuevo cliente: ${cust.name}`,
+      text: `Nombre: ${cust.name}\nRTN: ${cust.taxId ?? "—"}\nTeléfono: ${cust.phone ?? "—"}\nDirección: ${cust.address ?? "—"}`,
+    }).catch((e: unknown) => console.error("[email] cliente:", e));
+  })();
   return c.json(cust, 201);
 });
 
@@ -2079,6 +2103,28 @@ api.post("/cash-sessions/:id/close", async (c) => {
       notes: body.notes,
     },
   });
+  // Notificación de cierre de caja (fire-and-forget)
+  void (async () => {
+    const t = createSmtpTransport();
+    if (!t) return;
+    const from = process.env.SMTP_FROM?.trim() || process.env.SMTP_USER?.trim() || "noreply@localhost";
+    const to = process.env.SMTP_NOTIFY?.trim() || from;
+    const fmt = (n: number) => n.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const user = await prisma.user.findUnique({ where: { id: jwt.sub }, select: { displayName: true } }).catch(() => null);
+    await t.sendMail({
+      from, to,
+      subject: `PuntoFlow — Cierre de caja: ${user?.displayName ?? jwt.sub}`,
+      text: [
+        `Cajero: ${user?.displayName ?? jwt.sub}`,
+        `Apertura: ${session.openedAt.toLocaleString("es-HN")}`,
+        `Cierre: ${closedAt.toLocaleString("es-HN")}`,
+        `Ventas totales: L ${fmt(diary.ventasTotal)}`,
+        `N° ventas: ${diary.saleCount}`,
+        `Efectivo contado: L ${fmt(body.closingCash ?? 0)}`,
+        `Efectivo esperado: L ${fmt(diary.efectivoCajaSugerido)}`,
+      ].join("\n"),
+    }).catch((e: unknown) => console.error("[email] cierre caja:", e));
+  })();
   return c.json({
     ...updated,
     cashDifference: updated.closingCash !== null && updated.expectedCash !== null ? updated.closingCash - updated.expectedCash : null,
@@ -4068,6 +4114,90 @@ api.post("/settings/touch-favorites", async (c) => {
     data: { generalJson: JSON.stringify(prevG) },
   });
   return c.json({ general: JSON.parse(updated.generalJson) });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// DIAGNÓSTICO IA — POST /api/ai/diagnostic
+// Analiza ventas e inventario con OpenAI y retorna diagnóstico en español.
+//
+// Variable de entorno requerida: OPENAI_API_KEY=sk-...
+// Body opcional: { "days": 30 }
+// ══════════════════════════════════════════════════════════════════════════
+api.post("/ai/diagnostic", async (c) => {
+  const jwt = c.get("jwt");
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) return c.json({ error: "OPENAI_API_KEY no configurada en el servidor." }, 503);
+
+  const body = await c.req.json<{ days?: number }>().catch(() => ({}));
+  const days = Math.max(1, Math.min(365, Number(body.days) || 30));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const [salesRaw, products] = await Promise.all([
+    prisma.sale.findMany({
+      where: { organizationId: jwt.orgId, saleDate: { gte: since } },
+      include: { lines: { select: { productId: true, qty: true, total: true } } },
+    }),
+    prisma.product.findMany({
+      where: { organizationId: jwt.orgId },
+      select: { id: true, name: true, sku: true, stock: true, minStock: true, productType: true },
+      take: 200,
+    }),
+  ]);
+
+  const totalRevenue = salesRaw.reduce((s, x) => s + x.total, 0);
+  const prodSales: Record<string, { name: string; qty: number; revenue: number }> = {};
+  for (const sale of salesRaw) {
+    for (const line of sale.lines) {
+      const prod = products.find((p) => p.id === line.productId);
+      if (!prodSales[line.productId]) prodSales[line.productId] = { name: prod?.name ?? line.productId, qty: 0, revenue: 0 };
+      prodSales[line.productId].qty += line.qty;
+      prodSales[line.productId].revenue += line.total;
+    }
+  }
+  const topProducts = Object.values(prodSales).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+  const criticalStock = products.filter((p) => p.productType !== "SERVICIO" && p.stock <= (p.minStock ?? 0));
+
+  const fmt = (n: number) => n.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const userMsg =
+    `Período: últimos ${days} días.\n` +
+    `Ventas: ${salesRaw.length} transacciones | Ingresos: L ${fmt(totalRevenue)}.\n\n` +
+    `Top productos (por ingresos):\n` +
+    (topProducts.length ? topProducts.map((p, i) => `  ${i + 1}. ${p.name}: ${p.qty} und. — L ${fmt(p.revenue)}`).join("\n") : "  (sin ventas en el período)") +
+    `\n\nStock crítico (${criticalStock.length} productos):\n` +
+    (criticalStock.length ? criticalStock.slice(0, 15).map((p) => `  - ${p.name}: stock ${p.stock}, mínimo ${p.minStock ?? 0}`).join("\n") : "  (ninguno)");
+
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Eres un asesor de negocios experto en POS y PYMEs hondureñas. " +
+            "Analiza los datos y responde en español con 3 secciones: " +
+            "1) Resumen del período, 2) Productos y alertas de stock, 3) Recomendaciones concretas.",
+        },
+        { role: "user", content: userMsg },
+      ],
+      max_tokens: 800,
+      temperature: 0.4,
+    }),
+  });
+
+  if (!resp.ok) {
+    const txt = await resp.text();
+    console.error("[ai/diagnostic] OpenAI error:", txt);
+    return c.json({ error: "Error al consultar OpenAI. Verifica tu OPENAI_API_KEY." }, 502);
+  }
+
+  const data = await resp.json() as { choices: { message: { content: string } }[]; usage?: { total_tokens: number } };
+  return c.json({
+    diagnostic: data.choices?.[0]?.message?.content ?? "Sin respuesta.",
+    meta: { days, salesCount: salesRaw.length, totalRevenue, criticalStockCount: criticalStock.length, tokensUsed: data.usage?.total_tokens ?? null },
+  });
 });
 
 api.get("/backup/export", requireAdmin, async (c) => {

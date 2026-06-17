@@ -24,6 +24,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
+import { speak } from "../lib/speech";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
 import { Button, Card, Field, Input, Modal, Select } from "../components/ui";
@@ -408,6 +409,8 @@ export function TouchSalePage() {
       setCheckoutOpen(false);
       setShowCart(false);
 
+      const totalMsg = sale.total.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      speak(`Venta registrada. Total: ${totalMsg} lempiras`);
       if (checkoutMode === "print") {
         showToast("Factura guardada. Aparecerá el cuadro de impresión.", "print");
         printSaleTicketInHiddenFrame(sale.id);

@@ -218,9 +218,22 @@ model User {
   receivableSurcharges ReceivableSurcharge[]
   payableSurcharges    PayableSurcharge[]
   cashMovements        CashMovement[]
+  passwordResetTokens  PasswordResetToken[]
 
   @@unique([organizationId, username])
   @@index([branchId])
+}
+
+/// Token de recuperación de contraseña (un solo uso; hash en BD).
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 /// Colaborador de la empresa (no confundir con usuario del sistema).
@@ -362,6 +375,10 @@ model Product {
   taxName              String                @default("ISV")
   stock                Float                 @default(0)
   minStock             Float                 @default(0)
+  /// Referencia de lote (opcional); filtros en catálogo.
+  lotCode              String?
+  /// Fecha de vencimiento sugerida (opcional).
+  expiresAt            DateTime?
   category             String?
   barcode              String?
   quickCode            String?

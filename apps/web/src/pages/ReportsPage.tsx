@@ -1,4 +1,4 @@
-import { FileDown, RefreshCw } from "lucide-react";
+import { FileDown, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHero } from "../components/PageHero";
 import { Navigate } from "react-router-dom";
@@ -34,7 +34,12 @@ type PayrollPeriodRow = {
   totalNet: number;
 };
 
-type TabId = "ventas" | "inventario" | "top" | "gastos" | "planillas";
+type TabId = "ventas" | "inventario" | "top" | "gastos" | "planillas" | "ia";
+
+type AiDiagnostic = {
+  diagnostic: string;
+  meta: { days: number; salesCount: number; totalRevenue: number; criticalStockCount: number; tokensUsed: number | null };
+};
 
 function toCsv(rows: Record<string, string | number>[], headers: string[]): string {
   const esc = (v: string | number) => {
@@ -75,6 +80,10 @@ export function ReportsPage() {
   const [expensesSum, setExpensesSum] = useState<ExpensesSummary | null>(null);
   const [payrollRows, setPayrollRows] = useState<PayrollPeriodRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [aiDays, setAiDays] = useState(30);
+  const [aiResult, setAiResult] = useState<AiDiagnostic | null>(null);
+  const [aiErr, setAiErr] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     if (tab === "gastos" && !canExpensesTab) setTab("ventas");
@@ -159,6 +168,25 @@ export function ReportsPage() {
     }
   }, [token, canPayrollTab]);
 
+  const runAiDiagnostic = useCallback(async () => {
+    if (!token || !isAdmin) return;
+    setAiLoading(true);
+    setAiErr("");
+    setAiResult(null);
+    try {
+      const data = await apiFetch<AiDiagnostic>("/api/ai/diagnostic", {
+        method: "POST",
+        body: JSON.stringify({ days: aiDays }),
+        token,
+      });
+      setAiResult(data);
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : "Error al generar diagnóstico");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [token, isAdmin, aiDays]);
+
   useEffect(() => {
     if (tab === "ventas") loadSales();
     if (tab === "inventario") loadInv();
@@ -242,6 +270,7 @@ export function ReportsPage() {
     { id: "top", label: "Top productos" },
     { id: "gastos", label: "Gastos", needsExpenses: true },
     { id: "planillas", label: "Planillas (RH)", needsPayroll: true },
+    ...(isAdmin ? [{ id: "ia" as const, label: "Diagnóstico IA" }] : []),
   ];
 
   const visibleTabs = tabs.filter((t) => {
@@ -345,6 +374,32 @@ export function ReportsPage() {
           >
             <FileDown className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
             CSV resumen
+          </Button>
+        </Card>
+      ) : null}
+
+      {tab === "ia" && isAdmin ? (
+        <Card className="flex flex-wrap items-end gap-3 p-3">
+          <label className="min-w-[140px] flex-1 text-xs font-bold text-pf-text-soft sm:flex-none">
+            Período (días)
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              className="mt-1 min-h-11 sm:min-h-10"
+              value={aiDays}
+              onChange={(e) => setAiDays(Math.max(1, Math.min(365, Number(e.target.value) || 30)))}
+            />
+          </label>
+          <Button
+            type="button"
+            variant="primary"
+            className="min-h-11 w-full shadow-sm sm:w-auto sm:min-h-10"
+            onClick={() => runAiDiagnostic()}
+            disabled={aiLoading}
+          >
+            <Sparkles className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+            {aiLoading ? "Analizando…" : "Generar diagnóstico"}
           </Button>
         </Card>
       ) : null}
@@ -534,6 +589,39 @@ export function ReportsPage() {
             <p className="p-6 text-center font-medium text-pf-muted">Sin planillas registradas</p>
           ) : null}
         </Card>
+      ) : null}
+
+      {tab === "ia" && isAdmin ? (
+        <div className="space-y-4">
+          {aiErr ? (
+            <Card className="border-pf-danger-soft bg-pf-danger-soft/30 p-4 text-sm text-pf-danger">
+              {aiErr}
+            </Card>
+          ) : null}
+          {aiResult ? (
+            <Card className="space-y-4 p-5">
+              <div className="flex flex-wrap gap-3 text-xs text-pf-muted">
+                <span>{aiResult.meta.salesCount} ventas</span>
+                <span>·</span>
+                <span>Ingresos: {formatMoney(sym, aiResult.meta.totalRevenue)}</span>
+                <span>·</span>
+                <span>{aiResult.meta.criticalStockCount} productos en stock crítico</span>
+                {aiResult.meta.tokensUsed != null ? (
+                  <>
+                    <span>·</span>
+                    <span>{aiResult.meta.tokensUsed} tokens</span>
+                  </>
+                ) : null}
+              </div>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed text-pf-text">{aiResult.diagnostic}</div>
+            </Card>
+          ) : !aiLoading && !aiErr ? (
+            <Card className="p-6 text-center text-sm text-pf-muted">
+              Pulse &quot;Generar diagnóstico&quot; para analizar ventas e inventario con IA.
+              Requiere <code className="rounded bg-pf-surface-overlay px-1">OPENAI_API_KEY</code> en el servidor.
+            </Card>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
