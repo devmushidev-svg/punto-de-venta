@@ -33,7 +33,6 @@ import { CustomerModal } from "../components/CustomerModal";
 import { NewProductModal } from "../components/NewProductModal";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
-import { speak } from "../lib/speech";
 import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
@@ -1102,15 +1101,12 @@ export function NewSalePage() {
           navigate("/ventas");
         } else if (opts?.destination === "comprobante") {
           showToast("Factura guardada correctamente", "success");
-          speak(`Venta registrada. Total: ${sale.total.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} lempiras`);
           navigate(`/ventas/${sale.id}/comprobante`);
         } else if (opts?.autoPrintTicket) {
           showToast("Factura guardada. Aparecerá el cuadro de impresión (siga en esta pantalla).", "print");
-          speak(`Venta registrada. Total: ${sale.total.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} lempiras`);
           printSaleTicketInHiddenFrame(sale.id);
         } else {
           showToast("Factura guardada correctamente", "success");
-          speak(`Venta registrada. Total: ${sale.total.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} lempiras`);
         }
 
         if (!isEditMode) {

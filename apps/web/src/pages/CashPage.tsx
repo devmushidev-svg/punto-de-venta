@@ -6,7 +6,6 @@ import { apiDownload, apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Field, Input, Select } from "../components/ui";
 import { formatDate, formatMoney, formatTimeOnly } from "../lib/format";
-import { speak } from "../lib/speech";
 
 type Session = {
   id: string;
@@ -323,7 +322,6 @@ export function CashPage() {
         body: JSON.stringify({ openingCash: Number(opening) || 0 }),
         token,
       });
-      speak("Caja abierta. Que tenga un buen turno.");
       refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
@@ -347,7 +345,6 @@ export function CashPage() {
       });
       setClosing("");
       setNotes("");
-      speak("Caja cerrada. Hasta luego.");
       refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");

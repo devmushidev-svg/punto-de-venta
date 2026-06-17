@@ -20,6 +20,10 @@ npm-debug.log*
 .pnpm-debug.log*
 .vite/
 .cache/
+dev-server.log
+
+# Claude Code local
+.claude/
 
 # OS / editor
 .DS_Store
