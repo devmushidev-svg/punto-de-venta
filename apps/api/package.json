@@ -10,7 +10,9 @@
     "db:push": "prisma db push && node scripts/snapshot-schema.mjs",
     "db:seed": "tsx prisma/seed.ts",
     "db:snapshot-schema": "node scripts/snapshot-schema.mjs",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
@@ -31,6 +33,7 @@
     "@types/pdfkit": "^0.17.5",
     "prisma": "^6.3.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   }
 }

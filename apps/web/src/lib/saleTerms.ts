@@ -15,8 +15,11 @@ export function isCreditSaleTerm(terms: string): boolean {
   const t = terms
     .trim()
     .toUpperCase()
-    .replace(/Í/g, "I")
     .replace(/Á/g, "A")
+    .replace(/É/g, "E")
+    .replace(/Í/g, "I")
+    .replace(/Ó/g, "O")
+    .replace(/Ú/g, "U")
     .replace(/\s+/g, " ");
   if (t === "CREDITO") return true;
   if (/^\d+\s*DIAS$/.test(t)) return true;

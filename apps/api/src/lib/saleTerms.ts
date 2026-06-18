@@ -4,8 +4,11 @@ export function normalizeSaleTerms(raw: string): string {
   return raw
     .trim()
     .toUpperCase()
-    .replace(/Í/g, "I")
     .replace(/Á/g, "A")
+    .replace(/É/g, "E")
+    .replace(/Í/g, "I")
+    .replace(/Ó/g, "O")
+    .replace(/Ú/g, "U")
     .replace(/\s+/g, " ");
 }
 
