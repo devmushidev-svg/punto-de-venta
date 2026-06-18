@@ -20,7 +20,7 @@ npm-debug.log*
 .pnpm-debug.log*
 .vite/
 .cache/
-dev-server.log
+*-server.log
 
 # Claude Code local
 .claude/
