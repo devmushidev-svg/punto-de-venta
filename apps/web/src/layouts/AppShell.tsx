@@ -42,6 +42,7 @@ import { isSaleDocPath, isSaleDocumentPath, isSalesListPath, isVentasModulePath 
 import { hasPermission, PERMISSION_KEYS, type PermissionKey } from "../lib/permissions";
 import { BrandLockup, BrandLogo } from "../components/BrandLogo";
 import { Button } from "../components/ui";
+import { OfflineBadge } from "../components/OfflineBadge";
 import { apiFetch } from "../api/client";
 
 type NavItem = {
@@ -815,6 +816,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2 border-l border-white/15 pl-2 lg:pl-3">
+            <OfflineBadge />
             {buildVersion ? (
               <span className="hidden text-[10px] font-mono text-pf-text-tertiary xl:inline" title="Versión de compilación">
                 {buildVersion}

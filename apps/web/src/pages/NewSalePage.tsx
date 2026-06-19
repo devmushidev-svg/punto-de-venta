@@ -27,6 +27,7 @@ import {
 import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
+import { submitSale, isOfflineError } from "../lib/offlineSales";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
 import { CustomerModal } from "../components/CustomerModal";
@@ -1062,16 +1063,20 @@ export function NewSalePage() {
       try {
         if (customerId.trim()) {
           const name = customerName.trim() || "Cliente";
-          await apiFetch(`/api/customers/${customerId}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              name,
-              address: customerAddress.trim() || null,
-              phone: customerPhone.trim() || null,
-              taxId: customerTaxId.trim() || null,
-            }),
-            token,
-          });
+          try {
+            await apiFetch(`/api/customers/${customerId}`, {
+              method: "PATCH",
+              body: JSON.stringify({
+                name,
+                address: customerAddress.trim() || null,
+                phone: customerPhone.trim() || null,
+                taxId: customerTaxId.trim() || null,
+              }),
+              token,
+            });
+          } catch (e) {
+            if (!isOfflineError(e)) throw e; // sin red: la venta sigue; el cambio de cliente se omite
+          }
         }
         const body = {
           customerId: customerId || null,
@@ -1090,15 +1095,25 @@ export function NewSalePage() {
               discountPercent: l.discountPercent,
             })),
         };
-        const sale = await apiFetch<Sale>(isEditMode ? `/api/sales/${editSaleId}` : "/api/sales", {
-          method: isEditMode ? "PATCH" : "POST",
-          body: JSON.stringify(body),
-          token,
-        });
+        let sale: Sale = { id: "" } as Sale;
+        let offline = false;
+        if (isEditMode) {
+          sale = await apiFetch<Sale>(`/api/sales/${editSaleId}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+            token,
+          });
+        } else {
+          const res = await submitSale<Sale>(body, token);
+          offline = res.offline;
+          if (!res.offline) sale = res.sale;
+        }
 
         if (isEditMode) {
           showToast("Factura actualizada correctamente", "success");
           navigate("/ventas");
+        } else if (offline) {
+          showToast("Sin conexión: venta guardada y se enviará al reconectar.", "success");
         } else if (opts?.destination === "comprobante") {
           showToast("Factura guardada correctamente", "success");
           navigate(`/ventas/${sale.id}/comprobante`);
@@ -1123,16 +1138,18 @@ export function NewSalePage() {
           setDocumentSaleDate(new Date());
 
           if (token) {
-            apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
-              const def = list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
-              if (def) {
-                setCustomerId(def.id);
-                setCustomerName(def.name);
-                setCustomerAddress(def.address ?? "");
-                setCustomerPhone(def.phone ?? "");
-                setCustomerTaxId(def.taxId ?? "");
-              }
-            });
+            apiFetch<Customer[]>("/api/customers", { token })
+              .then((list) => {
+                const def = list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
+                if (def) {
+                  setCustomerId(def.id);
+                  setCustomerName(def.name);
+                  setCustomerAddress(def.address ?? "");
+                  setCustomerPhone(def.phone ?? "");
+                  setCustomerTaxId(def.taxId ?? "");
+                }
+              })
+              .catch(() => {}); // sin red: se conserva el cliente actual
           }
         }
       } catch (e) {

@@ -31,6 +31,7 @@ import { formatMoney } from "../lib/format";
 import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
+import { submitSale, isOfflineError } from "../lib/offlineSales";
 import { DEFAULT_POS_BEHAVIOR, parsePosBehavior, type PosBehavior } from "../lib/posBehavior";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
 import type { Customer, Product, Sale } from "../types";
@@ -371,16 +372,20 @@ export function TouchSalePage() {
     try {
       if (customerId.trim()) {
         const name = customerName.trim() || "Cliente";
-        await apiFetch(`/api/customers/${customerId}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            name,
-            address: customerAddress.trim() || null,
-            phone: customerPhone.trim() || null,
-            taxId: customerTaxId.trim() || null,
-          }),
-          token,
-        });
+        try {
+          await apiFetch(`/api/customers/${customerId}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              name,
+              address: customerAddress.trim() || null,
+              phone: customerPhone.trim() || null,
+              taxId: customerTaxId.trim() || null,
+            }),
+            token,
+          });
+        } catch (e) {
+          if (!isOfflineError(e)) throw e; // sin red: la venta sigue; el cambio de cliente se omite
+        }
       }
       const body = {
         customerId: customerId || null,
@@ -399,18 +404,16 @@ export function TouchSalePage() {
             discountPercent: l.discountPercent,
           })),
       };
-      const sale = await apiFetch<Sale>("/api/sales", {
-        method: "POST",
-        body: JSON.stringify(body),
-        token,
-      });
+      const res = await submitSale<Sale>(body, token);
 
       setCheckoutOpen(false);
       setShowCart(false);
 
-      if (checkoutMode === "print") {
+      if (res.offline) {
+        showToast("Sin conexión: venta guardada y se enviará al reconectar.", "success");
+      } else if (checkoutMode === "print") {
         showToast("Factura guardada. Aparecerá el cuadro de impresión.", "print");
-        printSaleTicketInHiddenFrame(sale.id);
+        printSaleTicketInHiddenFrame(res.sale.id);
       } else {
         showToast("Factura guardada correctamente", "success");
       }
