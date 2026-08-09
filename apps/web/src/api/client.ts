@@ -1,5 +1,8 @@
 export type ConnectionMode = "local" | "cloud";
 
+// URL de la API en la nube fijada en build (Vercel: VITE_API_BASE). Fallback cuando no hay nada en localStorage.
+const ENV_API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+
 export function getConnectionMode(): ConnectionMode {
   return localStorage.getItem("pf_connection_mode") === "cloud" ? "cloud" : "local";
 }
@@ -19,9 +22,9 @@ export function getCloudApiBase(): string {
 
 const base = () => {
   if (getConnectionMode() === "cloud") {
-    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || "";
+    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || ENV_API_BASE;
   }
-  return localStorage.getItem("pf_api_base") || "";
+  return localStorage.getItem("pf_api_base") || ENV_API_BASE;
 };
 
 export function setApiBase(url: string) {

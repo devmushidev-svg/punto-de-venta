@@ -33,6 +33,20 @@ export default defineConfig({
         // SPA: rutas de cliente sirven index.html offline; las del backend nunca caen aquí.
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api/, /^\/auth/, /^\/uploads/, /^\/health/],
+        // Catálogo (productos/clientes): última respuesta cacheada para vender offline.
+        runtimeCaching: [
+          {
+            urlPattern: /\/api\/(products|customers)(\b|\/|\?)/,
+            handler: "NetworkFirst",
+            method: "GET",
+            options: {
+              cacheName: "pf-api-catalog",
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 300, maxAgeSeconds: 604800 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

@@ -82,6 +82,10 @@ const productIncludeKit = {
   },
 } as const;
 
+// Postgres: `contains` es sensible a mayúsculas; `mode: insensitive` replica el LIKE de SQLite.
+type InsContains = { contains: string; mode: "insensitive" };
+const insContains = (value: string): InsContains => ({ contains: value, mode: "insensitive" });
+
 type PageMeta = { page: number; pageSize: number; skip: number; take: number };
 
 function parsePageParams(query: (name: string) => string | undefined, fallbackPageSize = 50): PageMeta {
@@ -680,6 +684,7 @@ api.post("/org/logo", requireAdmin, async (c) => {
   const ext =
     type === "image/png" ? "png" : type === "image/jpeg" || type === "image/jpg" ? "jpg" : type === "image/webp" ? "webp" : null;
   if (!ext) return c.json({ error: "Use imagen PNG, JPEG o WebP" }, 400);
+  // ponytail: logo en disco local. En la nube no persiste tras redeploy; subir al bucket Supabase punto-flow si molesta.
   await mkdir(LOGO_UPLOAD_DIR, { recursive: true });
   const buf = Buffer.from(await blob.arrayBuffer());
   const filename = `${jwt.orgId}.${ext}`;
@@ -822,7 +827,7 @@ api.get("/products", async (c) => {
 
   const where: {
     organizationId: string;
-    OR?: { name?: { contains: string }; sku?: { contains: string }; barcode?: { contains: string }; quickCode?: { contains: string } }[];
+    OR?: { name?: InsContains; sku?: InsContains; barcode?: InsContains; quickCode?: InsContains }[];
     stock?: { gt?: number; lte?: number };
     supplierId?: string;
     active?: boolean;
@@ -843,18 +848,18 @@ api.get("/products", async (c) => {
       .filter(Boolean);
     if (tokens.length > 1) {
       where.OR = tokens.flatMap((token) => [
-        { name: { contains: token } },
-        { sku: { contains: token } },
-        { barcode: { contains: token } },
-        { quickCode: { contains: token } },
+        { name: insContains(token) },
+        { sku: insContains(token) },
+        { barcode: insContains(token) },
+        { quickCode: insContains(token) },
       ]);
     } else {
       const term = tokens[0] ?? q;
       where.OR = [
-        { name: { contains: term } },
-        { sku: { contains: term } },
-        { barcode: { contains: term } },
-        { quickCode: { contains: term } },
+        { name: insContains(term) },
+        { sku: insContains(term) },
+        { barcode: insContains(term) },
+        { quickCode: insContains(term) },
       ];
     }
   }
@@ -1367,9 +1372,25 @@ api.post("/sales", async (c) => {
     paid?: number;
     /** ISO 8601; si se omite se usa la fecha/hora del servidor. */
     saleDate?: string;
+    /** Clave de idempotencia para ventas reenviadas tras estar offline. */
+    clientRef?: string;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+
+  const saleInclude = {
+    lines: { include: { product: true } },
+    customer: true,
+    user: { select: { id: true, displayName: true, username: true } },
+  } as const;
+  const clientRef = typeof body.clientRef === "string" && body.clientRef.trim() ? body.clientRef.trim() : null;
+  if (clientRef) {
+    const existing = await prisma.sale.findFirst({
+      where: { clientRef, organizationId: jwt.orgId },
+      include: saleInclude,
+    });
+    if (existing) return c.json(existing, 201); // idempotente: ya se proceso este reenvio
+  }
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
@@ -1506,14 +1527,11 @@ api.post("/sales", async (c) => {
         total,
         paid,
         saleDate: saleDateResolved,
+        clientRef,
         syncStatus: "PENDING",
         lines: { create: saleLines },
       },
-      include: {
-        lines: { include: { product: true } },
-        customer: true,
-        user: { select: { id: true, displayName: true, username: true } },
-      },
+      include: saleInclude,
     });
 
     for (const line of saleLines) {
@@ -1560,6 +1578,14 @@ api.post("/sales", async (c) => {
         400
       );
     }
+    // Idempotencia ante carrera: dos reenvíos casi simultáneos chocan en clientRef único → devolver la ya creada.
+    if (clientRef && typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
+      const existing = await prisma.sale.findFirst({
+        where: { clientRef, organizationId: jwt.orgId },
+        include: saleInclude,
+      });
+      if (existing) return c.json(existing, 201);
+    }
     throw e;
   }
 });
@@ -1578,7 +1604,7 @@ api.get("/sales", async (c) => {
   const where: {
     organizationId: string;
     saleDate?: { gte?: Date; lte?: Date };
-    OR?: ({ invoiceNumber?: { contains: string } } | { customer?: { name: { contains: string } } })[];
+    OR?: ({ invoiceNumber?: InsContains } | { customer?: { name: InsContains } })[];
     customerId?: string;
     terms?: string | { in: string[] };
     NOT?: { terms: { in: string[] } };
@@ -1594,7 +1620,7 @@ api.get("/sales", async (c) => {
     }
   }
   if (q) {
-    where.OR = [{ invoiceNumber: { contains: q } }, { customer: { name: { contains: q } } }];
+    where.OR = [{ invoiceNumber: insContains(q) }, { customer: { name: insContains(q) } }];
   }
   if (customerId) where.customerId = customerId;
   if (termsGroup === "credit") {

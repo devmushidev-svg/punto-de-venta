@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -593,6 +593,8 @@ model Sale {
   originDeviceId       String?
   originDevice         Device?               @relation("SaleOriginDevice", fields: [originDeviceId], references: [id], onDelete: SetNull)
   invoiceNumber        String?
+  /// Clave de idempotencia generada por el cliente; evita duplicar una venta reenviada tras estar offline.
+  clientRef            String?               @unique
   customerId           String?
   customer             Customer?             @relation(fields: [customerId], references: [id])
   userId               String
