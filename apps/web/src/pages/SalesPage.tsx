@@ -62,34 +62,36 @@ function RibbonTile({
 }) {
   const iconBg =
     variant === "primary"
-      ? "bg-gradient-to-b from-[color:var(--pf-primary-soft)] to-[color:var(--pf-warning-soft)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
+      ? "bg-pf-primary text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
       : variant === "muted"
-        ? "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-muted)] text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
+        ? "bg-pf-surface-muted text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
         : variant === "danger"
-          ? "bg-gradient-to-b from-[color:var(--pf-danger-soft)] to-[color:var(--pf-warning-soft)] text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
-          : "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-elevated)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-border-soft)]";
+          ? "bg-pf-danger-soft text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
+          : "bg-pf-surface-soft text-pf-primary-foreground ring-1 ring-[color:var(--pf-border-soft)]";
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`pf-ribbon-tile-idle group flex min-w-[4.5rem] flex-col items-center gap-0.5 px-2 py-1 text-center transition active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:min-w-[5rem]`}
+      className={`pf-ribbon-tile-idle group flex h-8 min-w-[5.5rem] shrink-0 flex-row items-center gap-1.5 rounded-md px-1.5 text-left transition active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:min-w-[6rem]`}
     >
-      <span className={`pf-ribbon-icon-shell inline-flex rounded-lg p-1.5 ${iconBg}`}>
-        <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+      <span className={`pf-ribbon-icon-shell inline-flex size-5 shrink-0 items-center justify-center rounded-md ${iconBg}`}>
+        <Icon className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
       </span>
-      <span className="text-[10px] font-semibold leading-tight">{line1}</span>
-      <span className="text-[9px] leading-tight opacity-70">{line2}</span>
+      <span className="min-w-0 leading-none">
+        <span className="block truncate text-[10px] font-semibold">{line1}</span>
+        <span className="block truncate text-[9px] opacity-70">{line2}</span>
+      </span>
     </button>
   );
 }
 
 function RibbonGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="pf-ribbon-group flex flex-col items-stretch">
-      <div className="flex flex-1 flex-row items-end gap-0">{children}</div>
-      <span className="pf-ribbon-group-label">{title}</span>
+    <div className="pf-ribbon-group flex shrink-0 flex-col px-1 first:border-l-0 first:pl-0 sm:px-2">
+      <div className="flex flex-row flex-nowrap items-center gap-0.5">{children}</div>
+      <span className="pf-ribbon-group-label whitespace-nowrap text-center text-[9px] leading-none">{title}</span>
     </div>
   );
 }
@@ -329,6 +331,13 @@ export function SalesPage() {
   return (
     <div className="flex min-h-0 flex-col gap-3 pf-safe-page">
       <Card className="space-y-3 p-3 sm:p-3.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div>
+            <p className="text-sm font-bold text-pf-text">Buscar en ventas</p>
+            <p className="text-xs text-pf-muted">Consulta facturas, clientes y saldos con filtros rápidos.</p>
+          </div>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-pf-text-soft">{total} registros</span>
+        </div>
         <div className="flex flex-wrap items-end gap-2 sm:gap-3">
           <div className="min-w-[200px] flex-1">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-pf-text-tertiary">

@@ -23,10 +23,11 @@ type Props = {
   open: boolean;
   onClose: () => void;
   existingCustomerId?: string | null;
+  initialValues?: Partial<typeof emptyForm>;
   onSaved: (customer: Customer) => void;
 };
 
-export function CustomerModal({ open, onClose, existingCustomerId = null, onSaved }: Props) {
+export function CustomerModal({ open, onClose, existingCustomerId = null, initialValues, onSaved }: Props) {
   const { token } = useAuth();
   const [form, setForm] = useState(emptyForm);
   const [err, setErr] = useState("");
@@ -36,7 +37,7 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, onSave
   useEffect(() => {
     if (!open || !token) return;
     if (!existingCustomerId) {
-      setForm(emptyForm);
+      setForm({ ...emptyForm, ...initialValues });
       setErr("");
       setLoading(false);
       return;
@@ -65,7 +66,7 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, onSave
     return () => {
       cancelled = true;
     };
-  }, [open, existingCustomerId, token]);
+  }, [open, existingCustomerId, token, initialValues]);
 
   function clearForm() {
     setErr("");

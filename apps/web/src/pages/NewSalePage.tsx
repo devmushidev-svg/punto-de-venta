@@ -229,11 +229,11 @@ function SaleRibbonTile({
 }) {
   const iconBg =
     variant === "primary"
-      ? "bg-gradient-to-b from-[color:var(--pf-primary-soft)] to-[color:var(--pf-warning-soft)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
+      ? "bg-pf-primary text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
       : variant === "muted"
-        ? "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-muted)] text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
+        ? "bg-pf-surface-muted text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
         : variant === "danger"
-          ? "bg-gradient-to-b from-[color:var(--pf-danger-soft)] to-[color:var(--pf-warning-soft)] text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
+          ? "bg-pf-danger-soft text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
           : "pf-ribbon-icon-shell";
   return (
     <button
@@ -241,23 +241,21 @@ function SaleRibbonTile({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`group flex w-[6.25rem] shrink-0 flex-col items-stretch rounded-md border border-transparent p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:w-28 ${
+      className={`group flex h-8 min-w-[5.5rem] shrink-0 flex-row items-center gap-1.5 rounded-md border border-transparent px-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:min-w-[6rem] ${
         active
           ? "pf-ribbon-tile-active"
           : "pf-ribbon-tile-idle"
       }`}
     >
-      <div className="flex flex-1 flex-col items-center gap-1 pb-1 pt-1.5">
+      <div className="flex min-w-0 flex-1 flex-row items-center gap-1.5">
         <span
-          className={`flex size-10 shrink-0 items-center justify-center rounded-md leading-none shadow-sm ${iconBg} [&>svg]:block [&>svg]:shrink-0`}
+          className={`flex size-5 shrink-0 items-center justify-center rounded-md leading-none ${iconBg} [&>svg]:block [&>svg]:shrink-0`}
         >
-          <Icon className="!size-5" strokeWidth={2} aria-hidden />
+          <Icon className="!size-3.5" strokeWidth={2.2} aria-hidden />
         </span>
-        <span className="w-full px-0.5 text-center text-[10px] font-semibold leading-tight text-pf-text sm:text-[11px]">
-          {line1}
-        </span>
-        <span className="w-full px-0.5 text-center text-[9px] font-medium leading-tight text-pf-text-soft sm:text-[10px]">
-          {line2}
+        <span className="min-w-0 text-left leading-none">
+          <span className="block truncate text-[10px] font-semibold text-pf-text">{line1}</span>
+          <span className="block truncate text-[9px] font-medium text-pf-text-soft">{line2}</span>
         </span>
       </div>
     </button>
@@ -266,11 +264,11 @@ function SaleRibbonTile({
 
 function SaleRibbonGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="pf-ribbon-group flex min-w-0 flex-col pl-2 first:border-l-0 first:pl-0 sm:pl-3">
-      <div className="flex flex-row flex-wrap items-stretch gap-0.5 sm:gap-0">
+    <div className="pf-ribbon-group flex shrink-0 flex-col px-1 first:border-l-0 first:pl-0 sm:px-2">
+      <div className="flex flex-row flex-nowrap items-center gap-0.5">
         {children}
       </div>
-      <p className="pf-ribbon-group-label mt-0.5 pt-0.5 text-center text-[10px] font-medium uppercase tracking-wide sm:text-[11px]">
+      <p className="pf-ribbon-group-label whitespace-nowrap text-center text-[9px] font-medium uppercase leading-none tracking-wide">
         {title}
       </p>
     </div>
@@ -311,6 +309,7 @@ export function NewSalePage() {
   const [pickLineForEditOpen, setPickLineForEditOpen] = useState(false);
   const [customerCatalogModal, setCustomerCatalogModal] = useState<CustomerCatalogModal>({ kind: "closed" });
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
+  const [customerSuggestionsOpen, setCustomerSuggestionsOpen] = useState(false);
   const [customerPickList, setCustomerPickList] = useState<Customer[]>([]);
   const [customerSearchQ, setCustomerSearchQ] = useState("");
   const [productSearchOpen, setProductSearchOpen] = useState(false);
@@ -376,6 +375,7 @@ export function NewSalePage() {
     if (isEditMode) return;
     setLoadedInvoiceNumber(null);
     apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
+      setCustomerPickList(list);
       const def = list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
       if (def) {
         setCustomerId(def.id);
@@ -519,6 +519,8 @@ export function NewSalePage() {
   const applyCustomer = useCallback((c: Customer) => {
     setCustomerId(c.id);
     setCustomerName(c.name);
+    setCustomerSearchQ(c.name);
+    setCustomerSuggestionsOpen(false);
     setCustomerAddress(c.address ?? "");
     setCustomerPhone(c.phone ?? "");
     setCustomerTaxId(c.taxId ?? "");
@@ -541,6 +543,20 @@ export function NewSalePage() {
     setCustomerSearchQ("");
     apiFetch<Customer[]>("/api/customers", { token }).then(setCustomerPickList).catch(() => setCustomerPickList([]));
   }, [customerSearchOpen, token]);
+
+  useEffect(() => {
+    if (!token || customerPickList.length > 0) return;
+    apiFetch<Customer[]>("/api/customers", { token })
+      .then(setCustomerPickList)
+      .catch(() => setCustomerPickList([]));
+  }, [customerPickList.length, token]);
+
+  useEffect(() => {
+    if (!token || customerPickList.length > 0) return;
+    apiFetch<Customer[]>("/api/customers", { token })
+      .then(setCustomerPickList)
+      .catch(() => setCustomerPickList([]));
+  }, [customerPickList.length, token]);
 
   useEffect(() => {
     if (!productSearchOpen || !token) return;
@@ -583,6 +599,21 @@ export function NewSalePage() {
         (c.phone && c.phone.toLowerCase().includes(q))
     );
   }, [customerPickList, customerSearchQ]);
+
+  const customerCreateInitialValues = useMemo(
+    () => ({
+      name: customerName.trim(),
+      address: customerAddress.trim(),
+      phone: customerPhone.trim(),
+      taxId: customerTaxId.trim(),
+    }),
+    [customerAddress, customerName, customerPhone, customerTaxId]
+  );
+
+  const customerSearchHasQuery = customerSearchQ.trim().length >= 2;
+  const customerHasExactMatch = filteredPickCustomers.some(
+    (c) => c.name.trim().toLowerCase() === customerSearchQ.trim().toLowerCase()
+  );
 
   useEffect(() => {
     if (!customerSearchOpen) return;
@@ -895,7 +926,18 @@ export function NewSalePage() {
           normProductLookup(p.quickCode) === key
       );
       if (!exact || !exact.active || exact.productType === "INSUMO") {
-        setQuickAddErr("El producto no existe.");
+        if (list.length > 0) {
+          /* Si el texto coincide por nombre o parcialmente, continúa en el catálogo
+             para que el campo funcione como búsqueda, no solo como lector exacto. */
+          setQuickAddCode("");
+          setQuickAddErr("");
+          quickAddBusyRef.current = false;
+          setQuickAddBusy(false);
+          setProductSearchQ(raw);
+          setProductSearchOpen(true);
+          return;
+        }
+        setQuickAddErr("No encontramos productos con ese texto.");
         return;
       }
       if (!posBehavior.barcodeAddsLineDirectly) {
@@ -1566,18 +1608,126 @@ export function NewSalePage() {
             {/* Cliente + DIR / TEL / RTN — en xl una sola fila para no alargar la cabecera */}
             <div className="min-w-0 space-y-0.5 xl:col-span-4">
               <Field label="Cliente" className="min-w-0" compact>
-                <Input
-                  ref={saleCustomerRef}
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Nombre o razón social"
-                  autoComplete="name"
-                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                  onKeyDown={(e) => {
-                    if (tryHeaderArrowNav(e, "customer")) return;
-                    handleSaleHeaderInputKeyDown(e, "customer");
-                  }}
-                />
+                <div className="relative">
+                  <Input
+                    ref={saleCustomerRef}
+                    value={customerName}
+                    onFocus={() => {
+                      setCustomerSearchQ(customerName);
+                      setCustomerSuggestionsOpen(customerName.trim().length >= 2);
+                    }}
+                    onBlur={() => window.setTimeout(() => setCustomerSuggestionsOpen(false), 140)}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      setCustomerName(nextName);
+                      setCustomerSearchQ(nextName);
+                      setCustomerSuggestionsOpen(nextName.trim().length >= 2);
+                      if (customerId && nextName.trim() !== customerName.trim()) {
+                        setCustomerId("");
+                        setCustomerAddress("");
+                        setCustomerPhone("");
+                        setCustomerTaxId("");
+                      }
+                    }}
+                    placeholder="Buscar cliente o escribir uno nuevo"
+                    autoComplete="off"
+                    className={`!h-7 !min-h-[28px] px-1.5 py-0 text-xs ${customerId ? "border-pf-success/60 bg-pf-success-soft/30" : ""}`}
+                    onKeyDown={(e) => {
+                      if (customerSuggestionsOpen && customerSearchHasQuery && filteredPickCustomers.length > 0) {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setCustomerPickHighlight((h) => Math.min(h + 1, filteredPickCustomers.length - 1));
+                          return;
+                        }
+                        if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setCustomerPickHighlight((h) => Math.max(h - 1, 0));
+                          return;
+                        }
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const selected = filteredPickCustomers[customerPickHighlight];
+                          if (selected) applyCustomer(selected);
+                          return;
+                        }
+                      }
+                      if (tryHeaderArrowNav(e, "customer")) return;
+                      handleSaleHeaderInputKeyDown(e, "customer");
+                    }}
+                  />
+                  {customerSuggestionsOpen && customerSearchHasQuery ? (
+                    <div
+                      className="absolute left-0 right-0 top-[calc(100%+0.3rem)] z-40 overflow-hidden rounded-xl border border-pf-border bg-pf-surface-elevated shadow-[var(--pf-shadow-lg)]"
+                      role="listbox"
+                      aria-label="Clientes coincidentes"
+                    >
+                      {filteredPickCustomers.slice(0, 6).map((c, index) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          role="option"
+                          aria-selected={index === customerPickHighlight}
+                          className={`flex w-full items-center justify-between gap-3 border-b border-pf-border-soft px-3 py-2 text-left text-xs last:border-b-0 ${
+                            index === customerPickHighlight ? "bg-pf-primary-soft/60" : "hover:bg-pf-surface-muted"
+                          }`}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => applyCustomer(c)}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold text-pf-text">{c.name}</span>
+                            <span className="block truncate text-[11px] text-pf-text-tertiary">
+                              {[c.taxId, c.phone].filter(Boolean).join(" · ") || "Sin datos adicionales"}
+                            </span>
+                          </span>
+                          {c.defaultPriceTier ? (
+                            <span className="shrink-0 rounded-md bg-pf-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-pf-text-secondary">
+                              Precio {c.defaultPriceTier}
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                      {filteredPickCustomers.length === 0 && !customerHasExactMatch ? (
+                        <div className="flex items-center justify-between gap-3 px-3 py-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-pf-text">Cliente nuevo</p>
+                            <p className="mt-0.5 text-[11px] text-pf-text-tertiary">
+                              No encontramos “{customerSearchQ.trim()}”. ¿Desea guardar sus datos?
+                            </p>
+                            {customerTaxId.trim() ? (
+                              <p className="mt-1 text-[10px] font-semibold text-pf-success">RTN incluido en el formulario</p>
+                            ) : null}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="min-h-8 shrink-0 gap-1.5 px-2.5 py-1 text-xs"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setCustomerSuggestionsOpen(false);
+                              setCustomerCatalogModal({ kind: "new" });
+                            }}
+                          >
+                            <UserPlus className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                            Guardar cliente
+                          </Button>
+                        </div>
+                      ) : null}
+                      {filteredPickCustomers.length > 6 ? (
+                        <button
+                          type="button"
+                          className="w-full border-t border-pf-border-soft px-3 py-2 text-left text-[11px] font-semibold text-pf-primary-hover hover:bg-pf-primary-soft/40"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setCustomerSuggestionsOpen(false);
+                            setCustomerSearchOpen(true);
+                          }}
+                        >
+                          Ver todos los clientes ({filteredPickCustomers.length}) · F2
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </Field>
               <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-3 xl:grid-cols-3 sm:gap-1">
                 <Field label="DIR" className="min-w-0" compact>
@@ -1688,6 +1838,62 @@ export function NewSalePage() {
         </div>
       </div>
 
+      <div className="flex flex-col gap-2 rounded-2xl border border-pf-border bg-pf-surface-elevated px-3 py-2.5 shadow-[var(--pf-shadow-sm)] sm:flex-row sm:items-center sm:justify-between sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-pf-primary-soft text-pf-primary-hover">
+            <Search className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-pf-text">Agregar productos</p>
+            <p className="truncate text-[11px] text-pf-text-tertiary">Escanee un código o busque en el catálogo</p>
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-xl sm:justify-end">
+          <Input
+            ref={quickAddInputRef}
+            value={quickAddCode}
+            onChange={(e) => {
+              setQuickAddCode(e.target.value);
+              setQuickAddErr("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                if (lines.length > 0) focusSaleLineField(lines.length - 1, "qty");
+                else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
+                else salePriceTierRef.current?.focus();
+                return;
+              }
+              if (e.key === "Enter") {
+                if (e.nativeEvent.isComposing) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (quickAddBusyRef.current) return;
+                void submitQuickAddByCode();
+              }
+            }}
+            placeholder="Código, barras o código rápido"
+            readOnly={quickAddBusy}
+            disabled={loadingSale || !token}
+            autoComplete="off"
+            className="min-h-10 min-w-0 flex-1 font-mono text-sm read-only:bg-pf-surface-muted"
+            aria-label="Agregar producto por código"
+          />
+          {quickAddErr ? <p className="max-w-[13rem] text-xs font-semibold text-pf-danger">{quickAddErr}</p> : null}
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-10 shrink-0 gap-1.5 px-3"
+            onClick={() => openProductSearchModal()}
+            title="Buscar productos (F4)"
+          >
+            <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
+            <span className="hidden sm:inline">Catálogo</span>
+            <span className="text-[10px] text-pf-text-tertiary">F4</span>
+          </Button>
+        </div>
+      </div>
+
       {/* Cuadrícula principal */}
       <div className="flex-1 overflow-x-auto rounded-b-2xl border border-t-0 border-slate-300 bg-white shadow-lg shadow-slate-900/5">
         <table className="w-full min-w-[720px] text-sm">
@@ -1705,7 +1911,7 @@ export function NewSalePage() {
             </tr>
           </thead>
           <tbody>
-                       {lines.map((l, i) => (
+              {lines.map((l, i) => (
                 <tr
                   key={l.lineKey}
                   onClick={() => setSelectedLineIndex(i)}
@@ -1833,62 +2039,17 @@ export function NewSalePage() {
                   </td>
                 </tr>
               ))}
-            {/* Fila “vacía” del grid: código aquí y Enter agrega el producto */}
-            <tr className="border-t-2 border-dashed border-pf-border bg-pf-primary-soft/20">
-              <td className="px-3 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
-                <Input
-                  ref={quickAddInputRef}
-                  value={quickAddCode}
-                  onChange={(e) => {
-                    setQuickAddCode(e.target.value);
-                    setQuickAddErr("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      if (lines.length > 0) focusSaleLineField(lines.length - 1, "qty");
-                      else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
-                      else salePriceTierRef.current?.focus();
-                      return;
-                    }
-                    if (e.key === "Enter") {
-                      if (e.nativeEvent.isComposing) return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      /* Segundo Enter del lector en el mismo tick: ignorar hasta terminar el primero. */
-                      if (quickAddBusyRef.current) return;
-                      void submitQuickAddByCode();
-                    }
-                  }}
-                  placeholder="Código / barras / rápido"
-                  readOnly={quickAddBusy}
-                  disabled={loadingSale || !token}
-                  autoComplete="off"
-                  className="!min-h-[44px] w-full min-w-[10.5rem] px-2 py-2 font-mono text-sm read-only:bg-pf-surface-elevated/80"
-                />
-              </td>
-              <td className="px-3 py-2 align-middle text-xs font-medium leading-snug" onClick={(e) => e.stopPropagation()}>
-                {quickAddErr ? (
-                  <span className="font-medium text-red-600">{quickAddErr}</span>
-                ) : quickAddBusy ? (
-                  <span className="text-pf-muted">Buscando…</span>
-                ) : (
-                  <span className="text-slate-600">
-                    {lines.length === 0
-                      ? "Código o barras y Enter → cantidad; Enter sigue a precio y descuento, luego nuevo código."
-                      : "Siguiente: código y Enter → cantidad del producto."}
-                  </span>
-                )}
-              </td>
-              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
-              <td className="px-3 py-2 text-xs text-pf-text-tertiary">—</td>
-              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
-              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
-              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
-              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
-              <td className="px-2 py-2" onClick={(e) => e.stopPropagation()} />
-            </tr>
-          </tbody>
+              {lines.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-14 text-center">
+                    <p className="text-sm font-semibold text-pf-text">Todavía no hay productos en la venta</p>
+                    <p className="mt-1 text-xs text-pf-text-tertiary">
+                      Escanee un código arriba o abra el catálogo para empezar.
+                    </p>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
         </table>
       </div>
 
@@ -2042,6 +2203,7 @@ export function NewSalePage() {
       <CustomerModal
         open={customerCatalogModal.kind !== "closed"}
         existingCustomerId={customerCatalogModal.kind === "edit" ? customerId : null}
+        initialValues={customerCatalogModal.kind === "new" ? customerCreateInitialValues : undefined}
         onClose={() => setCustomerCatalogModal({ kind: "closed" })}
         onSaved={applyCustomer}
       />

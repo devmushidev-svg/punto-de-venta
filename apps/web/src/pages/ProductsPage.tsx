@@ -452,6 +452,13 @@ export function ProductsPage() {
       </div>
 
       <Card className="space-y-2.5 p-3 sm:p-3.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div>
+            <p className="text-sm font-bold text-pf-text">Buscar en el catálogo</p>
+            <p className="text-xs text-pf-muted">Localiza productos, servicios y existencias sin salir de esta vista.</p>
+          </div>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-pf-text-soft">{total} registros</span>
+        </div>
         <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <Input
             placeholder="Buscar nombre, SKU, código de barras o rápido…"

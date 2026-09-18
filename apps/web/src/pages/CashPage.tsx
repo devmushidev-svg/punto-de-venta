@@ -168,7 +168,7 @@ type AdminSummaryRow = {
 
 function DiaryTopField({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="rounded-xl border border-pf-border bg-white px-3 py-2.5 shadow-sm">
+    <div className="rounded-xl border border-pf-border-soft bg-pf-surface-elevated px-3 py-2.5 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-pf-muted">{label}</p>
       <div className="mt-1 text-sm font-semibold text-pf-text">{value}</div>
     </div>
@@ -188,14 +188,14 @@ function DiaryMetric({
 }) {
   const toneClass =
     tone === "warn"
-      ? "border-amber-200 bg-amber-50/70"
+      ? "border-pf-warning-soft bg-pf-warning-soft/35"
       : tone === "danger"
-        ? "border-red-200 bg-red-50/70"
+        ? "border-pf-danger-soft bg-pf-danger-soft/35"
         : tone === "strong"
-          ? "border-pf-primary/35 bg-pf-primary-soft/35"
-          : "border-pf-border bg-white";
+          ? "border-pf-primary-mid bg-pf-primary-soft/40"
+          : "border-pf-border-soft bg-pf-surface-elevated";
   return (
-    <div className={`rounded-xl border px-3 py-3 shadow-sm ${toneClass}`}>
+    <div className={`rounded-xl border px-3 py-3 shadow-sm transition-colors ${toneClass}`}>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-pf-muted">{label}</p>
       <p className="mt-1 text-2xl font-extrabold tabular-nums text-pf-text">{value}</p>
       {help ? <p className="mt-1 text-xs text-pf-text-tertiary">{help}</p> : null}
@@ -203,12 +203,12 @@ function DiaryMetric({
   );
 }
 
-function DiarySection({ title, children }: { title: string; children: ReactNode }) {
+function DiarySection({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
   return (
-    <div className="rounded-2xl border border-pf-border bg-white p-4 shadow-[var(--pf-shadow-card)]">
-      <h2 className="text-sm font-bold uppercase tracking-wide text-pf-text">{title}</h2>
+    <section className={`pf-cash-section ${className}`}>
+      <h2 className="text-base font-bold tracking-tight text-pf-text">{title}</h2>
       <div className="mt-3">{children}</div>
-    </div>
+    </section>
   );
 }
 
@@ -387,7 +387,7 @@ export function CashPage() {
 
   if (session === undefined || diary === null) {
     return (
-      <p className="rounded-2xl border border-white/50 bg-white/60 px-4 py-6 text-center font-medium text-pf-muted backdrop-blur-sm">
+      <p className="pf-cash-section px-4 py-6 text-center font-medium text-pf-muted">
         Cargando caja…
       </p>
     );
@@ -402,11 +402,19 @@ export function CashPage() {
 
   return (
     <div className="max-w-6xl space-y-4 pf-safe-page">
-      <DiarySection title="Caja y Diario Digital">
+      <DiarySection title="Caja y diario digital" className="pf-cash-hero">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-1.5">
-              <p className="text-3xl font-extrabold tracking-tight text-pf-text">Caja y diario digital</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
+                  session ? "bg-pf-success-soft text-pf-success" : "bg-pf-warning-soft text-pf-warning"
+                }`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${session ? "bg-pf-success" : "bg-pf-warning"}`} aria-hidden />
+                  {session ? "Turno abierto" : "Caja cerrada"}
+                </span>
+                <span className="text-xs font-medium text-pf-text-soft">{todayLabel}</span>
+              </div>
               <p className="max-w-3xl text-sm text-pf-text-secondary">
                 Administre el turno de caja: abra con un fondo inicial, venda normalmente, registre gastos y cierre comparando
                 efectivo esperado contra efectivo contado.
@@ -491,7 +499,7 @@ export function CashPage() {
             ) : null}
           </div>
 
-          <div className="rounded-xl border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs leading-5 text-pf-text-secondary">
+          <div className="rounded-xl border border-pf-border-soft bg-pf-surface-soft px-3 py-2 text-xs leading-5 text-pf-text-secondary">
             Arqueo: <strong>fondo inicial + efectivo de ventas + abonos a crédito del mismo turno − gastos ± movimientos manuales</strong>.
             Las ventas con tarjeta no cuentan como efectivo en cajón. Use movimientos para retiros, ingresos y ajustes (diario digital).
           </div>
@@ -532,7 +540,7 @@ export function CashPage() {
           </div>
         </DiarySection>
 
-        <DiarySection title={session ? "Cierre de turno" : "Apertura de turno"}>
+        <DiarySection title={session ? "Cierre de turno" : "Apertura de turno"} className={session ? "pf-cash-close" : "pf-cash-open"}>
           {!viewingSelf ? (
             <p className="text-sm text-pf-text-secondary">
               Está viendo el diario de otra fecha o cajero. Para abrir o cerrar <strong>su</strong> turno de hoy, use «Hoy» y

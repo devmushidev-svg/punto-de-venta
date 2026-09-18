@@ -82,9 +82,13 @@ const productIncludeKit = {
   },
 } as const;
 
-// Postgres: `contains` es sensible a mayúsculas; `mode: insensitive` replica el LIKE de SQLite.
-type InsContains = { contains: string; mode: "insensitive" };
-const insContains = (value: string): InsContains => ({ contains: value, mode: "insensitive" });
+// El cliente Prisma generado para SQLite no acepta `mode`; el entorno local usa
+// `file:...` y `contains` ya se comporta como LIKE sin distinguir mayúsculas.
+// En Postgres sí agregamos `mode: insensitive` para conservar esa experiencia.
+type InsContains = { contains: string; mode?: "insensitive" };
+const isSqliteDatabase = (process.env.DATABASE_URL ?? "").trim().startsWith("file:");
+const insContains = (value: string): InsContains =>
+  isSqliteDatabase ? { contains: value } : { contains: value, mode: "insensitive" };
 
 type PageMeta = { page: number; pageSize: number; skip: number; take: number };
 

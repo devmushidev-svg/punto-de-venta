@@ -79,11 +79,11 @@ function TouchRibbonTile({
 }) {
   const iconBg =
     variant === "primary"
-      ? "bg-gradient-to-b from-[color:var(--pf-primary-soft)] to-[color:var(--pf-warning-soft)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
+      ? "bg-pf-primary text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
       : variant === "muted"
-        ? "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-muted)] text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
+        ? "bg-pf-surface-muted text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
         : variant === "danger"
-          ? "bg-gradient-to-b from-[color:var(--pf-danger-soft)] to-[color:var(--pf-warning-soft)] text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
+          ? "bg-pf-danger-soft text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
           : "pf-ribbon-icon-shell";
   return (
     <button
@@ -91,17 +91,15 @@ function TouchRibbonTile({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className="group flex w-[6.25rem] shrink-0 flex-col items-stretch rounded-md border border-transparent p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:w-28 pf-ribbon-tile-idle"
+      className="group flex h-8 min-w-[5.5rem] shrink-0 flex-row items-center gap-1.5 rounded-md border border-transparent px-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:min-w-[6rem] pf-ribbon-tile-idle"
     >
-      <div className="flex flex-1 flex-col items-center gap-1 pb-1 pt-1.5">
-        <span className={`flex size-10 shrink-0 items-center justify-center rounded-md leading-none shadow-sm ${iconBg} [&>svg]:block [&>svg]:shrink-0`}>
-          <Icon className="!size-5" strokeWidth={2} aria-hidden />
+      <div className="flex min-w-0 flex-1 flex-row items-center gap-1.5">
+        <span className={`flex size-5 shrink-0 items-center justify-center rounded-md leading-none ${iconBg} [&>svg]:block [&>svg]:shrink-0`}>
+          <Icon className="!size-3.5" strokeWidth={2.2} aria-hidden />
         </span>
-        <span className="w-full px-0.5 text-center text-[10px] font-semibold leading-tight text-pf-text sm:text-[11px]">
-          {line1}
-        </span>
-        <span className="w-full px-0.5 text-center text-[9px] font-medium leading-tight text-pf-text-soft sm:text-[10px]">
-          {line2}
+        <span className="min-w-0 text-left leading-none">
+          <span className="block truncate text-[10px] font-semibold text-pf-text">{line1}</span>
+          <span className="block truncate text-[9px] font-medium text-pf-text-soft">{line2}</span>
         </span>
       </div>
     </button>
@@ -110,9 +108,9 @@ function TouchRibbonTile({
 
 function TouchRibbonGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="pf-ribbon-group flex min-w-0 flex-col pl-2 first:border-l-0 first:pl-0 sm:pl-3">
-      <div className="flex flex-row flex-wrap items-stretch gap-0.5 sm:gap-0">{children}</div>
-      <p className="pf-ribbon-group-label mt-0.5 pt-0.5 text-center text-[10px] font-medium uppercase tracking-wide sm:text-[11px]">
+    <div className="pf-ribbon-group flex shrink-0 flex-col px-1 first:border-l-0 first:pl-0 sm:px-2">
+      <div className="flex flex-row flex-nowrap items-center gap-0.5">{children}</div>
+      <p className="pf-ribbon-group-label whitespace-nowrap text-center text-[9px] font-medium uppercase leading-none tracking-wide">
         {title}
       </p>
     </div>
@@ -643,7 +641,7 @@ export function TouchSalePage() {
         )}
       </div>
 
-      <div className="space-y-2 rounded-xl border border-pf-border-soft bg-gradient-to-br from-pf-surface-elevated to-pf-surface-muted/60 p-4 text-sm">
+      <div className="space-y-2 rounded-xl border border-pf-border-soft bg-pf-surface-elevated p-4 text-sm shadow-sm">
         <div className="flex justify-between font-medium text-pf-text-tertiary">
           <span>Subtotal</span>
           <span className="tabular-nums text-pf-text">{formatMoney(sym, totals.subtotal)}</span>
@@ -900,7 +898,7 @@ export function TouchSalePage() {
                       className={`min-h-[80px] min-w-[140px] shrink-0 rounded-xl border p-3 text-left shadow-sm transition active:scale-[0.98] touch-manipulation ${
                         outOfStock
                           ? "border-pf-danger/30 bg-pf-danger-soft/20"
-                          : "border-pf-border-soft bg-gradient-to-br from-pf-primary-soft/60 to-pf-surface-elevated hover:shadow-md hover:brightness-[1.02]"
+                          : "border-pf-border-soft bg-pf-primary-soft/45 hover:bg-pf-primary-soft/70 hover:shadow-md"
                       }`}
                     >
                       <span className="block text-sm font-semibold text-pf-text line-clamp-2">{p.name}</span>
