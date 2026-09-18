@@ -160,7 +160,6 @@ export function CashPage() {
     <div className="cash-workspace pf-safe-page">
       <header className="cash-heading">
         <div>
-          <h1>Caja</h1>
           <p>
             {user?.displayName} <span aria-hidden>·</span>{" "}
             {new Date().toLocaleDateString("es-HN", {
@@ -235,7 +234,7 @@ function CurrentCash({
     if (!token || busy) return;
     const amount = action === "open" ? opening : closing;
     if (!validMoney(amount)) {
-      setErr("Ingresá un monto válido, igual o mayor que cero.");
+      setErr("Ingrese un monto válido, igual o mayor que cero.");
       return;
     }
     if (action === "close" && !session) return;
@@ -262,7 +261,7 @@ function CurrentCash({
       );
       setNotice(
         action === "open"
-          ? "Caja abierta. Ya podés empezar a vender."
+          ? "Caja abierta. Ya puede empezar a vender."
           : "Caja cerrada. El resumen quedó disponible en el diario digital.",
       );
       setClosing("");
@@ -274,7 +273,7 @@ function CurrentCash({
       setErr(
         e instanceof Error
           ? e.message
-          : "No se pudo guardar. Intentá de nuevo.",
+          : "No se pudo guardar. Intente de nuevo.",
       );
     } finally {
       setBusy(false);
@@ -303,16 +302,16 @@ function CurrentCash({
             <div className="cash-start-copy">
               <span className="cash-status">Caja cerrada</span>
               <h2 id="cash-open-title">
-                Abrí tu caja
+                Abra su caja
                 <br />
                 para empezar.
               </h2>
               <p>
-                Contá el efectivo que tenés en el cajón. Ese será tu fondo
+                Cuente el efectivo que tiene en el cajón. Ese será su fondo
                 inicial para dar cambio.
               </p>
               <p className="cash-start-note">
-                Las ventas y los movimientos se irán sumando a tu turno.
+                Las ventas y los movimientos se irán sumando a su turno.
               </p>
             </div>
             <form
@@ -337,7 +336,7 @@ function CurrentCash({
                 />
               </Field>
               <p id="cash-opening-help">
-                Si empezás sin efectivo, dejá el monto en 0.
+                Si empieza sin efectivo, deje el monto en 0.
               </p>
               {err && (
                 <p className="cash-error" role="alert">
@@ -354,14 +353,14 @@ function CurrentCash({
                 <ArrowRight size={18} aria-hidden />
               </Button>
               <span className="cash-form-footnote">
-                Abre un turno a tu nombre.
+                Abre un turno a su nombre.
               </span>
             </form>
           </section>
           <div className="cash-next">
             <div>
-              <h3>¿Buscás un cierre anterior?</h3>
-              <p>Consultá ventas, movimientos y cierres sin abrir una caja.</p>
+              <h3>¿Busca un cierre anterior?</h3>
+              <p>Consulte ventas, movimientos y cierres sin abrir una caja.</p>
             </div>
             <Button variant="secondary" onClick={showHistory}>
               Ver diario digital
@@ -375,12 +374,12 @@ function CurrentCash({
             <span className="cash-status cash-status-open">Caja abierta</span>
             <span>Desde {formatDate(session.openedAt)}</span>
           </div>
-          <section className="cash-overview" aria-label="Resumen de tu turno">
+          <section className="cash-overview" aria-label="Resumen de su turno">
             <div>
               <span>Efectivo esperado en caja</span>
               <strong>{formatMoney(sym, diary.efectivoCajaSugerido)}</strong>
               <small>
-                Incluye tu fondo inicial de{" "}
+                Incluye su fondo inicial de{" "}
                 {formatMoney(sym, session.openingCash)}
               </small>
             </div>
@@ -442,9 +441,9 @@ function CurrentCash({
           {task === "close" && (
             <section className="cash-close" aria-labelledby="cash-close-title">
               <div className="cash-close-copy">
-                <h2 id="cash-close-title">Contá el efectivo y cerrá tu caja</h2>
+                <h2 id="cash-close-title">Cuente el efectivo y cierre su caja</h2>
                 <p>
-                  Incluí billetes y monedas. No sumés comprobantes de tarjeta.
+                  Incluya billetes y monedas. No sume comprobantes de tarjeta.
                 </p>
                 <CashBreakdown diary={diary} sym={sym} />
               </div>
@@ -477,7 +476,7 @@ function CurrentCash({
                     {difference === null
                       ? "Diferencia por comprobar"
                       : difference === 0
-                        ? "Tu caja cuadra"
+                        ? "Su caja cuadra"
                         : difference > 0
                           ? "Hay un sobrante"
                           : "Hay un faltante"}
@@ -492,7 +491,7 @@ function CurrentCash({
                   <Input
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Anotá cualquier diferencia o detalle"
+                    placeholder="Anote cualquier diferencia o detalle"
                   />
                 </Field>
                 {err && (
@@ -626,8 +625,8 @@ function MovementForm({
   return (
     <Panel title="Registrar movimiento">
       <p className="cash-description">
-        Registrá una entrada o salida de dinero que no sea una venta. No repitás
-        un gasto que ya registraste en Gastos.
+        Registre una entrada o salida de dinero que no sea una venta. No repita
+        un gasto que ya registró en Gastos.
       </p>
       <form
         onSubmit={(e) => {
@@ -756,10 +755,10 @@ function CashHistory({
   return (
     <>
       <div className="cash-history-intro">
-        <h2>Consultá un turno anterior</h2>
+        <h2>Consulte un turno anterior</h2>
         <p>
-          Elegí una fecha para revisar su último turno. Esta vista no modifica
-          tu caja actual.
+          Elija una fecha para revisar el turno. Esta vista no modifica
+          su caja actual.
         </p>
       </div>
       <div className="cash-filters">
@@ -808,7 +807,7 @@ function CashHistory({
       </div>
       {usersError && (
         <p className="cash-error" role="alert">
-          No se pudo cargar la lista de cajeros. Usá Actualizar para reintentar.
+          No se pudo cargar la lista de cajeros. Use Actualizar para reintentar.
         </p>
       )}
       {!diary ? (
@@ -818,8 +817,8 @@ function CashHistory({
           <BookOpen size={26} aria-hidden />
           <h3>No hay turno para esta consulta</h3>
           <p>
-            Probá con otra fecha{admin ? " o elegí otro cajero" : ""}. No
-            necesitás abrir una caja para consultar el diario.
+            Pruebe con otra fecha{admin ? " o elija otro cajero" : ""}. No
+            necesita abrir una caja para consultar el diario.
           </p>
         </div>
       ) : (
@@ -914,7 +913,7 @@ function CashHistory({
           <summary>Todos los turnos abiertos en esta fecha</summary>
           {summaryError ? (
             <p className="cash-error">
-              No se pudo cargar el resumen general. Usá Actualizar para
+              No se pudo cargar el resumen general. Use Actualizar para
               reintentar.
             </p>
           ) : !summary ? (
