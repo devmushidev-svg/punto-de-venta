@@ -1,6 +1,5 @@
 import { FilterX, History, PackagePlus, PackageSearch, Pencil, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageHero } from "../components/PageHero";
 import { apiFetch, apiUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, EmptyState, Field, Input, Modal, PaginationBar, Select, Textarea } from "../components/ui";
@@ -431,136 +430,137 @@ export function ProductsPage() {
 
   return (
     <div className="flex min-h-0 flex-col space-y-3 pf-safe-page sm:space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <PageHero title="Productos" constrained>
-          <p className="pf-page-lead">
-            Qué es: catálogo de artículos y servicios con existencias, precios (hasta cuatro listas), tipo (producto,
-            servicio, insumo, combo) y datos para venta y compras.
-          </p>
-          <p className="pf-page-lead-muted">
-            Use filtros y la tabla para localizar ítems; el administrador crea y edita desde el modal. Los movimientos de
-            stock se consultan en Historial.
-            {!admin ? " Usted puede buscar y consultar; alta y edición son del administrador." : null}
-          </p>
-        </PageHero>
-        {admin ? (
-          <Button type="button" onClick={openNew} className="min-h-[52px] w-full shrink-0 shadow-lg sm:w-auto sm:min-h-[48px]">
-            <PackagePlus className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2} aria-hidden />
-            Nuevo producto
-          </Button>
-        ) : null}
-      </div>
-
-      <Card className="space-y-2.5 p-3 sm:p-3.5">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <div>
-            <p className="text-sm font-bold text-pf-text">Buscar en el catálogo</p>
-            <p className="text-xs text-pf-muted">Localiza productos, servicios y existencias sin salir de esta vista.</p>
+      <Card className="space-y-3 p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[200px] flex-1">
+            <label
+              htmlFor="products-search"
+              className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-pf-muted"
+            >
+              Buscar
+            </label>
+            <Input
+              id="products-search"
+              placeholder="Nombre, SKU o código…"
+              title="Separe con coma para buscar cualquiera de los términos (ej. café, 200g)"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="min-w-0"
+            />
           </div>
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-pf-text-soft">{total} registros</span>
-        </div>
-        <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <Input
-            placeholder="Buscar nombre, SKU, código de barras o rápido…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            aria-label="Buscar productos"
-            className="min-w-0 xl:col-span-2"
-          />
-          <Select
-            value={stockFilter}
-            onChange={(e) => setStockFilter(e.target.value as "" | "with" | "without" | "low")}
-            aria-label="Filtrar por existencia"
+          <label className="min-w-[150px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+            Existencia
+            <Select
+              className="mt-1 min-h-10"
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value as "" | "with" | "without" | "low")}
+            >
+              <option value="">Todas</option>
+              <option value="with">Con existencia</option>
+              <option value="without">Sin existencia</option>
+              <option value="low">Bajo mínimo</option>
+            </Select>
+          </label>
+          <label className="min-w-[150px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+            Proveedor
+            <Select className="mt-1 min-h-10" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+              <option value="">Todos</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+            Vence desde
+            <Input
+              type="date"
+              value={expiresAfter}
+              onChange={(e) => setExpiresAfter(e.target.value)}
+              className="mt-1 min-h-10 w-[140px]"
+            />
+          </label>
+          <label className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+            Vence hasta
+            <Input
+              type="date"
+              value={expiresBefore}
+              onChange={(e) => setExpiresBefore(e.target.value)}
+              className="mt-1 min-h-10 w-[140px]"
+            />
+          </label>
+
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-10 shrink-0"
+            title="Recargar la lista"
+            aria-label="Recargar la lista"
+            onClick={() => load()}
           >
-            <option value="">Todas las existencias</option>
-            <option value="with">Con existencia</option>
-            <option value="without">Sin existencia</option>
-            <option value="low">Bajo mínimo (sugeridos)</option>
-          </Select>
-          <Select
-            value={supplierId}
-            onChange={(e) => setSupplierId(e.target.value)}
-            aria-label="Proveedor"
-          >
-            <option value="">Todos los proveedores</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-          <Field label="Vence desde" className="min-w-0">
-            <Input type="date" value={expiresAfter} onChange={(e) => setExpiresAfter(e.target.value)} className="min-h-10" />
-          </Field>
-          <Field label="Vence hasta" className="min-w-0">
-            <Input type="date" value={expiresBefore} onChange={(e) => setExpiresBefore(e.target.value)} className="min-h-10" />
-          </Field>
-          <div className="flex flex-wrap items-center gap-2 xl:col-span-6">
-            <Button type="button" variant="secondary" className="min-h-[48px] sm:min-h-10" onClick={clearFilters}>
+            <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+          </Button>
+          {hasFilters ? (
+            <Button type="button" variant="ghost" className="min-h-10 shrink-0" onClick={clearFilters}>
               <FilterX className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               Limpiar
             </Button>
-            <Button type="button" variant="secondary" className="min-h-[48px] sm:min-h-10" onClick={() => load()}>
-              <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              Actualizar
+          ) : null}
+          {admin ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-10 shrink-0"
+              onClick={() => void openLabelsPreview()}
+            >
+              <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              Etiquetas{labelSelectedCount ? ` (${labelSelectedCount})` : ""}
             </Button>
-            {admin ? (
-              <>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="min-h-[48px] sm:min-h-10"
-                  onClick={() =>
-                    setLabelPick((m) => ({
-                      ...m,
-                      ...Object.fromEntries(list.map((p) => [p.id, true])),
-                    }))
-                  }
-                >
-                  Marcar lista
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="min-h-[48px] sm:min-h-10"
-                  onClick={() => {
-                    setLabelPick((m) => {
-                      const n = { ...m };
-                      for (const p of list) delete n[p.id];
-                      return n;
-                    });
-                    setLabelsErr("");
-                  }}
-                >
-                  Quitar marcas
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="min-h-[48px] sm:min-h-10"
-                  onClick={() => void openLabelsPreview()}
-                >
-                  <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-                  Etiquetas{labelSelectedCount ? ` (${labelSelectedCount})` : ""}
-                </Button>
-              </>
+          ) : null}
+          {admin ? (
+            <Button type="button" onClick={openNew} className="min-h-10 shrink-0">
+              <PackagePlus className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              Nuevo producto
+            </Button>
+          ) : null}
+        </div>
+
+        {/* Ayudas de seleccion: solo pesan cuando se van a imprimir etiquetas. */}
+        {admin ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <button
+              type="button"
+              className="min-h-8 font-semibold text-pf-primary-hover hover:underline underline-offset-2"
+              onClick={() =>
+                setLabelPick((m) => ({
+                  ...m,
+                  ...Object.fromEntries(list.map((p) => [p.id, true])),
+                }))
+              }
+            >
+              Marcar los visibles
+            </button>
+            {labelSelectedCount ? (
+              <button
+                type="button"
+                className="min-h-8 font-semibold text-pf-text-tertiary hover:underline underline-offset-2"
+                onClick={() => {
+                  setLabelPick((m) => {
+                    const n = { ...m };
+                    for (const p of list) delete n[p.id];
+                    return n;
+                  });
+                  setLabelsErr("");
+                }}
+              >
+                Quitar marcas
+              </button>
             ) : null}
           </div>
-        </div>
-        <p className="text-xs text-pf-muted">
-          Búsqueda multi-término: separar con coma (ej. <span className="font-mono">café, 200g</span>) para buscar
-          cualquiera de los términos.
-        </p>
-        {labelsErr ? <p className="text-xs font-medium text-red-600">{labelsErr}</p> : null}
-        <div className="pf-table-toolbar">
-          <div className="flex flex-wrap gap-1.5">
-            <span className="pf-filter-chip">{total} producto(s)</span>
-            {q.trim() ? <span className="pf-filter-chip">Busqueda: {q.trim()}</span> : null}
-            {stockFilter ? <span className="pf-filter-chip">Existencia: {stockFilter}</span> : null}
-            {supplierId ? <span className="pf-filter-chip">Proveedor filtrado</span> : null}
-          </div>
-          <p className="text-xs font-medium text-pf-text-soft">{list.length} visibles en esta pagina</p>
-        </div>
+        ) : null}
+
+        {labelsErr ? <p className="text-xs font-medium text-pf-danger">{labelsErr}</p> : null}
       </Card>
 
       <Card className="pf-table-shell min-h-0 flex-1 overflow-hidden p-0">
