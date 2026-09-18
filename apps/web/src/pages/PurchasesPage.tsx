@@ -1,6 +1,5 @@
-import { ClipboardCheck, RefreshCw } from "lucide-react";
+import { ClipboardCheck, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageHero } from "../components/PageHero";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Select } from "../components/ui";
@@ -29,6 +28,24 @@ type PurchaseRow = {
     product: { name: string; sku: string };
   }[];
 };
+
+/** Que trajo la compra, en palabras. Un conteo de items no dice nada. */
+function contentSummary(lines: PurchaseRow["lines"]): string {
+  if (!lines?.length) return "Sin productos";
+  const names = lines.map((l) => l.product?.name).filter(Boolean);
+  const shown = names.slice(0, 2).join(", ");
+  const rest = names.length - 2;
+  return rest > 0 ? `${shown} y ${rest} más` : shown;
+}
+
+function termsLabel(terms: string): string {
+  const t = (terms ?? "").trim().toUpperCase();
+  if (t === "CONTADO") return "Contado";
+  if (t === "CREDITO") return "Crédito";
+  const days = t.match(/^(\d+)\s*DIAS?$/);
+  if (days) return `${days[1]} días`;
+  return terms || "—";
+}
 
 export function PurchasesPage() {
   const { token, organization, user } = useAuth();
@@ -76,9 +93,7 @@ export function PurchasesPage() {
       return;
     }
     const data = await apiFetch<Product[]>(`/api/products?q=${encodeURIComponent(search.trim())}`, { token });
-    setHits(
-      data.filter((p) => p.active && p.productType !== "KIT" && p.productType !== "SERVICIO").slice(0, 12)
-    );
+    setHits(data.filter((p) => p.active && p.productType !== "KIT" && p.productType !== "SERVICIO").slice(0, 12));
   }, [token, canRecord, search]);
 
   useEffect(() => {
@@ -95,10 +110,7 @@ export function PurchasesPage() {
         next[i] = { ...next[i], qty: next[i].qty + 1 };
         return next;
       }
-      return [
-        ...prev,
-        { productId: p.id, product: p, qty: 1, unitCost: p.cost || 0, taxPercent: p.taxPercent },
-      ];
+      return [...prev, { productId: p.id, product: p, qty: 1, unitCost: p.cost || 0, taxPercent: p.taxPercent }];
     });
     setSearch("");
     setHits([]);
@@ -121,12 +133,27 @@ export function PurchasesPage() {
     let tax = 0;
     for (const l of lines) {
       const base = l.unitCost * l.qty;
-      const t = base * (l.taxPercent / 100);
       sub += base;
-      tax += t;
+      tax += base * (l.taxPercent / 100);
     }
     return { subtotal: sub, tax, total: sub + tax };
   }, [lines]);
+
+  /** Lo que la pantalla debe responder: cuanto se compro y cuanto se debe. */
+  const summary = useMemo(() => {
+    let spent = 0;
+    let owed = 0;
+    let owedCount = 0;
+    for (const p of purchases) {
+      spent += p.total;
+      const balance = p.total - p.paid;
+      if (balance > 0.009) {
+        owed += balance;
+        owedCount += 1;
+      }
+    }
+    return { spent, owed, owedCount };
+  }, [purchases]);
 
   async function submit() {
     if (!token || lines.length === 0) return;
@@ -158,62 +185,95 @@ export function PurchasesPage() {
   }
 
   return (
-    <div className="space-y-4 pf-safe-page">
-      <PageHero title={"Compras"}>
-        <p className="pf-page-lead max-w-2xl">
-          Qué es: historial de compras registradas
-          {canRecord ? "; con permiso de registro puede dar de alta mercancía (inventario y costo)." : "."}
-        </p>
-        <p className="pf-page-lead-muted max-w-2xl">
-          {canRecord
-            ? "Elija proveedor y términos (contado o crédito), busque productos y confirme. Los combos (KIT) no se compran como tal; use los componentes."
-            : "Su usuario solo puede consultar este listado. Para registrar compras necesita el permiso «Registrar compras»."}
-        </p>
-      </PageHero>
-
-      <Card className="min-h-0 overflow-hidden border-white/50 p-0 shadow-lg shadow-stone-900/[0.04]">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200/80 bg-gradient-to-r from-stone-50/90 to-teal-50/30 px-3 py-3 backdrop-blur-sm">
-          <span className="text-sm font-bold text-stone-800">Compras registradas</span>
-          <Button type="button" variant="secondary" className="min-h-[48px] md:min-h-9" onClick={loadPurchases} disabled={listLoading}>
-            <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-            Actualizar
-          </Button>
+    <div className="mx-auto max-w-[76rem] space-y-4 pf-safe-page">
+      <section className="flex flex-wrap items-end gap-x-10 gap-y-4 border-b border-pf-border pb-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">Comprado</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-pf-text">
+            {formatMoney(sym, summary.spent)}
+          </p>
+          <p className="mt-0.5 text-xs text-pf-text-tertiary">
+            {purchases.length} {purchases.length === 1 ? "compra registrada" : "compras registradas"}
+          </p>
         </div>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">Debe a proveedores</p>
+          <p
+            className={`mt-1 text-2xl font-bold tabular-nums tracking-tight ${
+              summary.owed > 0 ? "text-pf-warning" : "text-pf-text-tertiary"
+            }`}
+          >
+            {formatMoney(sym, summary.owed)}
+          </p>
+          <p className="mt-0.5 text-xs text-pf-text-tertiary">
+            {summary.owedCount === 0
+              ? "Todo pagado"
+              : `${summary.owedCount} ${summary.owedCount === 1 ? "compra con saldo" : "compras con saldo"}`}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          className="ml-auto min-h-10 self-center"
+          onClick={loadPurchases}
+          disabled={listLoading}
+          title="Recargar el listado"
+          aria-label="Recargar el listado"
+        >
+          <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+        </Button>
+      </section>
+
+      <Card className="overflow-hidden p-0">
         {listLoading ? (
-          <p className="p-4 text-center font-medium text-pf-muted">Cargando…</p>
+          <p className="p-8 text-center text-sm text-pf-muted">Cargando…</p>
+        ) : purchases.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <p className="text-sm font-medium text-pf-text">Todavía no hay compras registradas</p>
+            <p className="mt-1 text-sm text-pf-text-tertiary">
+              {canRecord
+                ? "Registre una compra abajo para dar de alta mercancía y actualizar el costo."
+                : "Para registrar compras necesita el permiso «Registrar compras»."}
+            </p>
+          </div>
         ) : (
-          <div className="max-h-[min(420px,calc(100vh-14rem))] overflow-auto overscroll-contain rounded-b-2xl md:rounded-none">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
-              <thead className="sticky top-0 z-[1]">
-                <tr className="border-b border-stone-200/80 bg-gradient-to-r from-stone-100/98 via-amber-50/40 to-teal-50/45 text-left shadow-sm backdrop-blur-md">
-                  <th className="p-2">Fecha</th>
-                  <th className="p-2">Ref.</th>
-                  <th className="p-2">Proveedor</th>
-                  <th className="p-2">Términos</th>
-                  <th className="p-2 text-right">Ítems</th>
-                  <th className="p-2 text-right">Total</th>
-                  <th className="p-2 text-right">Pagado</th>
+          <div className="max-h-[min(420px,calc(100vh-20rem))] overflow-auto overscroll-contain">
+            <table className="w-full min-w-[800px] text-sm">
+              <caption className="sr-only">Compras registradas</caption>
+              <thead className="sticky top-0 z-[1] bg-pf-surface-elevated">
+                <tr className="border-b border-pf-border text-left text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Fecha</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Proveedor</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Contiene</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Condición</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-semibold">Total</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-semibold">Pendiente</th>
                 </tr>
               </thead>
-              <tbody className="bg-white/80 md:bg-pf-surface-elevated">
+              <tbody>
                 {purchases.map((p) => {
                   const balance = p.total - p.paid;
+                  const ref = p.reference?.trim();
                   return (
-                    <tr
-                      key={p.id}
-                      className="border-b border-stone-100/90 transition hover:bg-gradient-to-r hover:from-amber-50/45 hover:to-transparent"
-                    >
-                      <td className="p-2 whitespace-nowrap">{formatDateOnly(p.purchaseDate)}</td>
-                      <td className="p-2 font-mono text-xs">{p.reference?.trim() || "—"}</td>
-                      <td className="p-2 truncate max-w-[180px]">{p.supplier?.name ?? "—"}</td>
-                      <td className="p-2">{p.terms}</td>
-                      <td className="p-2 text-right">{p.lines.length}</td>
-                      <td className="p-2 text-right font-medium whitespace-nowrap">{formatMoney(sym, p.total)}</td>
-                      <td className="p-2 text-right whitespace-nowrap">
-                        {formatMoney(sym, p.paid)}
+                    <tr key={p.id} className="border-b border-pf-border last:border-0 hover:bg-pf-surface">
+                      <td className="whitespace-nowrap px-4 py-3 text-pf-text-secondary">
+                        {formatDateOnly(p.purchaseDate)}
+                        {ref ? <span className="block font-mono text-xs text-pf-muted">{ref}</span> : null}
+                      </td>
+                      <td className="max-w-0 truncate px-4 py-3 font-medium text-pf-text">
+                        {p.supplier?.name ?? "Sin proveedor"}
+                      </td>
+                      <td className="max-w-0 truncate px-4 py-3 text-pf-text-tertiary">{contentSummary(p.lines)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-pf-text-tertiary">{termsLabel(p.terms)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-pf-text">
+                        {formatMoney(sym, p.total)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                         {balance > 0.009 ? (
-                          <span className="block text-xs text-amber-800">Saldo {formatMoney(sym, balance)}</span>
-                        ) : null}
+                          <span className="font-semibold text-pf-warning">{formatMoney(sym, balance)}</span>
+                        ) : (
+                          <span className="text-pf-success">Pagada</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -222,90 +282,112 @@ export function PurchasesPage() {
             </table>
           </div>
         )}
-        {!listLoading && purchases.length === 0 ? (
-          <p className="p-4 text-center text-pf-muted">Aún no hay compras registradas</p>
-        ) : null}
       </Card>
 
       {canRecord ? (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="space-y-4 border-white/50 bg-gradient-to-b from-white/95 to-teal-50/10 p-4 shadow-md backdrop-blur-sm lg:col-span-2">
-            <Field label="Buscar producto">
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nombre o SKU" />
-            </Field>
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(17rem,0.9fr)]">
+          <Card className="min-w-0 space-y-3 p-4">
+            <h2 className="text-sm font-bold text-pf-text">Registrar una compra</h2>
+            <p className="text-xs text-pf-text-tertiary">
+              Sube el inventario y actualiza el costo. Los combos se compran por sus componentes.
+            </p>
+
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pf-muted"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar producto por nombre o SKU…"
+                aria-label="Buscar producto para agregar a la compra"
+                className="!pl-9"
+              />
+            </div>
+
             {hits.length > 0 ? (
-              <ul className="max-h-52 divide-y divide-stone-100 overflow-y-auto rounded-2xl border border-white/60 bg-white/90 shadow-[var(--pf-shadow-warm-sm)] backdrop-blur-sm">
+              <ul className="max-h-52 divide-y divide-pf-border overflow-y-auto rounded-[var(--radius-pf)] border border-pf-border">
                 {hits.map((p) => (
                   <li key={p.id}>
                     <button
                       type="button"
-                      className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition hover:bg-gradient-to-r hover:from-teal-50/60 hover:to-pf-primary-soft/40 touch-manipulation active:bg-teal-50/80"
+                      className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
                       onClick={() => addProduct(p)}
                     >
-                      <span className="truncate font-medium">{p.name}</span>
-                      <span className="shrink-0 text-pf-muted">Costo ref. {formatMoney(sym, p.cost)}</span>
+                      <span className="min-w-0 truncate font-medium text-pf-text">{p.name}</span>
+                      <span className="shrink-0 text-xs tabular-nums text-pf-text-tertiary">
+                        Costo ref. {formatMoney(sym, p.cost)}
+                      </span>
                     </button>
                   </li>
                 ))}
               </ul>
             ) : null}
 
-            <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/80 shadow-inner backdrop-blur-sm">
+            <div className="overflow-x-auto rounded-[var(--radius-pf)] border border-pf-border">
               <table className="w-full min-w-[520px] text-sm">
                 <thead>
-                  <tr className="bg-gradient-to-r from-teal-100/50 via-pf-primary-soft/40 to-amber-50/50 text-left">
-                    <th className="p-2">Producto</th>
-                    <th className="p-2 w-24">Cant.</th>
-                    <th className="p-2 w-28">Costo</th>
-                    <th className="p-2 w-24">ISV %</th>
-                    <th className="p-2 w-10" />
+                  <tr className="border-b border-pf-border text-left text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+                    <th scope="col" className="px-3 py-2 font-semibold">Producto</th>
+                    <th scope="col" className="w-24 px-3 py-2 font-semibold">Cant.</th>
+                    <th scope="col" className="w-28 px-3 py-2 font-semibold">Costo</th>
+                    <th scope="col" className="w-24 px-3 py-2 font-semibold">ISV %</th>
+                    <th scope="col" className="w-12 px-3 py-2">
+                      <span className="sr-only">Quitar</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {lines.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-4 text-center text-pf-muted">
-                        Agregue productos desde la búsqueda
+                      <td colSpan={5} className="px-3 py-8 text-center text-sm text-pf-muted">
+                        Busque un producto arriba para empezar.
                       </td>
                     </tr>
                   ) : (
                     lines.map((l, i) => (
-                      <tr key={l.productId} className="border-t border-stone-100/90 hover:bg-teal-50/20">
-                        <td className="p-2 font-medium">{l.product.name}</td>
-                        <td className="p-2">
+                      <tr key={l.productId} className="border-b border-pf-border last:border-0">
+                        <td className="px-3 py-2 font-medium text-pf-text">{l.product.name}</td>
+                        <td className="px-3 py-2">
                           <Input
                             type="number"
                             step="any"
-                            className="min-h-10 py-1"
+                            aria-label={`Cantidad de ${l.product.name}`}
+                            className="min-h-10"
                             value={l.qty}
                             onChange={(e) => updateLine(i, { qty: Math.max(0.0001, Number(e.target.value) || 0) })}
                           />
                         </td>
-                        <td className="p-2">
+                        <td className="px-3 py-2">
                           <Input
                             type="number"
                             step="any"
-                            className="min-h-10 py-1"
+                            aria-label={`Costo de ${l.product.name}`}
+                            className="min-h-10"
                             value={l.unitCost}
                             onChange={(e) => updateLine(i, { unitCost: Number(e.target.value) || 0 })}
                           />
                         </td>
-                        <td className="p-2">
+                        <td className="px-3 py-2">
                           <Input
                             type="number"
                             step="any"
-                            className="min-h-10 py-1"
+                            aria-label={`ISV de ${l.product.name}`}
+                            className="min-h-10"
                             value={l.taxPercent}
                             onChange={(e) => updateLine(i, { taxPercent: Number(e.target.value) || 0 })}
                           />
                         </td>
-                        <td className="p-2">
+                        <td className="px-3 py-2">
                           <button
                             type="button"
-                            className="min-h-[44px] rounded-lg px-2 text-xs font-semibold text-red-600 hover:bg-red-50 touch-manipulation"
+                            aria-label={`Quitar ${l.product.name}`}
+                            className="flex h-10 w-10 items-center justify-center rounded-lg text-pf-danger transition-colors hover:bg-pf-danger-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
                             onClick={() => removeLine(i)}
                           >
-                            Quitar
+                            <Trash2 className="h-4 w-4" strokeWidth={2} aria-hidden />
                           </button>
                         </td>
                       </tr>
@@ -316,10 +398,10 @@ export function PurchasesPage() {
             </div>
           </Card>
 
-          <Card className="h-fit space-y-3 border-white/50 bg-gradient-to-b from-white/95 via-amber-50/15 to-teal-50/20 p-4 shadow-[var(--pf-shadow-warm-md)] backdrop-blur-md lg:sticky lg:top-4">
+          <Card className="h-fit space-y-3 p-4 lg:sticky lg:top-[7rem]">
             <Field label="Proveedor">
               <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-                <option value="">— Ninguno —</option>
+                <option value="">Sin proveedor</option>
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -327,33 +409,45 @@ export function PurchasesPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Condición">
+            <Field label="¿Cómo se paga?">
               <Select value={terms} onChange={(e) => setTerms(e.target.value as "CONTADO" | "CREDITO")}>
                 <option value="CONTADO">Contado</option>
                 <option value="CREDITO">Crédito</option>
               </Select>
             </Field>
-            <div className="space-y-2 rounded-2xl border border-teal-200/40 bg-gradient-to-br from-teal-50/80 via-pf-primary-soft/50 to-amber-50/50 p-4 text-sm shadow-inner ring-1 ring-white/50">
-              <div className="flex justify-between font-medium">
-                <span className="text-stone-600">Subtotal</span>
-                <span className="tabular-nums text-stone-800">{formatMoney(sym, totals.subtotal)}</span>
+
+            <div className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface p-3 text-sm">
+              <div className="flex justify-between text-pf-text-tertiary">
+                <span>Subtotal</span>
+                <span className="tabular-nums">{formatMoney(sym, totals.subtotal)}</span>
               </div>
-              <div className="flex justify-between font-medium">
-                <span className="text-stone-600">Impuesto</span>
-                <span className="tabular-nums text-stone-800">{formatMoney(sym, totals.tax)}</span>
+              <div className="mt-1 flex justify-between text-pf-text-tertiary">
+                <span>Impuesto</span>
+                <span className="tabular-nums">{formatMoney(sym, totals.tax)}</span>
               </div>
-              <div className="flex justify-between border-t border-teal-200/50 pt-3 text-lg font-extrabold text-stone-900">
-                <span>Total</span>
-                <span className="tabular-nums">{formatMoney(sym, totals.total)}</span>
+              <div className="mt-2 flex items-baseline justify-between border-t border-pf-border pt-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">Total</span>
+                <span className="text-2xl font-bold tabular-nums text-pf-text">{formatMoney(sym, totals.total)}</span>
               </div>
             </div>
-            {err ? <p className="text-sm font-medium text-red-600">{err}</p> : null}
-            <Button type="button" className="w-full min-h-[52px] text-base shadow-lg" onClick={submit} disabled={busy || lines.length === 0}>
+
+            {err ? (
+              <p className="rounded-[var(--radius-pf)] border border-pf-danger-soft bg-pf-danger-soft px-3 py-2 text-sm font-medium text-pf-danger">
+                {err}
+              </p>
+            ) : null}
+
+            <Button
+              type="button"
+              className="min-h-12 w-full"
+              onClick={submit}
+              disabled={busy || lines.length === 0}
+            >
               <ClipboardCheck className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               {busy ? "Guardando…" : "Registrar compra"}
             </Button>
           </Card>
-        </div>
+        </section>
       ) : null}
     </div>
   );
