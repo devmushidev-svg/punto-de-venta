@@ -12,7 +12,6 @@ import {
   Star,
   Trash2,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -20,6 +19,7 @@ import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
+import { ToolbarButton, ToolbarSeparator } from "../components/DocumentToolbar";
 import { formatMoney } from "../lib/format";
 import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
@@ -53,48 +53,6 @@ type Line = {
 
 type Toast = { message: string; kind: "success" | "print" };
 
-/** Boton de la franja de acciones: una fila compacta, sin fichas ni grupos. */
-function ToolbarButton({
-  icon: Icon,
-  label,
-  shortcut,
-  onClick,
-  disabled,
-  title,
-  tone = "default",
-}: {
-  icon: LucideIcon;
-  label: string;
-  shortcut?: string;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-  tone?: "default" | "primary" | "danger";
-}) {
-  const toneClass =
-    tone === "primary"
-      ? "border-transparent bg-pf-primary text-[color:var(--pf-primary-foreground)] hover:bg-pf-primary-hover"
-      : tone === "danger"
-        ? "border-pf-border text-pf-danger hover:bg-pf-danger-soft"
-        : "border-pf-border text-pf-text-secondary hover:bg-pf-surface";
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] disabled:pointer-events-none disabled:opacity-40 ${toneClass}`}
-    >
-      <Icon className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-      <span className="whitespace-nowrap">{label}</span>
-      {shortcut ? (
-        <kbd className="hidden rounded border border-current/25 px-1 font-sans text-[10px] font-semibold opacity-60 sm:inline">
-          {shortcut}
-        </kbd>
-      ) : null}
-    </button>
-  );
-}
 
 export function TouchSalePage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
@@ -715,7 +673,7 @@ export function TouchSalePage() {
           onClick={() => openCheckout("print")}
           disabled={busy || !hasBillableLines}
         />
-        <span className="mx-1 h-6 w-px shrink-0 bg-pf-border" aria-hidden />
+        <ToolbarSeparator />
         <ToolbarButton
           icon={Search}
           label="Buscar producto"
