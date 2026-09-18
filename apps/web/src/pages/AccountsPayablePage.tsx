@@ -291,7 +291,7 @@ export function AccountsPayablePage() {
             <span>
               {rows.length === 0
                 ? "Las compras a crédito aparecerán aquí cuando tengan saldo."
-                : "Probá con otro proveedor o referencia."}
+                : "Pruebe con otro proveedor o referencia."}
             </span>
           </div>
         ) : null}

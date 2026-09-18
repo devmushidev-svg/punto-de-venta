@@ -155,9 +155,7 @@ export function CustomersPage() {
   return (
     <div className="pf-admin-page space-y-5 pf-safe-page">
       <div className="pf-admin-heading">
-        <div>
-          <h1>Clientes</h1>
-        </div>
+        <div />
         <Button
           type="button"
           onClick={openCreate}
@@ -224,7 +222,7 @@ export function CustomersPage() {
             <span>
               {list.length === 0
                 ? "Agregá el primer cliente para usarlo en ventas y crédito."
-                : "Probá con otro nombre, teléfono, RTN o código."}
+                : "Pruebe con otro nombre, teléfono, RTN o código."}
             </span>
           </div>
         ) : null}

@@ -125,8 +125,8 @@ export function SuppliersPage() {
             </strong>
             <span>
               {list.length === 0
-                ? "Registrá el primero para usarlo en compras y pedidos."
-                : "Probá con otro nombre, teléfono, correo o RTN."}
+                ? "Registre el primero para usarlo en compras y pedidos."
+                : "Pruebe con otro nombre, teléfono, correo o RTN."}
             </span>
           </div>
         ) : null}
