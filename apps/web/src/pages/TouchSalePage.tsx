@@ -1,32 +1,25 @@
 import {
-  Building2,
   CalendarClock,
   CheckCircle2,
-  ClipboardList,
   Eraser,
-  FileSpreadsheet,
-  FileText,
   Minus,
   Monitor,
   Plus,
-  Search,
-  Pencil,
   Printer,
   Save,
+  Search,
   ShoppingCart,
   Star,
   Trash2,
-  UserPlus,
-  Users,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
-import { Button, Card, Field, Input, Modal, Select } from "../components/ui";
+import { Button, Field, Input, Modal, Select } from "../components/ui";
 import { formatMoney } from "../lib/format";
 import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
@@ -60,60 +53,46 @@ type Line = {
 
 type Toast = { message: string; kind: "success" | "print" };
 
-function TouchRibbonTile({
+/** Boton de la franja de acciones: una fila compacta, sin fichas ni grupos. */
+function ToolbarButton({
   icon: Icon,
-  line1,
-  line2,
+  label,
+  shortcut,
   onClick,
   disabled,
   title,
-  variant = "default",
+  tone = "default",
 }: {
   icon: LucideIcon;
-  line1: string;
-  line2: string;
+  label: string;
+  shortcut?: string;
   onClick: () => void;
   disabled?: boolean;
   title?: string;
-  variant?: "default" | "primary" | "muted" | "danger";
+  tone?: "default" | "primary" | "danger";
 }) {
-  const iconBg =
-    variant === "primary"
-      ? "bg-pf-primary text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
-      : variant === "muted"
-        ? "bg-pf-surface-muted text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
-        : variant === "danger"
-          ? "bg-pf-danger-soft text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
-          : "pf-ribbon-icon-shell";
+  const toneClass =
+    tone === "primary"
+      ? "border-transparent bg-pf-primary text-[color:var(--pf-primary-foreground)] hover:bg-pf-primary-hover"
+      : tone === "danger"
+        ? "border-pf-border text-pf-danger hover:bg-pf-danger-soft"
+        : "border-pf-border text-pf-text-secondary hover:bg-pf-surface";
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className="group flex h-8 min-w-[5.5rem] shrink-0 flex-row items-center gap-1.5 rounded-md border border-transparent px-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:min-w-[6rem] pf-ribbon-tile-idle"
+      className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] disabled:pointer-events-none disabled:opacity-40 ${toneClass}`}
     >
-      <div className="flex min-w-0 flex-1 flex-row items-center gap-1.5">
-        <span className={`flex size-5 shrink-0 items-center justify-center rounded-md leading-none ${iconBg} [&>svg]:block [&>svg]:shrink-0`}>
-          <Icon className="!size-3.5" strokeWidth={2.2} aria-hidden />
-        </span>
-        <span className="min-w-0 text-left leading-none">
-          <span className="block truncate text-[10px] font-semibold text-pf-text">{line1}</span>
-          <span className="block truncate text-[9px] font-medium text-pf-text-soft">{line2}</span>
-        </span>
-      </div>
+      <Icon className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+      <span className="whitespace-nowrap">{label}</span>
+      {shortcut ? (
+        <kbd className="hidden rounded border border-current/25 px-1 font-sans text-[10px] font-semibold opacity-60 sm:inline">
+          {shortcut}
+        </kbd>
+      ) : null}
     </button>
-  );
-}
-
-function TouchRibbonGroup({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="pf-ribbon-group flex shrink-0 flex-col px-1 first:border-l-0 first:pl-0 sm:px-2">
-      <div className="flex flex-row flex-nowrap items-center gap-0.5">{children}</div>
-      <p className="pf-ribbon-group-label whitespace-nowrap text-center text-[9px] font-medium uppercase leading-none tracking-wide">
-        {title}
-      </p>
-    </div>
   );
 }
 
@@ -121,7 +100,6 @@ export function TouchSalePage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
   const sym = organization?.currencySymbol ?? "L";
-  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -143,6 +121,7 @@ export function TouchSalePage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [showCart, setShowCart] = useState(false);
+  const [saleInfoOpen, setSaleInfoOpen] = useState(false);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutAmount, setCheckoutAmount] = useState("");
@@ -297,6 +276,7 @@ export function TouchSalePage() {
 
   const cartLineCount = lines.length;
   const hasBillableLines = lines.some((l) => l.qty > 0);
+  const termsLabel = SALE_TERMS_OPTIONS.find((o) => o.value === terms)?.label ?? terms;
 
   const persistFavorites = useCallback(
     async (nextIds: string[]) => {
@@ -439,7 +419,7 @@ export function TouchSalePage() {
   }
 
   const saleInfoPanel = (
-    <div className="space-y-3 rounded-xl border border-pf-border-soft bg-pf-surface-elevated/85 p-3">
+    <div className="space-y-3">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Field label="Nº factura" className="min-w-0" compact>
           <Input
@@ -599,225 +579,170 @@ export function TouchSalePage() {
 
   const cartPanel = (
     <div className="space-y-3">
-      {saleInfoPanel}
-      <div className="max-h-60 divide-y divide-pf-border-soft overflow-y-auto rounded-xl border border-pf-border-soft bg-pf-surface-elevated/80 text-sm">
+      <button
+        type="button"
+        onClick={() => setSaleInfoOpen(true)}
+        className="flex w-full items-center gap-3 rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-3 py-2.5 text-left transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-pf-text">
+            {customerName.trim() || "Consumidor final"}
+          </span>
+          <span className="mt-0.5 block truncate text-xs text-pf-text-tertiary">
+            {termsLabel} · Precio {priceTier} · {saleDateDisplayStr}
+          </span>
+        </span>
+        <span className="shrink-0 text-xs font-semibold text-pf-primary-hover">Cambiar</span>
+      </button>
+
+      <div className="divide-y divide-pf-border overflow-y-auto rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated text-sm lg:max-h-[calc(100dvh-27rem)]">
         {lines.length === 0 ? (
-          <p className="p-6 text-center text-sm font-medium text-pf-muted">Carrito vacío</p>
+          <p className="px-4 py-10 text-center text-sm text-pf-muted">
+            Toque un producto para agregarlo.
+          </p>
         ) : (
           lines.map((l, i) => (
-            <div key={l.productId} className="flex items-center gap-2 px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-pf-text">{l.product.name}</p>
-                <p className="text-xs tabular-nums text-pf-text-tertiary">
-                  {l.qty} × {formatMoney(sym, l.unitPrice)} = {formatMoney(sym, l.qty * l.unitPrice)}
+            <div key={l.productId} className="px-3 py-2.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="min-w-0 flex-1 truncate text-sm font-semibold text-pf-text">{l.product.name}</p>
+                <p className="shrink-0 text-sm font-semibold tabular-nums text-pf-text">
+                  {formatMoney(sym, l.qty * l.unitPrice)}
                 </p>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="mt-1.5 flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => updateLineQty(i, -1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-pf-border-soft text-pf-text-tertiary transition hover:bg-pf-surface-muted touch-manipulation"
+                  aria-label={`Quitar uno de ${l.product.name}`}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-pf-border text-pf-text-tertiary transition-colors hover:bg-pf-surface touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
                 >
-                  <Minus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                  <Minus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
                 </button>
-                <span className="w-8 text-center text-sm font-bold tabular-nums text-pf-text">{l.qty}</span>
+                <span className="w-10 shrink-0 text-center text-sm font-bold tabular-nums text-pf-text">{l.qty}</span>
                 <button
                   type="button"
                   onClick={() => updateLineQty(i, 1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-pf-border-soft text-pf-text-tertiary transition hover:bg-pf-surface-muted touch-manipulation"
+                  aria-label={`Agregar uno de ${l.product.name}`}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-pf-border text-pf-text-tertiary transition-colors hover:bg-pf-surface touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
                 >
-                  <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                  <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+                </button>
+                <span className="min-w-0 flex-1 truncate text-xs tabular-nums text-pf-text-tertiary">
+                  × {formatMoney(sym, l.unitPrice)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeLine(i)}
+                  aria-label={`Quitar ${l.product.name} de la venta`}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-pf-danger transition-colors hover:bg-pf-danger-soft touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={2} aria-hidden />
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={() => removeLine(i)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-pf-danger/70 transition hover:bg-pf-danger-soft touch-manipulation"
-              >
-                <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
             </div>
           ))
         )}
       </div>
 
-      <div className="space-y-2 rounded-xl border border-pf-border-soft bg-pf-surface-elevated p-4 text-sm shadow-sm">
-        <div className="flex justify-between font-medium text-pf-text-tertiary">
+      <div className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-4">
+        <div className="flex justify-between text-sm text-pf-text-tertiary">
           <span>Subtotal</span>
-          <span className="tabular-nums text-pf-text">{formatMoney(sym, totals.subtotal)}</span>
+          <span className="tabular-nums">{formatMoney(sym, totals.subtotal)}</span>
         </div>
-        <div className="flex justify-between font-medium text-pf-text-tertiary">
+        <div className="mt-1 flex justify-between text-sm text-pf-text-tertiary">
           <span>Impuesto</span>
-          <span className="tabular-nums text-pf-text">{formatMoney(sym, totals.tax)}</span>
+          <span className="tabular-nums">{formatMoney(sym, totals.tax)}</span>
         </div>
-        <div className="flex justify-between border-t border-pf-border-soft pt-3 text-lg font-extrabold text-pf-text">
-          <span>Total</span>
-          <span className="tabular-nums">{formatMoney(sym, totals.total)}</span>
+        <div className="mt-3 flex items-baseline justify-between border-t border-pf-border pt-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">Total</span>
+          <span className="text-3xl font-bold tabular-nums tracking-tight text-pf-text">
+            {formatMoney(sym, totals.total)}
+          </span>
         </div>
       </div>
 
-      {err && <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/40 px-3 py-2 text-sm font-medium text-pf-danger">{err}</p>}
+      {err && (
+        <p className="rounded-[var(--radius-pf)] border border-pf-danger-soft bg-pf-danger-soft px-3 py-2 text-sm font-medium text-pf-danger">
+          {err}
+        </p>
+      )}
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="space-y-2">
         <Button
           type="button"
-          variant="secondary"
-          className="min-h-[52px] text-sm shadow-md"
+          className="min-h-14 w-full text-base"
           onClick={() => openCheckout("save")}
-          disabled={busy || !lines.some((l) => l.qty > 0)}
+          disabled={busy || !hasBillableLines}
         >
-          <Save className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          Guardar
+          <Save className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+          Cobrar
         </Button>
         <Button
           type="button"
-          className="min-h-[52px] text-sm shadow-lg"
+          variant="secondary"
+          className="min-h-11 w-full text-sm"
           onClick={() => openCheckout("print")}
-          disabled={busy || !lines.some((l) => l.qty > 0)}
+          disabled={busy || !hasBillableLines}
         >
           <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          Imprimir
+          Cobrar e imprimir
         </Button>
       </div>
     </div>
   );
 
+  /**
+   * Solo acciones del documento. Los destinos que antes vivian aqui (productos,
+   * clientes, usuarios, empresa, caja) estan en la barra lateral a un toque.
+   */
   const touchRibbonBar = useMemo(
     () => (
       <>
-        <TouchRibbonGroup title="Guardar venta final">
-          <TouchRibbonTile
-            variant="primary"
-            icon={Save}
-            line1="F5 Guardar"
-            line2="venta"
-            title="Guardar venta táctil"
-            onClick={() => openCheckout("save")}
-            disabled={busy || !hasBillableLines}
-          />
-          <TouchRibbonTile
-            variant="muted"
-            icon={Printer}
-            line1="F8 Imprimir"
-            line2="venta"
-            title="Guardar e imprimir ticket"
-            onClick={() => openCheckout("print")}
-            disabled={busy || !hasBillableLines}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Productos">
-          <TouchRibbonTile
-            icon={Search}
-            line1="F4 Buscar"
-            line2="Productos"
-            title="Buscar productos"
-            onClick={() => searchInputRef.current?.focus()}
-          />
-          <TouchRibbonTile
-            icon={Plus}
-            line1="F3 Nuevo"
-            line2="Producto"
-            title="Ir al catálogo de productos"
-            onClick={() => navigate("/productos")}
-          />
-          <TouchRibbonTile
-            icon={Pencil}
-            line1="Editar"
-            line2="Producto"
-            title="Abrir catálogo de productos para editar"
-            onClick={() => navigate("/productos")}
-          />
-          <TouchRibbonTile
-            icon={Building2}
-            line1="Buscar"
-            line2="Sucursales"
-            title="Ir a empresa"
-            onClick={() => navigate("/empresa")}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Clientes">
-          <TouchRibbonTile
-            icon={Users}
-            line1="F2 Buscar"
-            line2="Clientes"
-            title="Abrir panel del carrito para elegir cliente"
-            onClick={() => setShowCart(true)}
-          />
-          <TouchRibbonTile
-            icon={UserPlus}
-            line1="F6 Nuevo"
-            line2="Cliente"
-            title="Ir a clientes"
-            onClick={() => navigate("/clientes")}
-          />
-          <TouchRibbonTile
-            icon={Pencil}
-            line1="Editar"
-            line2="Cliente"
-            title="Ir a clientes para editar"
-            onClick={() => navigate("/clientes")}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Vendedor">
-          <TouchRibbonTile
-            icon={Search}
-            line1="F7 Buscar"
-            line2="Vendedores"
-            title="Ir a usuarios"
-            onClick={() => navigate("/usuarios")}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Diario">
-          <TouchRibbonTile
-            icon={FileSpreadsheet}
-            line1="F1 Diario"
-            line2="Digital"
-            title="Ir a caja y diario digital"
-            onClick={() => navigate("/caja")}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Notas">
-          <TouchRibbonTile
-            icon={ClipboardList}
-            line1="Notas"
-            line2=" "
-            title="Abrir carrito para editar notas"
-            onClick={() => setShowCart(true)}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Exonerada">
-          <TouchRibbonTile
-            icon={FileText}
-            line1="Venta"
-            line2="Exonerada"
-            title="Marcar venta exonerada no está implementado aún"
-            onClick={() => setErr("Venta exonerada aun no esta implementada en venta tactil.")}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Filas">
-          <TouchRibbonTile
-            icon={Trash2}
-            line1="F10 Eliminar"
-            line2="Fila"
-            title="Eliminar ultima fila"
-            onClick={removeLastLine}
-            disabled={!lines.length}
-          />
-        </TouchRibbonGroup>
-        <TouchRibbonGroup title="Limpiar">
-          <TouchRibbonTile
-            variant="danger"
-            icon={Eraser}
-            line1="F11 Limpiar"
-            line2=" "
-            title="Vaciar carrito"
-            onClick={clearLines}
-            disabled={!lines.length}
-          />
-        </TouchRibbonGroup>
+        <ToolbarButton
+          tone="primary"
+          icon={Save}
+          label="Cobrar"
+          shortcut="F5"
+          title="Cobrar y guardar la venta"
+          onClick={() => openCheckout("save")}
+          disabled={busy || !hasBillableLines}
+        />
+        <ToolbarButton
+          icon={Printer}
+          label="Cobrar e imprimir"
+          shortcut="F8"
+          title="Cobrar, guardar e imprimir el ticket"
+          onClick={() => openCheckout("print")}
+          disabled={busy || !hasBillableLines}
+        />
+        <span className="mx-1 h-6 w-px shrink-0 bg-pf-border" aria-hidden />
+        <ToolbarButton
+          icon={Search}
+          label="Buscar producto"
+          shortcut="F4"
+          title="Ir al buscador de productos"
+          onClick={() => searchInputRef.current?.focus()}
+        />
+        <ToolbarButton
+          icon={Trash2}
+          label="Quitar última"
+          shortcut="F10"
+          title="Eliminar la última línea"
+          onClick={removeLastLine}
+          disabled={!lines.length}
+        />
+        <ToolbarButton
+          tone="danger"
+          icon={Eraser}
+          label="Vaciar"
+          shortcut="F11"
+          title="Vaciar el carrito"
+          onClick={clearLines}
+          disabled={!lines.length}
+        />
       </>
     ),
-    [busy, hasBillableLines, lines.length, clearLines, navigate, removeLastLine]
+    [busy, hasBillableLines, lines.length, clearLines, removeLastLine]
   );
 
   useLayoutEffect(() => {
@@ -826,14 +751,16 @@ export function TouchSalePage() {
   }, [touchRibbonBar, setSaleToolbar]);
 
   return (
-    <div className="space-y-4 pb-28 pf-safe-page xl:pb-4">
+    <div className="space-y-4 pb-28 pf-safe-page lg:pb-4">
       {/* Toast notification */}
       {toast && (
         <div
-          className={`fixed left-1/2 top-4 z-[100] flex items-center gap-2.5 rounded-xl border px-5 py-3 shadow-lg backdrop-blur-md ${
+          role="status"
+          aria-live="polite"
+          className={`fixed left-1/2 top-4 z-[100] flex items-center gap-2.5 rounded-[var(--radius-pf)] border px-5 py-3 shadow-[var(--pf-shadow-warm-md)] ${
             toast.kind === "print"
-              ? "border-pf-info-soft bg-pf-info-soft/90 text-pf-info"
-              : "border-pf-success-soft bg-pf-success-soft/90 text-pf-success"
+              ? "border-pf-info-soft bg-pf-info-soft text-pf-info"
+              : "border-pf-success-soft bg-pf-success-soft text-pf-success"
           }`}
           style={{ transform: "translateX(-50%)", animation: "toast-in 0.3s ease-out" }}
         >
@@ -846,40 +773,33 @@ export function TouchSalePage() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="pf-doc-section-title">Venta táctil</h1>
-          <p className="text-sm text-pf-text-tertiary">Toque productos para agregar al carrito</p>
-        </div>
-        <div className="flex gap-2">
-          <Link to="/venta">
-            <Button variant="secondary" type="button" className="min-h-[44px]">
-              <Monitor className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              Venta estándar
-            </Button>
-          </Link>
-          <Link to="/ventas/preventas">
-            <Button variant="ghost" type="button" className="min-h-[44px]">
-              <ClipboardList className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              PreVentas
-            </Button>
-          </Link>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
-        {/* Product catalog */}
-        <div className="space-y-3">
-          <Card className="pf-glass-card-panel p-3">
-            <Input
-              ref={searchInputRef}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar producto por nombre, SKU, código…"
-              className="!rounded-lg"
-            />
-          </Card>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
+        {/* Catalogo de productos */}
+        <div className="min-w-0 space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pf-muted"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <Input
+                ref={searchInputRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar producto por nombre, SKU o código…"
+                aria-label="Buscar producto"
+                className="!h-12 !pl-9 text-base"
+              />
+            </div>
+            <Link to="/venta" className="shrink-0">
+              <Button variant="secondary" type="button" className="min-h-12" title="Cambiar a venta estándar">
+                <Monitor className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                <span className="hidden xl:inline">Venta estándar</span>
+                <span className="sr-only xl:hidden">Venta estándar</span>
+              </Button>
+            </Link>
+          </div>
 
           {favorites.length > 0 && (
             <div>
@@ -895,14 +815,14 @@ export function TouchSalePage() {
                       key={p.id}
                       type="button"
                       onClick={() => addProduct(p)}
-                      className={`min-h-[80px] min-w-[140px] shrink-0 rounded-xl border p-3 text-left shadow-sm transition active:scale-[0.98] touch-manipulation ${
+                      className={`min-h-[80px] min-w-[140px] shrink-0 rounded-[var(--radius-pf)] border p-3 text-left transition-colors touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
                         outOfStock
-                          ? "border-pf-danger/30 bg-pf-danger-soft/20"
-                          : "border-pf-border-soft bg-pf-primary-soft/45 hover:bg-pf-primary-soft/70 hover:shadow-md"
+                          ? "border-pf-danger-soft bg-pf-danger-soft"
+                          : "border-[color:var(--pf-primary-mid)] bg-pf-primary-soft hover:bg-pf-surface-elevated"
                       }`}
                     >
-                      <span className="block text-sm font-semibold text-pf-text line-clamp-2">{p.name}</span>
-                      <span className="mt-1 block text-xs font-bold tabular-nums text-pf-primary-hover">
+                      <span className="block line-clamp-2 text-sm font-semibold text-pf-text">{p.name}</span>
+                      <span className="mt-1 block text-xs font-bold tabular-nums text-pf-text">
                         {formatMoney(sym, resolveProductUnitPrice(p, 1, priceTier))}
                       </span>
                     </button>
@@ -912,50 +832,44 @@ export function TouchSalePage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {filtered.map((p) => {
               const outOfStock = posBehavior.showStockWhileSelling && tracksStock(p) && p.stock <= 0;
               const isFav = favIds.includes(p.id);
               return (
-                <div
-                  key={p.id}
-                  className={`relative flex flex-col rounded-xl border shadow-sm transition ${
-                    outOfStock
-                      ? "border-pf-danger/25 bg-pf-danger-soft/15"
-                      : "border-pf-border-soft bg-pf-surface-elevated hover:shadow-md"
-                  }`}
-                >
+                <div key={p.id} className="relative">
                   <button
                     type="button"
                     onClick={() => addProduct(p)}
-                    className="flex min-h-[100px] flex-1 flex-col p-3 text-left transition active:scale-[0.98] touch-manipulation hover:bg-pf-surface-muted/30 rounded-t-xl"
+                    className={`flex min-h-[104px] w-full flex-col rounded-[var(--radius-pf)] border p-3 pr-10 text-left transition-colors touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
+                      outOfStock
+                        ? "border-pf-danger-soft bg-pf-danger-soft"
+                        : "border-pf-border bg-pf-surface-elevated hover:border-[color:var(--pf-primary-mid)] hover:bg-pf-surface"
+                    }`}
                   >
                     <span className="line-clamp-2 text-sm font-semibold leading-snug text-pf-text">{p.name}</span>
                     {p.productType === "SERVICIO" ? null : p.productType === "KIT" ? (
                       <span className="mt-0.5 text-[11px] font-medium text-pf-info">Combo</span>
                     ) : posBehavior.showStockWhileSelling ? (
                       <span className={`mt-0.5 text-[11px] font-medium ${p.stock <= 5 ? "text-pf-warning" : "text-pf-muted"}`}>
-                        Stock {p.stock}
+                        {outOfStock ? "Sin existencia" : `Stock ${p.stock}`}
                       </span>
                     ) : null}
-                    <span className="mt-auto block pt-2 text-base font-bold tabular-nums text-pf-primary-hover">
+                    <span className="mt-auto block pt-2 text-base font-bold tabular-nums text-pf-text">
                       {formatMoney(sym, resolveProductUnitPrice(p, 1, priceTier))}
                     </span>
-                    {outOfStock && (
-                      <span className="mt-1 text-[10px] font-bold uppercase text-pf-danger">Sin stock</span>
-                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => toggleFavorite(p.id)}
-                    className={`flex min-h-[40px] items-center justify-center gap-1 border-t px-2 py-1.5 text-xs font-semibold transition active:scale-[0.98] touch-manipulation rounded-b-xl ${
-                      isFav
-                        ? "border-pf-primary-soft/80 bg-pf-primary-soft/50 text-pf-primary-hover"
-                        : "border-pf-border-soft bg-pf-surface-muted/30 text-pf-muted hover:bg-pf-surface-muted/60"
+                    aria-pressed={isFav}
+                    aria-label={isFav ? `Quitar ${p.name} de favoritos` : `Marcar ${p.name} como favorito`}
+                    title={isFav ? "Quitar de favoritos" : "Marcar como favorito"}
+                    className={`absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg transition-colors touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
+                      isFav ? "text-pf-warning" : "text-pf-border-strong hover:text-pf-muted"
                     }`}
                   >
-                    <Star className="h-3 w-3" fill={isFav ? "currentColor" : "none"} strokeWidth={2} />
-                    {isFav ? "Favorito" : "Favorito"}
+                    <Star className="h-4 w-4" fill={isFav ? "currentColor" : "none"} strokeWidth={2} aria-hidden />
                   </button>
                 </div>
               );
@@ -967,35 +881,31 @@ export function TouchSalePage() {
         </div>
 
         {/* Desktop cart sidebar */}
-        <Card
-          id="touch-sale-cart"
-          className="pf-glass-card-panel hidden h-fit p-4 xl:sticky xl:top-4 xl:block"
-        >
+        <aside id="touch-sale-cart" className="hidden h-fit lg:sticky lg:top-[7rem] lg:block" aria-label="Carrito">
           <p className="mb-3 flex items-center gap-2 text-sm font-bold text-pf-text">
-            <ShoppingCart className="h-4 w-4 text-pf-primary-hover" strokeWidth={2} />
-            Carrito ({cartLineCount})
+            <ShoppingCart className="h-4 w-4 text-pf-text-tertiary" strokeWidth={2} aria-hidden />
+            Carrito
+            {cartLineCount > 0 ? (
+              <span className="rounded-full bg-pf-primary-soft px-2 py-0.5 text-xs font-semibold tabular-nums text-[color:var(--pf-sale-tab-ink)]">
+                {cartLineCount}
+              </span>
+            ) : null}
           </p>
           {cartPanel}
-        </Card>
+        </aside>
       </div>
 
       {/* Mobile bottom bar */}
-      <div className="fixed inset-x-0 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 px-3 xl:hidden">
-        <div className="mx-auto flex w-full max-w-xl items-center gap-2 rounded-2xl border border-pf-glass-border bg-pf-surface-elevated/95 p-2.5 shadow-[var(--pf-shadow-warm-xl)] backdrop-blur-xl">
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-pf-surface-muted/60 px-3 py-2">
-            <ShoppingCart className="h-4 w-4 shrink-0 text-pf-primary-hover" strokeWidth={2} aria-hidden />
-            <div className="min-w-0">
-              <p className="truncate text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
-                {cartLineCount} {cartLineCount === 1 ? "línea" : "líneas"}
-              </p>
-              <p className="truncate text-sm font-extrabold tabular-nums text-pf-text">{formatMoney(sym, totals.total)}</p>
-            </div>
+      <div className="fixed inset-x-0 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 px-3 lg:hidden">
+        <div className="mx-auto flex w-full max-w-xl items-center gap-3 rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-2.5 shadow-[var(--pf-shadow-warm-xl)]">
+          <div className="min-w-0 flex-1 pl-1">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+              {cartLineCount} {cartLineCount === 1 ? "línea" : "líneas"}
+            </p>
+            <p className="truncate text-xl font-bold tabular-nums text-pf-text">{formatMoney(sym, totals.total)}</p>
           </div>
-          <Button
-            type="button"
-            className="min-h-[44px] shrink-0"
-            onClick={() => setShowCart(true)}
-          >
+          <Button type="button" className="min-h-12 shrink-0" onClick={() => setShowCart(true)}>
+            <ShoppingCart className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
             Ver carrito
           </Button>
         </div>
@@ -1003,7 +913,7 @@ export function TouchSalePage() {
 
       {/* Mobile cart drawer */}
       {showCart && (
-        <div className="fixed inset-0 z-50 xl:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 pf-mobile-menu-scrim" onClick={() => setShowCart(false)} />
           <div className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col pf-mobile-drawer-shell overflow-y-auto">
             <div className="sticky top-0 z-10 flex items-center justify-between pf-mobile-drawer-head px-4 py-3">
@@ -1025,6 +935,21 @@ export function TouchSalePage() {
           </div>
         </div>
       )}
+
+      {/* Datos del documento: fuera del carrito para no tapar el total */}
+      <Modal
+        open={saleInfoOpen}
+        title="Datos de la venta"
+        onClose={() => setSaleInfoOpen(false)}
+        maxWidthClass="sm:max-w-lg"
+      >
+        {saleInfoPanel}
+        <div className="mt-4 flex justify-end">
+          <Button type="button" onClick={() => setSaleInfoOpen(false)}>
+            Listo
+          </Button>
+        </div>
+      </Modal>
 
       {/* Checkout confirmation modal */}
       <Modal
