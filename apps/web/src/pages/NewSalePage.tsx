@@ -12,7 +12,6 @@ import {
   UserPlus,
   Users,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -22,7 +21,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
@@ -33,6 +31,7 @@ import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarCont
 import { CustomerModal } from "../components/CustomerModal";
 import { NewProductModal } from "../components/NewProductModal";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
+import { ToolbarButton, ToolbarMenu, ToolbarSeparator } from "../components/DocumentToolbar";
 import { formatMoney } from "../lib/format";
 import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
 import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
@@ -206,73 +205,6 @@ function toDatetimeLocalValue(d: Date): string {
   const h = pad(d.getHours());
   const min = pad(d.getMinutes());
   return `${y}-${m}-${day}T${h}:${min}`;
-}
-
-function SaleRibbonTile({
-  icon: Icon,
-  line1,
-  line2,
-  onClick,
-  disabled,
-  title,
-  active,
-  variant = "default",
-}: {
-  icon: LucideIcon;
-  line1: string;
-  line2: string;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-  active?: boolean;
-  variant?: "default" | "primary" | "muted" | "danger";
-}) {
-  const iconBg =
-    variant === "primary"
-      ? "bg-pf-primary text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
-      : variant === "muted"
-        ? "bg-pf-surface-muted text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
-        : variant === "danger"
-          ? "bg-pf-danger-soft text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
-          : "pf-ribbon-icon-shell";
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`group flex h-8 min-w-[5.5rem] shrink-0 flex-row items-center gap-1.5 rounded-md border border-transparent px-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:min-w-[6rem] ${
-        active
-          ? "pf-ribbon-tile-active"
-          : "pf-ribbon-tile-idle"
-      }`}
-    >
-      <div className="flex min-w-0 flex-1 flex-row items-center gap-1.5">
-        <span
-          className={`flex size-5 shrink-0 items-center justify-center rounded-md leading-none ${iconBg} [&>svg]:block [&>svg]:shrink-0`}
-        >
-          <Icon className="!size-3.5" strokeWidth={2.2} aria-hidden />
-        </span>
-        <span className="min-w-0 text-left leading-none">
-          <span className="block truncate text-[10px] font-semibold text-pf-text">{line1}</span>
-          <span className="block truncate text-[9px] font-medium text-pf-text-soft">{line2}</span>
-        </span>
-      </div>
-    </button>
-  );
-}
-
-function SaleRibbonGroup({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="pf-ribbon-group flex shrink-0 flex-col px-1 first:border-l-0 first:pl-0 sm:px-2">
-      <div className="flex flex-row flex-nowrap items-center gap-0.5">
-        {children}
-      </div>
-      <p className="pf-ribbon-group-label whitespace-nowrap text-center text-[9px] font-medium uppercase leading-none tracking-wide">
-        {title}
-      </p>
-    </div>
-  );
 }
 
 export function NewSalePage() {
@@ -1332,128 +1264,99 @@ export function NewSalePage() {
   const saleRibbonBar = useMemo(
     () => (
       <>
-        <SaleRibbonGroup title={isEditMode ? "Guardar venta" : "Guardar venta final"}>
-          <SaleRibbonTile
-            variant="primary"
-            icon={Save}
-            line1="F5 Guardar"
-            line2={isEditMode ? "cambios" : "venta"}
-            title={isEditMode ? "Guardar cambios (F5)" : "Guardar venta (F5)"}
-            onClick={() => openCheckout({ destination: "ticket" })}
-            disabled={busy || !hasBillableLines || loadingSale}
-          />
-          <SaleRibbonTile
-            variant="muted"
-            icon={Printer}
-            line1="F8 Imprimir"
-            line2="ticket"
-            title="Guardar e imprimir ticket térmico (F8)"
-            onClick={() => openCheckout({ destination: "ticket", autoPrintTicket: true })}
-            disabled={busy || !hasBillableLines || loadingSale}
-          />
-          <SaleRibbonTile
-            variant="default"
-            icon={FileText}
-            line1="Factura"
-            line2="carta"
-            title="Guardar y abrir comprobante en carta"
-            onClick={() => openCheckout({ destination: "comprobante" })}
-            disabled={busy || !hasBillableLines || loadingSale}
-          />
-        </SaleRibbonGroup>
-        <SaleRibbonGroup title="Clientes">
-          <SaleRibbonTile
-            variant="default"
-            icon={Users}
-            line1="F2 Buscar"
-            line2="clientes"
-            title="Buscar y elegir cliente (F2)"
-            onClick={() => setCustomerSearchOpen(true)}
-          />
-          <SaleRibbonTile
-            variant="default"
-            icon={UserPlus}
-            line1="F6 Nuevo"
-            line2="cliente"
-            title="Registrar cliente (F6). En el formulario: Enter siguiente campo, Shift+Enter anterior."
-            onClick={() => setCustomerCatalogModal({ kind: "new" })}
-          />
-          <SaleRibbonTile
-            variant="default"
-            icon={Pencil}
-            line1="Editar"
-            line2="cliente"
-            title="Editar el cliente seleccionado (debe estar en catálogo)"
-            onClick={startEditCustomerFlow}
-            disabled={!customerId.trim()}
-          />
-        </SaleRibbonGroup>
-        <SaleRibbonGroup title="Productos">
-          <SaleRibbonTile
-            variant="default"
-            icon={Plus}
-            line1="F3 Nuevo"
-            line2="producto"
-            title={
-              admin
-                ? "Crear producto (F3). En el formulario: Enter siguiente campo, Shift+Enter anterior."
-                : "Solo el administrador puede crear productos nuevos"
-            }
-            onClick={() => admin && setCatalogModal({ kind: "new" })}
-            disabled={!admin}
-          />
-          <SaleRibbonTile
-            variant="default"
-            icon={Pencil}
-            line1="Editar"
-            line2="producto"
-            title={
-              admin
-                ? "Editar producto de la fila seleccionada"
-                : "Solo el administrador puede editar el catálogo"
-            }
-            onClick={startEditProductFlow}
-            disabled={!admin || lines.length === 0}
-          />
-          <SaleRibbonTile
-            variant="default"
-            icon={Search}
-            line1="F4 Buscar"
-            line2="productos"
-            title="Buscar productos (F4)"
-            onClick={openProductSearchModal}
-          />
-        </SaleRibbonGroup>
-        <SaleRibbonGroup title="Filas">
-          <SaleRibbonTile
-            variant="default"
-            icon={Plus}
-            line1="F9 Insertar"
-            line2="fila"
-            title="Enfocar el campo Código / barras / rápido para agregar un producto (no copia la fila seleccionada)"
-            onClick={insertRowAfterSelection}
-          />
-          <SaleRibbonTile
-            variant="danger"
-            icon={X}
-            line1="F10 Eliminar"
-            line2="fila"
-            title="Eliminar la fila seleccionada o la última (F10)"
-            onClick={deleteSelectedOrLastRow}
-            disabled={lines.length === 0}
-          />
-        </SaleRibbonGroup>
-        <SaleRibbonGroup title="Limpiar">
-          <SaleRibbonTile
-            variant="default"
-            icon={Eraser}
-            line1="F11 Limpiar"
-            line2="líneas"
-            title="Vaciar todas las líneas del documento (F11)"
-            onClick={clearLines}
-            disabled={lines.length === 0}
-          />
-        </SaleRibbonGroup>
+        <ToolbarButton
+          tone="primary"
+          icon={Save}
+          label={isEditMode ? "Guardar cambios" : "Guardar venta"}
+          shortcut="F5"
+          title={isEditMode ? "Guardar cambios (F5)" : "Guardar venta (F5)"}
+          onClick={() => openCheckout({ destination: "ticket" })}
+          disabled={busy || !hasBillableLines || loadingSale}
+        />
+        <ToolbarButton
+          icon={Printer}
+          label="Imprimir"
+          shortcut="F8"
+          title="Guardar e imprimir ticket térmico (F8)"
+          onClick={() => openCheckout({ destination: "ticket", autoPrintTicket: true })}
+          disabled={busy || !hasBillableLines || loadingSale}
+        />
+        <ToolbarSeparator />
+        <ToolbarButton
+          icon={Users}
+          label="Cliente"
+          shortcut="F2"
+          title="Buscar y elegir cliente (F2)"
+          onClick={() => setCustomerSearchOpen(true)}
+        />
+        <ToolbarButton
+          icon={Search}
+          label="Productos"
+          shortcut="F4"
+          title="Buscar productos (F4)"
+          onClick={openProductSearchModal}
+        />
+        <ToolbarSeparator />
+        <ToolbarButton
+          icon={Plus}
+          label="Insertar fila"
+          shortcut="F9"
+          title="Enfocar el campo Código / barras / rápido para agregar un producto (no copia la fila seleccionada)"
+          onClick={insertRowAfterSelection}
+        />
+        <ToolbarButton
+          tone="danger"
+          icon={X}
+          label="Eliminar fila"
+          shortcut="F10"
+          title="Eliminar la fila seleccionada o la última (F10)"
+          onClick={deleteSelectedOrLastRow}
+          disabled={lines.length === 0}
+        />
+        <ToolbarSeparator />
+        <ToolbarMenu
+          items={[
+            {
+              icon: FileText,
+              label: "Guardar y abrir factura carta",
+              onClick: () => openCheckout({ destination: "comprobante" }),
+              disabled: busy || !hasBillableLines || loadingSale,
+            },
+            {
+              icon: UserPlus,
+              label: "Nuevo cliente",
+              shortcut: "F6",
+              onClick: () => setCustomerCatalogModal({ kind: "new" }),
+            },
+            {
+              icon: Pencil,
+              label: "Editar cliente",
+              onClick: startEditCustomerFlow,
+              disabled: !customerId.trim(),
+            },
+            {
+              icon: Plus,
+              label: "Nuevo producto",
+              shortcut: "F3",
+              onClick: () => admin && setCatalogModal({ kind: "new" }),
+              disabled: !admin,
+            },
+            {
+              icon: Pencil,
+              label: "Editar producto",
+              onClick: startEditProductFlow,
+              disabled: !admin || lines.length === 0,
+            },
+            {
+              icon: Eraser,
+              label: "Vaciar líneas",
+              shortcut: "F11",
+              onClick: clearLines,
+              disabled: lines.length === 0,
+              danger: true,
+            },
+          ]}
+        />
       </>
     ),
     [
