@@ -1012,7 +1012,7 @@ function Activity({
                 : "Todavía no hay ventas en este turno."}
             </p>
             {!diary.session?.closedAt && (
-              <span>Las ventas que registres aparecerán aquí.</span>
+              <span>Las ventas que registre aparecerán aquí.</span>
             )}
           </div>
         ) : (
