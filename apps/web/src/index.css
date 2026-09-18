@@ -74,6 +74,8 @@
   /* Sombras: solo para separar capas, nunca decorativas */
   --pf-shadow-hero: 0 1px 2px 0 rgb(31 36 33 / 0.04);
   --pf-shadow-card: 0 1px 2px 0 rgb(31 36 33 / 0.05);
+  /* Alias corto: varias hojas ya lo usaban sin que existiera, y la sombra no se pintaba. */
+  --pf-shadow-sm: 0 1px 2px 0 rgb(31 36 33 / 0.05);
   --pf-shadow-btn-primary: 0 1px 2px 0 rgb(31 36 33 / 0.1);
   --pf-shadow-btn-primary-hover: 0 2px 6px -1px rgb(153 63 36 / 0.22);
   --pf-shadow-btn-soft: 0 1px 2px 0 rgb(31 36 33 / 0.06);
@@ -966,6 +968,38 @@ body {
   background: var(--pf-nav-shell-bg);
   box-shadow: var(--pf-shadow-card);
   backdrop-filter: none;
+}
+
+/* La venta se lee como una sola grilla: contexto, búsqueda y luego líneas. */
+.pf-sale-grid-shell {
+  overflow: visible;
+  border: 1px solid var(--pf-border);
+  border-bottom: 0;
+  border-radius: 1rem 1rem 0 0;
+  background: var(--pf-surface-elevated);
+  box-shadow: var(--pf-shadow-sm);
+}
+
+.pf-sale-grid-shell .pf-sale-doc-header {
+  border: 0;
+  border-radius: 1rem 1rem 0 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.pf-sale-product-row {
+  border-top: 1px solid var(--pf-border-soft);
+  background: var(--pf-surface-soft);
+}
+
+.pf-sale-product-row > div:first-child {
+  min-width: 15rem;
+}
+
+@media (max-width: 640px) {
+  .pf-sale-product-row > div:first-child {
+    min-width: 0;
+  }
 }
 
 /* Barra lateral: riel estrecho expandible, discreta y constante. */
