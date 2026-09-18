@@ -141,7 +141,7 @@ export function DashboardPage() {
         </div>
         <Link
           to="/venta"
-          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-pf-primary px-5 text-sm font-semibold text-[color:var(--pf-primary-foreground)] transition-colors hover:bg-pf-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-pf-primary px-5 text-sm font-semibold text-[color:var(--pf-primary-foreground)] transition-colors hover:bg-pf-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
         >
           <PlusCircle className="h-[18px] w-[18px] shrink-0" strokeWidth={2} aria-hidden />
           Iniciar venta
@@ -192,7 +192,7 @@ export function DashboardPage() {
               <h2 className="text-sm font-bold tracking-tight text-pf-text">Últimas ventas</h2>
               <Link
                 to="/ventas"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-pf-primary-hover hover:underline underline-offset-2"
+                className="inline-flex items-center gap-1 py-2 text-xs font-semibold text-pf-primary-hover hover:underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
               >
                 Ver todas
                 <ArrowRight className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
@@ -228,10 +228,10 @@ export function DashboardPage() {
                   <tbody>
                     {recent.map((sale) => (
                       <tr key={sale.id} className="border-b border-pf-border last:border-0 hover:bg-pf-surface">
-                        <td className="px-4 py-2.5">
+                        <td className="p-0">
                           <Link
                             to={`/ventas/${sale.id}/ticket`}
-                            className="font-medium text-pf-text hover:text-pf-primary-hover hover:underline underline-offset-2"
+                            className="block px-4 py-3 font-medium text-pf-text hover:text-pf-primary-hover hover:underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
                           >
                             {sale.invoiceNumber ?? "Sin número"}
                           </Link>
@@ -269,7 +269,7 @@ export function DashboardPage() {
                   <li key={alert.id}>
                     <Link
                       to={alert.to}
-                      className="flex gap-3 rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-3.5 transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary"
+                      className="flex gap-3 rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-3.5 transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
                     >
                       <Icon
                         className={`mt-0.5 h-[18px] w-[18px] shrink-0 ${alert.tone === "danger" ? "text-pf-danger" : "text-pf-warning"}`}

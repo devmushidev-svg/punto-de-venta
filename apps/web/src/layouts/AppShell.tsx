@@ -216,7 +216,7 @@ function SidebarLink({
       onClick={onNavigate}
       title={expanded ? undefined : item.label}
       className={({ isActive }) =>
-        `flex min-h-10 items-center gap-3 rounded-lg text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary ${
+        `flex min-h-10 items-center gap-3 rounded-lg text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
           expanded ? "px-3 py-2" : "justify-center px-2 py-2"
         } ${isActive ? "pf-sidebar-item-active" : "pf-sidebar-item-idle"}`
       }
@@ -251,7 +251,7 @@ function SidebarNav({
         onClick={onNavigate}
         title={expanded ? undefined : NEW_SALE.label}
         aria-current={onSaleDoc ? "page" : undefined}
-        className={`flex min-h-11 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary ${
+        className={`flex min-h-11 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
           expanded ? "justify-start" : "justify-center px-2"
         } ${
           onSaleDoc
@@ -315,7 +315,7 @@ function UserMenu({ onLock, onLogout, buildVersion }: { onLock: () => void; onLo
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex min-h-9 items-center gap-2 rounded-lg border border-pf-border px-2.5 py-1.5 text-sm font-medium text-pf-text-secondary transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary"
+        className="flex min-h-11 items-center gap-2 rounded-lg border border-pf-border px-2.5 py-1.5 text-sm font-medium text-pf-text-secondary md:min-h-9 transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
       >
         <User className="h-4 w-4 shrink-0 text-pf-muted" strokeWidth={1.9} aria-hidden />
         <span className="hidden max-w-[120px] truncate lg:inline">{user?.displayName ?? "Usuario"}</span>
@@ -609,7 +609,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
               onClick={() => setSidebarExpanded((v) => !v)}
               aria-label={sidebarExpanded ? "Contraer menú" : "Expandir menú"}
               title={sidebarExpanded ? "Contraer menú" : "Expandir menú"}
-              className={`pf-sidebar-item-idle flex min-h-9 w-full items-center gap-2.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary ${
+              className={`pf-sidebar-item-idle flex min-h-9 w-full items-center gap-2.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
                 sidebarExpanded ? "px-3" : "justify-center px-2"
               }`}
             >
@@ -633,7 +633,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             <div className="flex h-14 items-center gap-2 px-3 md:h-14 md:gap-4 md:px-5">
               <button
                 type="button"
-                className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-pf-border text-pf-text-secondary transition-colors hover:bg-pf-surface md:hidden"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-pf-border text-pf-text-secondary transition-colors hover:bg-pf-surface md:hidden"
                 onClick={() => setMenuOpen(true)}
                 aria-expanded={menuOpen}
                 aria-controls="mobile-navigation"
@@ -715,7 +715,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 <BrandLockup size={28} />
                 <button
                   type="button"
-                  className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-pf-border text-pf-text-secondary"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-pf-border text-pf-text-secondary"
                   onClick={() => setMenuOpen(false)}
                   aria-label="Cerrar"
                 >
