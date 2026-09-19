@@ -24,4 +24,11 @@ describe("classifyDrainStatus", () => {
     expect(classifyDrainStatus(500)).toBe("retry");
     expect(classifyDrainStatus(503)).toBe("retry");
   });
+  it("403 por precio no autorizado → fallida permanente y visible para revisión", () => {
+    expect(
+      classifyDrainStatus(403, {
+        error: "No tiene permiso para vender a un precio distinto del catalogo ni aplicar descuentos.",
+      }),
+    ).toBe("failed");
+  });
 });

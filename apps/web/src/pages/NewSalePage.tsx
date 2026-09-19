@@ -50,6 +50,7 @@ import {
   type PosBehavior,
 } from "../lib/posBehavior";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
+import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import type { Customer, Product, Sale, Supplier } from "../types";
 
 function roundMoney2(n: number): number {
@@ -230,6 +231,7 @@ export function NewSalePage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
   const admin = user?.role === "admin";
+  const canOverridePrice = hasPermission(user, PERMISSION_KEYS.SALES_PRICE_OVERRIDE);
   const { id: editSaleId } = useParams();
   const isEditMode = Boolean(editSaleId);
   const sym = organization?.currencySymbol ?? "L";
@@ -1191,8 +1193,12 @@ export function NewSalePage() {
             .map((l) => ({
               productId: l.productId,
               qty: l.qty,
-              unitPrice: l.unitPrice,
-              discountPercent: l.discountPercent,
+              ...(canOverridePrice
+                ? {
+                    unitPrice: l.unitPrice,
+                    discountPercent: l.discountPercent,
+                  }
+                : {}),
             })),
         };
         let sale: Sale = { id: "" } as Sale;
@@ -1288,6 +1294,7 @@ export function NewSalePage() {
       user?.displayName,
       user?.username,
       posBehavior.warnOutOfStock,
+      canOverridePrice,
     ],
   );
 
@@ -2183,6 +2190,13 @@ export function NewSalePage() {
                       data-sale-form-field="price"
                       className="!min-h-[44px] w-full min-w-[5.5rem] px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={l.unitPrice}
+                      readOnly={!canOverridePrice}
+                      aria-readonly={!canOverridePrice}
+                      title={
+                        canOverridePrice
+                          ? "Puede ajustar el precio con el permiso sales.price_override"
+                          : "El precio se toma del catálogo"
+                      }
                       onFocus={() => setSelectedLineIndex(i)}
                       onKeyDown={(e) =>
                         handleSaleLineInputKeyDown(e, i, "price")
@@ -2205,6 +2219,13 @@ export function NewSalePage() {
                       data-sale-form-field="disc"
                       className="!min-h-[44px] w-full min-w-[4.5rem] px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={l.discountPercent}
+                      readOnly={!canOverridePrice}
+                      aria-readonly={!canOverridePrice}
+                      title={
+                        canOverridePrice
+                          ? "Puede aplicar descuentos con el permiso sales.price_override"
+                          : "Los descuentos requieren autorización"
+                      }
                       onFocus={() => setSelectedLineIndex(i)}
                       onKeyDown={(e) =>
                         handleSaleLineInputKeyDown(e, i, "disc")

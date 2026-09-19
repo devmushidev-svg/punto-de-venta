@@ -9,8 +9,12 @@ export function isOfflineError(e: unknown): boolean {
 export type DrainAction = "sent" | "failed" | "retry";
 
 /** Qué hacer con una venta encolada según la respuesta HTTP al reenviarla. */
-export function classifyDrainStatus(status: number): DrainAction {
+export function classifyDrainStatus(status: number, data?: unknown): DrainAction {
   if (status >= 200 && status < 300) return "sent";
+  const message = (data as { error?: unknown } | null)?.error;
+  if (status === 403 && typeof message === "string" && /precio distinto|aplicar descuentos/i.test(message)) {
+    return "failed";
+  }
   if (status >= 400 && status < 500 && status !== 401 && status !== 403) return "failed"; // rechazo de negocio: no reintentar
   return "retry"; // 401/403/5xx: reintentar luego (re-login o servidor recuperado)
 }

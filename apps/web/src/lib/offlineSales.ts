@@ -128,7 +128,7 @@ export async function drainOutbox(token: string | null): Promise<{ sent: number;
   for (const item of pending) {
     try {
       const { status, data } = await postSale(item.body, token);
-      const action = classifyDrainStatus(status);
+      const action = classifyDrainStatus(status, data);
       if (action === "sent") {
         await delItem(item.clientRef);
         sent++;

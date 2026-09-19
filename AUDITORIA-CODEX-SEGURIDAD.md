@@ -69,4 +69,24 @@ Alcance: ventas reenviadas/offline, importadores y almacenamiento del token.
 - Ejecutado: login demo y petición real contra el servidor local.
 - Confirmado: CODEX-01.
 - No ejecutado: carga grande de importadores.
-- No modificado: política de precios, token ni rutas de importación.
+- En el pase inicial no se modificaron la política de precios ni el token; las
+  rutas de importación sí recibieron después límites de bytes documentados abajo.
+
+## Seguimiento posterior
+
+- **C‑1 completado:** `NewSalePage` reconoce `sales.price_override`; precio y
+  descuento quedan de solo lectura sin ese permiso y los overrides no se envían.
+  El build web pasó.
+- **C‑2 completado:** se añadió rechazo en el borde para cuerpos grandes:
+  respaldo 20 MB, Excel 10 MB y traslado 2 MB; el binario de API respondió
+  HTTP `413` en `21,000,034` bytes antes de parsear el respaldo.
+- **C‑3 confirmado como aislamiento correcto:** con un token firmado para
+  `pruebab`/`ADMINB` y un payload cuyo `organization.id` era el de `demo`,
+  `POST /api/backup/import` respondió HTTP `400` con “El respaldo no
+  corresponde a esta organización...” y no modificó datos.
+- **C‑4 completado:** una venta legítima encolada sin override se sincronizó y
+  persistió con precio `5.00`. Una venta manipulada reenviada con credenciales
+  de cajero quedó marcada como `failed` con el mensaje de permiso, en vez de
+  reintentarse indefinidamente. Se actualizó `offlineSalesPolicy` para tratar
+  ese 403 específico como rechazo permanente; los 401/403 de sesión siguen
+  siendo reintentables.
