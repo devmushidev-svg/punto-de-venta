@@ -221,3 +221,30 @@ endpoint denegado da 403. Revocar invalida todas las sesiones vigentes de ese us
 y resultó ser un payload mal formado de mi parte: el handler espera
 `{ allow?: string[], deny?: string[] }`, no `{ "permiso": true }`. Se verificó antes de
 reportar nada.
+
+---
+
+## Tercera tanda — estructural
+
+**3.1 Inventario de secretos — HECHO, sin hallazgos.**
+`.env` está en `.gitignore` y no versionado; solo `.env.example` con marcadores.
+Al navegador llegan `VITE_API_BASE` y `VITE_APP_BUILD`: una URL y una cadena de
+compilación, ninguna secreta. Sin secretos escritos a mano en el código.
+
+**4.1 Pruebas negativas en CI — HECHO.**
+`apps/api/test/authorizationSurface.test.ts` más `authorizationManifest.json` con las
+107 rutas y su guardia (5 públicas, 43 autenticadas, 34 admin, 25 por permiso).
+Cinco aserciones, todas de negación: no aparecen rutas sin declarar, el manifiesto no
+guarda rutas muertas, ninguna guardia se relaja, nada bajo `/api` queda público, y las
+superficies sensibles exigen admin.
+**Se comprobó que la prueba puede fallar**: al agregar `api.get("/ruta-colada", (c) => …)`
+falla nombrando la ruta; al revertir, pasa. Una prueba que no puede fallar no protege nada.
+El extractor acepta cualquier forma de handler a propósito: una ruta que no vea es una
+ruta que el manifiesto no protege.
+
+**F-4 — Los favoritos de venta táctil son de toda la empresa y los cambia cualquiera.**
+Lo encontró la prueba nueva en su primera corrida. `POST /api/settings/touch-favorites`
+solo exige autenticación y escribe en `organizationSettings`, así que un cajero cambia
+los favoritos de toda la empresa. La estrella en la UI no tiene guardia.
+No se cambió la conducta: es decisión de producto (por usuario, o con permiso). Queda
+como excepción explícita en la prueba, con su motivo escrito.
