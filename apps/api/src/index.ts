@@ -29,6 +29,7 @@ import {
 import { cashMovementDelta, isCashMovementCategory } from "./lib/cashMovementMath.js";
 import { adjustProductStock, migrateOrgProductStocks } from "./lib/productStockLocation.js";
 import { normalizeVolumePricesPayload, resolveProductUnitPrice } from "./lib/volumePrice.js";
+import { authorizedLinePrice } from "./lib/salePricing.js";
 import { getProductMovements } from "./lib/productMovements.js";
 import { buildSaleComprobantePdf } from "./lib/saleComprobantePdf.js";
 import {
@@ -1407,6 +1408,9 @@ api.post("/sales", async (c) => {
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
+  /** Apartarse del precio de catalogo o aplicar descuento exige permiso; admin siempre puede. */
+  const canOverride =
+    jwt.role === "admin" || (jwt.perms?.includes(PERMISSION_KEYS.SALES_PRICE_OVERRIDE) ?? false);
   const localContext = await ensureDefaultBranchDevice(jwt.orgId);
 
   if (isCreditSaleTerm(terms)) {
@@ -1444,9 +1448,14 @@ api.post("/sales", async (c) => {
       } else if (!isService && product.stock < line.qty && !allowOversell) {
         throw new Error("INSUFFICIENT_STOCK");
       }
-      const unitPrice =
-        line.unitPrice ?? resolveProductUnitPrice(product, line.qty, priceTier);
-      const discountPercent = line.discountPercent ?? 0;
+      const { unitPrice, discountPercent } = authorizedLinePrice({
+        product,
+        qty: line.qty,
+        priceTier,
+        requestedUnitPrice: line.unitPrice,
+        requestedDiscountPercent: line.discountPercent,
+        canOverride,
+      });
       const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
       const taxPercent = product.taxPercent;
       const split = splitTaxIncluded(lineTotal, taxPercent);
@@ -1577,6 +1586,8 @@ api.post("/sales", async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
+    if (msg === "PRICE_OVERRIDE_FORBIDDEN")
+      return c.json({ error: "No tiene permiso para vender a un precio distinto del catalogo ni aplicar descuentos." }, 403);
     if (msg === "INSUFFICIENT_STOCK") return c.json({ error: "Stock insuficiente" }, 400);
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
@@ -2765,7 +2776,14 @@ api.post("/quotes", async (c) => {
       });
       if (!product) throw new Error("PRODUCT_NOT_FOUND");
       if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
-      const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, 1);
+      const { unitPrice } = authorizedLinePrice({
+        product,
+        qty: line.qty,
+        priceTier: 1,
+        requestedUnitPrice: line.unitPrice,
+        canOverride:
+          jwt.role === "admin" || (jwt.perms?.includes(PERMISSION_KEYS.SALES_PRICE_OVERRIDE) ?? false),
+      });
       const lineTotal = unitPrice * line.qty;
       const taxPercent = product.taxPercent;
       const split = splitTaxIncluded(lineTotal, taxPercent);
@@ -2795,6 +2813,8 @@ api.post("/quotes", async (c) => {
   });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
+    if (msg === "PRICE_OVERRIDE_FORBIDDEN")
+      return c.json({ error: "No tiene permiso para cotizar a un precio distinto del catalogo." }, 403);
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se incluyen en cotizaciones" }, 400);
     throw e;

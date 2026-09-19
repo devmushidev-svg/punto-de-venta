@@ -9,6 +9,8 @@ export const PERMISSION_KEYS = {
   PURCHASES_VIEW: "purchases.view",
   EXPENSES_VIEW: "expenses.view",
   PAYROLL_VIEW: "payroll.view",
+  /** Vender a precio distinto del catalogo, o con descuento. Ningun rol lo trae por defecto. */
+  SALES_PRICE_OVERRIDE: "sales.price_override",
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS];
@@ -22,6 +24,7 @@ export const ALL_PERMISSION_KEYS: PermissionKey[] = [
   PERMISSION_KEYS.PURCHASES_VIEW,
   PERMISSION_KEYS.EXPENSES_VIEW,
   PERMISSION_KEYS.PAYROLL_VIEW,
+  PERMISSION_KEYS.SALES_PRICE_OVERRIDE,
 ];
 
 const DEFAULT_AR_AP_PURCHASES: PermissionKey[] = [
