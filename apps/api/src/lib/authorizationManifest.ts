@@ -60,6 +60,7 @@ export const AUTHORIZATION_MANIFEST: Record<string, string> = {
   "PATCH /api/cash-movements/:id": "admin",
   "POST /api/admin/migrate-product-stock": "admin",
   "POST /api/auth/verify-password": "auth",
+  "GET /api/reports/sales-daily": "perm:REPORTS_VIEW",
   "GET /api/reports/sales-summary": "perm:REPORTS_VIEW",
   "GET /api/reports/inventory": "perm:REPORTS_VIEW",
   "GET /api/reports/top-products": "perm:REPORTS_VIEW",

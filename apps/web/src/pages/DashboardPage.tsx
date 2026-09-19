@@ -1,8 +1,9 @@
-import { AlertTriangle, ArrowRight, PackageX, PlusCircle, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, PackageX, PlusCircle, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { SalesTrend, type DailySale } from "../components/SalesTrend";
 import { formatMoney } from "../lib/format";
 import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import type { ExpenseRow, PaginatedResponse, Sale } from "../types";
@@ -43,18 +44,25 @@ export function DashboardPage() {
   const [session, setSession] = useState<CashSession | null>(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [recent, setRecent] = useState<Sale[] | null>(null);
+  const [daily, setDaily] = useState<DailySale[] | null>(null);
 
   const canReports = hasPermission(user, PERMISSION_KEYS.REPORTS_VIEW);
   const canSeeExpenses = user?.role === "admin" || hasPermission(user, PERMISSION_KEYS.EXPENSES_VIEW);
 
   useEffect(() => {
     if (!token || !canReports) return;
-    apiFetch<{ count: number; total: number }>("/api/reports/sales-summary", { token })
+    // Sin from/to el endpoint devuelve el acumulado historico, no el del dia.
+    const { start, end } = todayRange();
+    const range = `from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`;
+    apiFetch<{ count: number; total: number }>(`/api/reports/sales-summary?${range}`, { token })
       .then(setSummary)
       .catch(() => setSummary(null));
     apiFetch<{ stockValueAtCost: number; lowStock: { name: string; stock: number }[] }>("/api/reports/inventory", { token })
       .then(setInv)
       .catch(() => setInv(null));
+    apiFetch<{ days: DailySale[] }>("/api/reports/sales-daily?days=14", { token })
+      .then((d) => setDaily(d.days))
+      .catch(() => setDaily([]));
   }, [token, canReports]);
 
   useEffect(() => {
@@ -93,6 +101,20 @@ export function DashboardPage() {
   const lowStock = inv?.lowStock ?? [];
   const outOfStock = lowStock.filter((p) => p.stock <= 0);
   const runningLow = lowStock.filter((p) => p.stock > 0);
+
+  // Promedio de los dias anteriores (sin hoy): da sentido a la cifra de hoy.
+  const previousDays = daily && daily.length > 1 ? daily.slice(0, -1) : [];
+  const previousAvg = previousDays.length
+    ? previousDays.reduce((s, d) => s + d.total, 0) / previousDays.length
+    : null;
+  const todayTotal = daily && daily.length ? daily[daily.length - 1].total : null;
+  // Con muy pocos dias vendidos el porcentaje sale absurdo (+11286%) y no informa nada.
+  const activePrevious = previousDays.filter((d) => d.total > 0).length;
+  const deltaPct =
+    previousAvg !== null && previousAvg > 0 && todayTotal !== null && activePrevious >= 3
+      ? Math.round(((todayTotal - previousAvg) / previousAvg) * 100)
+      : null;
+  const bestDay = daily && daily.length ? daily.reduce((a, b) => (b.total > a.total ? b : a)) : null;
 
   const alerts: Alert[] = [];
   if (sessionLoaded && !cashOpen) {
@@ -160,6 +182,24 @@ export function DashboardPage() {
                 <p className="mt-0.5 text-xs text-pf-text-tertiary">
                   {summary ? `${summary.count} documento${summary.count !== 1 ? "s" : ""}` : "Sin datos"}
                 </p>
+                {deltaPct !== null ? (
+                  <p
+                    className={`mt-1.5 inline-flex items-center gap-1 text-xs font-semibold ${
+                      deltaPct >= 0 ? "text-pf-success" : "text-pf-danger"
+                    }`}
+                  >
+                    {deltaPct >= 0 ? (
+                      <TrendingUp className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} aria-hidden />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} aria-hidden />
+                    )}
+                    {deltaPct >= 0 ? "+" : ""}
+                    {deltaPct}%
+                    <span className="font-normal text-pf-text-tertiary">
+                      vs. promedio de {previousDays.length} días
+                    </span>
+                  </p>
+                ) : null}
               </div>
 
               <div className="min-w-0">
@@ -184,6 +224,32 @@ export function DashboardPage() {
                   </p>
                 </div>
               ) : null}
+            </section>
+          ) : null}
+
+          {canReports && daily && daily.length > 1 ? (
+            <section className="mt-6" aria-label="Tendencia de ventas">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h2 className="text-sm font-bold tracking-tight text-pf-text">Ventas de los últimos 14 días</h2>
+                <p className="text-xs text-pf-text-tertiary">
+                  Promedio diario{" "}
+                  <span className="font-semibold tabular-nums text-pf-text-secondary">
+                    {formatMoney(sym, daily.reduce((s, d) => s + d.total, 0) / daily.length)}
+                  </span>
+                  {bestDay && bestDay.total > 0 ? (
+                    <>
+                      <span className="mx-1.5 text-pf-border-strong" aria-hidden>·</span>
+                      Mejor día{" "}
+                      <span className="font-semibold tabular-nums text-pf-text-secondary">
+                        {formatMoney(sym, bestDay.total)}
+                      </span>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+              <div className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated py-3 pr-3">
+                <SalesTrend data={daily} sym={sym} />
+              </div>
             </section>
           ) : null}
 

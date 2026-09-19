@@ -2441,6 +2441,43 @@ api.post("/auth/verify-password", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Fecha local YYYY-MM-DD. toISOString() agruparia en UTC y moveria las ventas
+ *  de la tarde al dia siguiente. */
+function ymdLocal(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Totales por dia para la tendencia del inicio. Agrupa en JS: son pocos dias. */
+api.get("/reports/sales-daily", requirePermission(PERMISSION_KEYS.REPORTS_VIEW), async (c) => {
+  const jwt = c.get("jwt");
+  const raw = Number(c.req.query("days"));
+  const days = Number.isFinite(raw) ? Math.min(90, Math.max(2, Math.trunc(raw))) : 14;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+  const sales = await prisma.sale.findMany({
+    where: { organizationId: jwt.orgId, saleDate: { gte: start } },
+    select: { saleDate: true, total: true },
+  });
+  const buckets = new Map<string, { total: number; count: number }>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    buckets.set(ymdLocal(d), { total: 0, count: 0 });
+  }
+  for (const s of sales) {
+    const key = ymdLocal(new Date(s.saleDate));
+    const b = buckets.get(key);
+    if (b) {
+      b.total += s.total;
+      b.count += 1;
+    }
+  }
+  return c.json({
+    days: [...buckets.entries()].map(([date, v]) => ({ date, total: v.total, count: v.count })),
+  });
+});
+
 api.get("/reports/sales-summary", requirePermission(PERMISSION_KEYS.REPORTS_VIEW), async (c) => {
   const jwt = c.get("jwt");
   const from = c.req.query("from");

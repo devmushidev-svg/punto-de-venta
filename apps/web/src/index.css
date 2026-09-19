@@ -1195,3 +1195,26 @@ body {
 [data-pf-money] {
   font-variant-numeric: tabular-nums;
 }
+
+/* Grafico de tendencia (Recharts). Los colores se aplican por CSS y no por
+   props para que sigan al tema activo sin leer tokens desde JS. */
+.pf-trend .recharts-cartesian-grid line {
+  stroke: var(--pf-border);
+}
+.pf-trend text.recharts-cartesian-axis-tick-value {
+  fill: var(--pf-muted);
+}
+.pf-trend .recharts-curve.recharts-tooltip-cursor {
+  stroke: var(--pf-border-strong);
+}
+.pf-trend .recharts-area-curve {
+  stroke: var(--pf-primary-mid);
+}
+.pf-trend .recharts-active-dot circle {
+  fill: var(--pf-surface-elevated);
+  stroke: var(--pf-primary-mid);
+}
+.pf-trend #pfTrendStopA,
+.pf-trend #pfTrendStopB {
+  stop-color: var(--pf-primary-mid);
+}
