@@ -309,3 +309,72 @@ o con `dev-secret-local-change-me`, hay que generar un secreto nuevo
 (`openssl rand -base64 48`) y ponerlo en las variables de entorno del servidor. Al
 cambiarlo, todas las sesiones abiertas se cierran y hay que volver a iniciar sesión —
 que es justo lo que se quiere si el secreto viejo era público.
+
+---
+
+## Quinta tanda — decisiones de producto cerradas (Claude, commit `d602e5a2`)
+
+El usuario decidió las tres que quedaban abiertas:
+
+> «si se borra una venta debería quedar el registro que se borró por cuál usuario»,
+> «los favoritos deben ser personalizados», «el logo después lo voy a configurar».
+
+**F-1 Eliminar ventas — RESUELTO.**
+`SalesPage.tsx` llamaba a `DELETE /api/sales/:id`, que no existía, y el diálogo
+prometía «esta acción no se puede deshacer». Ahora:
+
+- La venta **no se borra**. Queda con `deletedAt`, `deletedById` y `deletedReason`.
+  El motivo es obligatorio (mínimo 4 caracteres): una bitácora que dice «se eliminó»
+  sin decir por qué no sirve para auditar nada.
+- **El filtro vive en `lib/prisma.ts`, no en cada consulta.** Una extensión de Prisma
+  le agrega `deletedAt: null` a toda lectura de `sale`. Las 14 consultas existentes lo
+  heredan, y las que se agreguen mañana también. Filtrar a mano era olvidarse en una, y
+  una venta eliminada que igual suma en el total del día es peor que no poder eliminarla.
+  Para ver las eliminadas a propósito se pasa `deletedAt` explícito.
+- El inventario vuelve a existencias. Se rechaza si la venta tiene recargos en cuentas
+  por cobrar, la misma regla que ya tenía la edición.
+- Permiso propio `sales.delete`, que ningún rol trae por defecto.
+- `GET /api/sales/eliminadas` (admin) y su ventana en la lista de ventas. El registro
+  tenía que ser **visible** o no serviría de nada.
+
+**F-4 Favoritos de venta táctil — RESUELTO.**
+Vivían en `organizationSettings`: cualquier cajero le cambiaba la pantalla a toda la
+empresa. Ahora están en `User.touchFavoritesJson`. Quien nunca los configuró hereda una
+vez la lista vieja, para que nadie pierda lo que ya tenía. La excepción que la prueba de
+autorización tenía anotada se reemplazó por la razón por la que ahora *sí* corresponde
+que esas rutas pidan solo autenticación: leen y escriben la fila del propio `jwt.sub`.
+
+**Logo público — sin cambios, por decisión del usuario.** `/uploads/logos/:file` sigue
+sin autenticación; lo va a configurar más adelante.
+
+### Verificación contra el servidor
+
+| caso | esperado | observado |
+|---|---|---|
+| cajero elimina | 403 | 403 |
+| admin sin motivo | 400 | 400 |
+| admin con motivo de 1 carácter | 400 | 400 |
+| sin token | 401 | 401 |
+| cajero lee la bitácora | 403 | 403 |
+| tras las 5 negativas, la venta sigue viva | 200 | 200 |
+| admin elimina con motivo | 200 | 200 |
+| la venta eliminada por id | 404 | 404 |
+| resumen del día | baja | 8 → 7 documentos, L 10.05 → L 10.04 |
+| tendencia de 14 días | coincide | 10.04 / 7, igual que el resumen |
+| stock del producto | vuelve | 93 → 94 |
+| aparece en el listado | no | 0 coincidencias |
+| favoritos de admin y cajero | aislados | cada uno ve los suyos |
+
+6 pruebas nuevas del filtro. **Verificado que pueden fallar:** quitando el filtro fallan
+3; quitando el respeto al `deletedAt` explícito falla 1.
+
+### Hallazgo al pasar: el esquema de Prisma y el cliente generado no coinciden
+
+`apps/api/prisma/schema.prisma` declara `provider = "postgresql"`, pero el cliente
+generado en `node_modules/.prisma/client` dice `sqlite`, y el `.env` local apunta a
+`file:./dev.db`. Funciona solo porque nadie regeneró el cliente desde que se cambió el
+proveedor. **Un `npm install` cualquiera dispara `postinstall: prisma generate` y deja el
+entorno local sin poder consultar la base.** No lo cambié: tocar el proveedor afecta el
+despliegue, y esa es una decisión que no me corresponde tomar sola. Para esta tanda
+cambié el proveedor a `sqlite` solo durante el `db push` local y lo dejé como estaba.
+
