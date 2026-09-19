@@ -282,7 +282,7 @@ export function NewQuotePage({
       </PageHero>
 
       {loadErr ? (
-        <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{loadErr}</p>
+        <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">{loadErr}</p>
       ) : null}
       {editLoading ? (
         <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-3 text-center text-sm font-medium text-pf-muted backdrop-blur-sm">
@@ -296,7 +296,7 @@ export function NewQuotePage({
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nombre o SKU" />
           </Field>
           {hits.length > 0 ? (
-            <ul className="max-h-52 divide-y divide-stone-100/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 shadow-inner backdrop-blur-sm">
+            <ul className="max-h-52 divide-y divide-pf-border/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 shadow-inner backdrop-blur-sm">
               {hits.map((p) => (
                 <li key={p.id}>
                   <button
@@ -317,7 +317,7 @@ export function NewQuotePage({
           <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner backdrop-blur-sm">
             <table className="w-full min-w-[480px] text-sm">
               <thead>
-                <tr className="bg-gradient-to-r from-fuchsia-50/90 to-orange-50/50 text-left text-xs font-bold text-stone-700">
+                <tr className="bg-gradient-to-r from-fuchsia-50/90 to-orange-50/50 text-left text-xs font-bold text-pf-text-secondary">
                   <th className="p-2">Producto</th>
                   <th className="p-2 w-24">Cant.</th>
                   <th className="p-2 w-28">P. unit.</th>
@@ -333,8 +333,8 @@ export function NewQuotePage({
                   </tr>
                 ) : (
                   lines.map((l, i) => (
-                    <tr key={l.productId} className="border-t border-stone-100/90 transition hover:bg-fuchsia-50/25">
-                      <td className="p-2 font-bold text-stone-900">{l.product.name}</td>
+                    <tr key={l.productId} className="border-t border-pf-border/90 transition hover:bg-fuchsia-50/25">
+                      <td className="p-2 font-bold text-pf-text">{l.product.name}</td>
                       <td className="p-2">
                         <Input
                           type="number"
@@ -362,7 +362,7 @@ export function NewQuotePage({
                       <td className="p-2">
                         <button
                           type="button"
-                          className="min-h-11 touch-manipulation text-xs font-bold text-red-700 sm:min-h-9"
+                          className="min-h-11 touch-manipulation text-xs font-bold text-pf-danger sm:min-h-9"
                           onClick={() => removeLine(i)}
                         >
                           Quitar
@@ -400,7 +400,7 @@ export function NewQuotePage({
           <Field label="Notas">
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
-          <div className="space-y-1 rounded-2xl border border-orange-200/40 bg-gradient-to-br from-pf-primary-soft/90 to-amber-50/50 p-3 text-sm shadow-inner">
+          <div className="space-y-1 rounded-2xl border border-pf-warning-soft/40 bg-gradient-to-br from-pf-primary-soft/90 to-amber-50/50 p-3 text-sm shadow-inner">
             <div className="flex justify-between">
               <span className="text-pf-muted">Subtotal</span>
               <span>{formatMoney(sym, totals.subtotal)}</span>
@@ -415,7 +415,7 @@ export function NewQuotePage({
             </div>
           </div>
           {err ? (
-            <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
+            <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">{err}</p>
           ) : null}
           <Button
             type="button"

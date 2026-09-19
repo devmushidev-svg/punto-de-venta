@@ -292,7 +292,7 @@ export function CustomersPage() {
           </Select>
         </Field>
         {err ? (
-          <p className="text-sm text-red-600 mt-2" role="alert">
+          <p className="text-sm text-pf-danger mt-2" role="alert">
             {err}
           </p>
         ) : null}
@@ -377,7 +377,7 @@ export function CustomersPage() {
           </Select>
         </Field>
         {err ? (
-          <p className="text-sm text-red-600 mt-2" role="alert">
+          <p className="text-sm text-pf-danger mt-2" role="alert">
             {err}
           </p>
         ) : null}

@@ -130,9 +130,9 @@ export function SaleTicketPage() {
 
       <Card className="border-white/50 bg-white/95 p-6 shadow-lg backdrop-blur-sm print:border-0 print:bg-white print:shadow-none" id="ticket">
         <div className="text-center border-b border-pf-border pb-4 mb-4">
-          <h1 className="text-xl font-bold text-stone-900">{organization?.name ?? "MultiPOS"}</h1>
+          <h1 className="text-xl font-bold text-pf-text">{organization?.name ?? "MultiPOS"}</h1>
           {ticket.headerLine ? (
-            <p className="text-sm text-stone-700 mt-1 whitespace-pre-line">{ticket.headerLine}</p>
+            <p className="text-sm text-pf-text-secondary mt-1 whitespace-pre-line">{ticket.headerLine}</p>
           ) : (
             <p className="text-sm text-pf-muted mt-1">Ticket de venta</p>
           )}
@@ -201,7 +201,7 @@ export function SaleTicketPage() {
           {ticket.footerLine ?? "Gracias por su compra"}
         </p>
         {sarFooter.trim() ? (
-          <p className="text-center text-[10px] text-stone-600 mt-3 whitespace-pre-line leading-snug px-1">
+          <p className="text-center text-[10px] text-pf-text-tertiary mt-3 whitespace-pre-line leading-snug px-1">
             {sarFooter.trim()}
           </p>
         ) : null}

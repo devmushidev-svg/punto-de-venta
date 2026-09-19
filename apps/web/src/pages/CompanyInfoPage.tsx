@@ -210,7 +210,7 @@ export function CompanyInfoPage() {
   }
   if (!org) {
     return (
-      <p className="rounded-2xl border border-red-100 bg-red-50/90 px-4 py-4 text-center font-medium text-red-700">
+      <p className="rounded-2xl border border-pf-danger-soft bg-pf-danger-soft/90 px-4 py-4 text-center font-medium text-pf-danger">
         No se pudo cargar la empresa.
       </p>
     );
@@ -225,7 +225,7 @@ export function CompanyInfoPage() {
           Datos fiscales, contacto, logo y moneda; se usan en tickets y documentos.
         </p>
         {!admin ? (
-          <p className="mt-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 to-orange-50/80 px-3 py-2.5 text-sm font-medium text-amber-950 shadow-sm">
+          <p className="mt-3 rounded-2xl border border-pf-warning-soft/70 bg-gradient-to-r from-amber-50 to-orange-50/80 px-3 py-2.5 text-sm font-medium text-pf-warning shadow-sm">
             Solo los administradores pueden editar.
           </p>
         ) : null}
@@ -383,8 +383,8 @@ export function CompanyInfoPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-orange-200/40 bg-gradient-to-br from-pf-primary-soft/50 to-sky-50/30 p-4 shadow-md backdrop-blur-sm">
-              <h2 className="mb-3 text-sm font-bold text-stone-900">Idioma / formato de fecha y moneda</h2>
+            <section className="rounded-2xl border border-pf-warning-soft/40 bg-gradient-to-br from-pf-primary-soft/50 to-sky-50/30 p-4 shadow-md backdrop-blur-sm">
+              <h2 className="mb-3 text-sm font-bold text-pf-text">Idioma / formato de fecha y moneda</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Idioma">
                   <Select
@@ -442,14 +442,14 @@ export function CompanyInfoPage() {
         </div>
 
         {err ? (
-          <p className="mt-6 rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
+          <p className="mt-6 rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">{err}</p>
         ) : null}
         {msg ? (
-          <p className="mt-6 rounded-xl border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-sm font-medium text-emerald-800">{msg}</p>
+          <p className="mt-6 rounded-xl border border-pf-success-soft bg-pf-success-soft/80 px-3 py-2 text-sm font-medium text-pf-success">{msg}</p>
         ) : null}
 
         {admin ? (
-          <div className="mt-6 flex justify-end border-t border-stone-200/80 pt-6">
+          <div className="mt-6 flex justify-end border-t border-pf-border/80 pt-6">
             <Button type="button" className="min-h-[52px] w-full shadow-lg sm:w-auto sm:min-h-11" onClick={save} disabled={saving}>
               <Save className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               {saving ? "Guardando…" : "Guardar"}

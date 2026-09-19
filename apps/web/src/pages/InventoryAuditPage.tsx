@@ -109,7 +109,7 @@ export function InventoryAuditPage() {
   if (user?.role !== "admin") {
     return (
       <div className="p-4 pf-safe-page">
-        <p className="rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 to-orange-50/80 px-4 py-4 text-sm font-medium text-amber-950 shadow-sm">
+        <p className="rounded-2xl border border-pf-warning-soft/70 bg-gradient-to-r from-amber-50 to-orange-50/80 px-4 py-4 text-sm font-medium text-pf-warning shadow-sm">
           Solo el administrador puede registrar ajustes de inventario.
         </p>
       </div>
@@ -120,7 +120,7 @@ export function InventoryAuditPage() {
     <div className="space-y-4 pf-safe-page">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <PageHero title={"Auditoría de inventario"} constrained>
-          <p className="mt-1.5 text-sm font-medium text-stone-700 max-w-xl">
+          <p className="mt-1.5 text-sm font-medium text-pf-text-secondary max-w-xl">
             Registre ajustes con motivo (conteo, merma, corrección). Cada línea suma o resta existencia del producto. El historial por producto incluye
             ventas, compras, traslados y estos ajustes.
           </p>
@@ -137,9 +137,9 @@ export function InventoryAuditPage() {
       </div>
 
       <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-slate-50/25 to-amber-50/20 p-4 shadow-lg backdrop-blur-sm md:p-5">
-        <div className="flex items-center gap-2 text-stone-800">
-          <ClipboardCheck className="h-5 w-5 shrink-0 text-amber-700/80" strokeWidth={2} aria-hidden />
-          <h2 className="text-lg font-bold text-stone-900">Nuevo ajuste</h2>
+        <div className="flex items-center gap-2 text-pf-text">
+          <ClipboardCheck className="h-5 w-5 shrink-0 text-pf-warning/80" strokeWidth={2} aria-hidden />
+          <h2 className="text-lg font-bold text-pf-text">Nuevo ajuste</h2>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Motivo">
@@ -159,7 +159,7 @@ export function InventoryAuditPage() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nombre o SKU" />
         </Field>
         {hits.length > 0 ? (
-          <ul className="max-h-48 divide-y divide-stone-100/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 text-sm shadow-inner backdrop-blur-sm">
+          <ul className="max-h-48 divide-y divide-pf-border/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 text-sm shadow-inner backdrop-blur-sm">
             {hits.map((p) => (
               <li key={p.id}>
                 <button
@@ -178,7 +178,7 @@ export function InventoryAuditPage() {
           <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner backdrop-blur-sm">
             <table className="w-full min-w-[480px] text-sm">
               <thead>
-                <tr className="bg-gradient-to-r from-slate-50/95 to-amber-50/50 text-left text-xs font-bold text-stone-700">
+                <tr className="bg-gradient-to-r from-slate-50/95 to-amber-50/50 text-left text-xs font-bold text-pf-text-secondary">
                   <th className="p-2">Producto</th>
                   <th className="p-2 w-36">Cambio (+/−)</th>
                   <th className="p-2 w-12" />
@@ -186,9 +186,9 @@ export function InventoryAuditPage() {
               </thead>
               <tbody>
                 {lines.map((l, i) => (
-                  <tr key={l.productId} className="border-t border-stone-100/90 transition hover:bg-amber-50/25">
+                  <tr key={l.productId} className="border-t border-pf-border/90 transition hover:bg-pf-warning-soft/25">
                     <td className="p-2">
-                      <span className="font-bold text-stone-900">{l.product.name}</span>
+                      <span className="font-bold text-pf-text">{l.product.name}</span>
                       <span className="block font-mono text-xs text-pf-muted">{l.product.sku}</span>
                     </td>
                     <td className="p-2">
@@ -211,7 +211,7 @@ export function InventoryAuditPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        className="min-h-11 touch-manipulation text-xs font-bold text-red-700 sm:min-h-9"
+                        className="min-h-11 touch-manipulation text-xs font-bold text-pf-danger sm:min-h-9"
                         onClick={() => removeLine(i)}
                       >
                         Quitar
@@ -223,10 +223,10 @@ export function InventoryAuditPage() {
             </table>
           </div>
         ) : (
-          <p className="text-xs font-medium text-stone-500">Agregue productos y el cambio de existencia (positivo suma, negativo resta).</p>
+          <p className="text-xs font-medium text-pf-muted">Agregue productos y el cambio de existencia (positivo suma, negativo resta).</p>
         )}
         {err ? (
-          <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
+          <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">{err}</p>
         ) : null}
         <Button type="button" className="min-h-[52px] w-full text-base shadow-lg sm:w-auto" disabled={busy || lines.length === 0} onClick={() => void submit()}>
           <Plus className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
@@ -235,9 +235,9 @@ export function InventoryAuditPage() {
       </Card>
 
       <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-slate-50/15 to-amber-50/12 p-0 shadow-lg backdrop-blur-sm">
-        <div className="flex items-center gap-2 border-b border-stone-200/80 bg-gradient-to-r from-white/90 to-slate-50/40 px-4 py-3">
-          <History className="h-5 w-5 shrink-0 text-stone-500" strokeWidth={2} aria-hidden />
-          <h2 className="text-lg font-bold text-stone-900">Ajustes recientes</h2>
+        <div className="flex items-center gap-2 border-b border-pf-border/80 bg-gradient-to-r from-white/90 to-slate-50/40 px-4 py-3">
+          <History className="h-5 w-5 shrink-0 text-pf-muted" strokeWidth={2} aria-hidden />
+          <h2 className="text-lg font-bold text-pf-text">Ajustes recientes</h2>
         </div>
         {loading ? (
           <p className="p-6 text-center font-medium text-pf-muted">Cargando…</p>
@@ -246,7 +246,7 @@ export function InventoryAuditPage() {
         ) : (
           <table className="w-full min-w-[640px] text-sm">
             <thead className="sticky top-0 z-10">
-              <tr className="border-b border-stone-200/80 bg-gradient-to-r from-slate-50/95 to-amber-50/50 text-left text-xs font-bold text-stone-700 shadow-sm backdrop-blur-md">
+              <tr className="border-b border-pf-border/80 bg-gradient-to-r from-slate-50/95 to-amber-50/50 text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
                 <th className="p-2">Número</th>
                 <th className="p-2">Fecha</th>
                 <th className="p-2">Motivo</th>
@@ -256,7 +256,7 @@ export function InventoryAuditPage() {
             </thead>
             <tbody>
               {list.map((a) => (
-                <tr key={a.id} className="border-b border-stone-100/90 align-top transition hover:bg-slate-50/50">
+                <tr key={a.id} className="border-b border-pf-border/90 align-top transition hover:bg-pf-surface/50">
                   <td className="p-2 font-mono text-xs">{a.adjustmentNumber ?? "—"}</td>
                   <td className="p-2 text-xs whitespace-nowrap">
                     {new Date(a.createdAt).toLocaleString("es-HN", {

@@ -147,15 +147,15 @@ export function UsersPage() {
       </div>
 
       <Card className="border-white/50 bg-gradient-to-br from-white/95 via-violet-50/20 to-slate-50/40 p-4 shadow-lg backdrop-blur-sm">
-        <p className="mb-2 text-sm font-bold text-stone-900">Matriz de roles (resumen)</p>
-        <ul className="space-y-1.5 text-sm text-stone-600">
+        <p className="mb-2 text-sm font-bold text-pf-text">Matriz de roles (resumen)</p>
+        <ul className="space-y-1.5 text-sm text-pf-text-tertiary">
           {ROLES.map((r) => (
             <li key={r.id}>
-              <strong className="text-stone-700">{r.label}</strong> — {r.desc}
+              <strong className="text-pf-text-secondary">{r.label}</strong> — {r.desc}
             </li>
           ))}
         </ul>
-        <p className="mt-3 border-t border-stone-200/80 pt-3 text-xs font-medium text-stone-500">
+        <p className="mt-3 border-t border-pf-border/80 pt-3 text-xs font-medium text-pf-muted">
           Permisos finos (cajero/vendedor): al editar un usuario puede conceder o restringir módulos concretos respecto al rol base.
         </p>
       </Card>
@@ -163,7 +163,7 @@ export function UsersPage() {
       <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 to-violet-50/15 p-0 shadow-lg backdrop-blur-sm">
         <table className="w-full min-w-[520px] text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-stone-200/80 bg-gradient-to-r from-violet-50/95 to-slate-50/70 text-left text-xs font-bold text-stone-700 shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-violet-50/95 to-slate-50/70 text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
               <th className="p-3">Usuario</th>
               <th className="p-3">Nombre</th>
               <th className="p-3">Rol</th>
@@ -174,7 +174,7 @@ export function UsersPage() {
           </thead>
           <tbody>
             {list.map((u) => (
-              <tr key={u.id} className="border-b border-stone-100/90 transition hover:bg-violet-50/30">
+              <tr key={u.id} className="border-b border-pf-border/90 transition hover:bg-violet-50/30">
                 <td className="p-3 font-mono">{u.username}</td>
                 <td className="p-3">{u.displayName}</td>
                 <td className="p-3 capitalize">{u.role}</td>
@@ -211,7 +211,7 @@ export function UsersPage() {
             </Field>
           ) : (
             <Field label="Usuario">
-              <Input value={username} readOnly className="bg-stone-50" />
+              <Input value={username} readOnly className="bg-pf-surface" />
             </Field>
           )}
           <Field label={modal === "new" ? "Contraseña" : "Nueva contraseña (opcional)"}>
@@ -242,10 +242,10 @@ export function UsersPage() {
             </Select>
           </Field>
           {role !== "admin" ? (
-            <div className="rounded-lg border border-pf-border bg-stone-50/80 p-3 space-y-3">
+            <div className="rounded-lg border border-pf-border bg-pf-surface/80 p-3 space-y-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-pf-muted mb-1.5">Incluido en el rol «{role}»</p>
-                <p className="text-xs text-stone-600 leading-relaxed">
+                <p className="text-xs text-pf-text-tertiary leading-relaxed">
                   {(ROLE_DEFAULT_PERMISSIONS[role] ?? []).length === 0 ? (
                     <>Ningún permiso de la lista viene activado solo por el rol; marque casillas para conceder (quedará en «Añadido manualmente»).</>
                   ) : (
@@ -258,9 +258,9 @@ export function UsersPage() {
                 </p>
               </div>
               {permDeny.length > 0 ? (
-                <div className="rounded-md border border-red-200 bg-red-50/90 px-2.5 py-2">
-                  <p className="text-xs font-semibold text-red-900">Restringido (no puede usar)</p>
-                  <ul className="mt-1 text-xs text-red-800 list-disc pl-4 space-y-0.5">
+                <div className="rounded-md border border-pf-danger-soft bg-pf-danger-soft/90 px-2.5 py-2">
+                  <p className="text-xs font-semibold text-pf-danger">Restringido (no puede usar)</p>
+                  <ul className="mt-1 text-xs text-pf-danger list-disc pl-4 space-y-0.5">
                     {permDeny.map((key) => (
                       <li key={key}>{PERMISSION_LABELS[key]}</li>
                     ))}
@@ -268,9 +268,9 @@ export function UsersPage() {
                 </div>
               ) : null}
               {permAllow.length > 0 ? (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50/80 px-2.5 py-2">
-                  <p className="text-xs font-semibold text-emerald-900">Añadido manualmente (extra al rol)</p>
-                  <ul className="mt-1 text-xs text-emerald-900 list-disc pl-4 space-y-0.5">
+                <div className="rounded-md border border-pf-success-soft bg-pf-success-soft/80 px-2.5 py-2">
+                  <p className="text-xs font-semibold text-pf-success">Añadido manualmente (extra al rol)</p>
+                  <ul className="mt-1 text-xs text-pf-success list-disc pl-4 space-y-0.5">
                     {permAllow.map((key) => (
                       <li key={key}>{PERMISSION_LABELS[key]}</li>
                     ))}
@@ -311,9 +311,9 @@ export function UsersPage() {
               onChange={(e) => setActive(e.target.checked)}
               className="h-4 w-4 rounded border-pf-border"
             />
-            <span className="text-sm font-medium text-stone-700">Usuario activo</span>
+            <span className="text-sm font-medium text-pf-text-secondary">Usuario activo</span>
           </label>
-          {err ? <p className="text-sm text-red-600">{err}</p> : null}
+          {err ? <p className="text-sm text-pf-danger">{err}</p> : null}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" type="button" onClick={() => setModal(null)}>
               Cancelar

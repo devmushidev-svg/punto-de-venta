@@ -135,13 +135,13 @@ export function SaleComprobantePage() {
             </Button>
           </Link>
         </div>
-        <Card className="border-sky-200/60 bg-gradient-to-br from-sky-50/90 to-white/90 p-4 text-sm text-stone-800 shadow-md backdrop-blur-sm">
-          <p className="font-medium text-stone-900">Impresión y PDF</p>
+        <Card className="border-sky-200/60 bg-gradient-to-br from-sky-50/90 to-white/90 p-4 text-sm text-pf-text shadow-md backdrop-blur-sm">
+          <p className="font-medium text-pf-text">Impresión y PDF</p>
           <p className="mt-1 text-pf-text-tertiary">
-            <strong className="font-semibold text-stone-900">Descargar PDF (servidor)</strong> genera el archivo en la API
+            <strong className="font-semibold text-pf-text">Descargar PDF (servidor)</strong> genera el archivo en la API
             (misma información que esta vista; respeta título/SKU del comprobante en configuración).{" "}
-            <strong className="font-semibold text-stone-900">Imprimir / PDF (navegador)</strong> abre el diálogo del
-            sistema; elija <strong className="font-semibold text-stone-900">Guardar como PDF</strong> si prefiere desde el
+            <strong className="font-semibold text-pf-text">Imprimir / PDF (navegador)</strong> abre el diálogo del
+            sistema; elija <strong className="font-semibold text-pf-text">Guardar como PDF</strong> si prefiere desde el
             navegador. Térmica 80&nbsp;mm:{" "}
             <Link to={`/ventas/${sale.id}/ticket`} className="font-medium text-sky-900 underline-offset-2 hover:underline">
               Ticket térmico
@@ -153,20 +153,20 @@ export function SaleComprobantePage() {
 
       <article
         id="pf-comprobante-print"
-        className="pf-print-root-comprobante rounded-xl border border-stone-200 bg-white p-6 shadow-sm print:rounded-none print:border-0 print:shadow-none md:p-8"
+        className="pf-print-root-comprobante rounded-xl border border-pf-border bg-white p-6 shadow-sm print:rounded-none print:border-0 print:shadow-none md:p-8"
       >
-        <header className="flex flex-col gap-4 border-b border-stone-200 pb-6 sm:flex-row sm:justify-between sm:items-start">
+        <header className="flex flex-col gap-4 border-b border-pf-border pb-6 sm:flex-row sm:justify-between sm:items-start">
           <div className="min-w-0 space-y-2">
             {o?.logoUrl ? (
               <img src={o.logoUrl} alt="" className="h-14 w-auto max-w-[200px] object-contain" />
             ) : null}
-            <h1 className="text-xl font-bold tracking-tight text-stone-900">{o?.name ?? organization?.name ?? "Empresa"}</h1>
-            {o?.slogan ? <p className="text-sm text-stone-600">{o.slogan}</p> : null}
+            <h1 className="text-xl font-bold tracking-tight text-pf-text">{o?.name ?? organization?.name ?? "Empresa"}</h1>
+            {o?.slogan ? <p className="text-sm text-pf-text-tertiary">{o.slogan}</p> : null}
             {ticket.headerLine ? (
-              <p className="text-sm text-stone-700 whitespace-pre-line">{ticket.headerLine}</p>
+              <p className="text-sm text-pf-text-secondary whitespace-pre-line">{ticket.headerLine}</p>
             ) : null}
-            {addrLine ? <p className="text-sm text-stone-700">{addrLine}</p> : null}
-            <div className="text-sm text-stone-600 space-y-0.5">
+            {addrLine ? <p className="text-sm text-pf-text-secondary">{addrLine}</p> : null}
+            <div className="text-sm text-pf-text-tertiary space-y-0.5">
               {o?.taxId ? (
                 <p>
                   <span className="text-pf-muted">{o.taxIdType ?? "RTN"}</span> {o.taxId}
@@ -178,8 +178,8 @@ export function SaleComprobantePage() {
           </div>
           <div className="shrink-0 text-left sm:text-right space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-pf-muted">{title}</p>
-            <p className="text-lg font-mono font-semibold text-stone-900">No. {sale.invoiceNumber ?? sale.id.slice(0, 8)}</p>
-            <p className="text-sm text-stone-600">{formatDate(sale.saleDate)}</p>
+            <p className="text-lg font-mono font-semibold text-pf-text">No. {sale.invoiceNumber ?? sale.id.slice(0, 8)}</p>
+            <p className="text-sm text-pf-text-tertiary">{formatDate(sale.saleDate)}</p>
             {sale.terms ? (
               <p className="text-sm">
                 <span className="text-pf-muted">Términos: </span>
@@ -198,8 +198,8 @@ export function SaleComprobantePage() {
         <section className="py-5 space-y-1 text-sm">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-pf-muted">Cliente</h2>
           {sale.customer ? (
-            <div className="text-stone-800">
-              <p className="font-medium text-stone-900">{sale.customer.name}</p>
+            <div className="text-pf-text">
+              <p className="font-medium text-pf-text">{sale.customer.name}</p>
               {sale.customer.taxId ? (
                 <p className="text-pf-muted">ID fiscal: {sale.customer.taxId}</p>
               ) : null}
@@ -212,10 +212,10 @@ export function SaleComprobantePage() {
           )}
         </section>
 
-        <div className="overflow-x-auto border border-stone-200 rounded-lg print:border-stone-300">
+        <div className="overflow-x-auto border border-pf-border rounded-lg print:border-pf-border">
           <table className="w-full min-w-[640px] text-sm">
             <thead>
-              <tr className="bg-stone-50 border-b border-stone-200 text-left text-xs font-medium uppercase tracking-wide text-pf-muted">
+              <tr className="bg-pf-surface border-b border-pf-border text-left text-xs font-medium uppercase tracking-wide text-pf-muted">
                 {showSku ? <th className="p-2 w-24">Código</th> : null}
                 <th className="p-2">Descripción</th>
                 <th className="p-2 text-right w-20">Cant.</th>
@@ -227,11 +227,11 @@ export function SaleComprobantePage() {
             </thead>
             <tbody>
               {sale.lines.map((l) => (
-                <tr key={l.id} className="border-b border-stone-100">
+                <tr key={l.id} className="border-b border-pf-border">
                   {showSku ? (
-                    <td className="p-2 font-mono text-xs text-stone-700 align-top">{l.product.sku}</td>
+                    <td className="p-2 font-mono text-xs text-pf-text-secondary align-top">{l.product.sku}</td>
                   ) : null}
-                  <td className="p-2 text-stone-900 align-top">{l.product.name}</td>
+                  <td className="p-2 text-pf-text align-top">{l.product.name}</td>
                   <td className="p-2 text-right tabular-nums align-top">{l.qty}</td>
                   <td className="p-2 text-right tabular-nums whitespace-nowrap align-top">
                     {formatMoney(sym, l.unitPrice)}
@@ -248,7 +248,7 @@ export function SaleComprobantePage() {
         </div>
 
         <footer className="mt-6 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end">
-          <div className="text-sm text-stone-600 space-y-1">
+          <div className="text-sm text-pf-text-tertiary space-y-1">
             {sale.user ? (
               <p>
                 <span className="text-pf-muted">Vendedor: </span>
@@ -262,7 +262,7 @@ export function SaleComprobantePage() {
               </p>
             ) : null}
           </div>
-          <div className="w-full max-w-xs space-y-1.5 text-sm border-t border-stone-200 pt-4 sm:border-0 sm:pt-0">
+          <div className="w-full max-w-xs space-y-1.5 text-sm border-t border-pf-border pt-4 sm:border-0 sm:pt-0">
             {showTax ? (
               <>
                 <div className="flex justify-between">
@@ -275,7 +275,7 @@ export function SaleComprobantePage() {
                 </div>
               </>
             ) : null}
-            <div className="flex justify-between text-base font-bold text-stone-900 pt-1">
+            <div className="flex justify-between text-base font-bold text-pf-text pt-1">
               <span>Total</span>
               <span className="tabular-nums">{formatMoney(sym, sale.total)}</span>
             </div>
@@ -284,7 +284,7 @@ export function SaleComprobantePage() {
               <span className="tabular-nums">{formatMoney(sym, sale.paid)}</span>
             </div>
             {balance > 0.009 ? (
-              <div className="flex justify-between font-semibold text-amber-900">
+              <div className="flex justify-between font-semibold text-pf-warning">
                 <span>Saldo</span>
                 <span className="tabular-nums">{formatMoney(sym, balance)}</span>
               </div>
@@ -292,7 +292,7 @@ export function SaleComprobantePage() {
           </div>
         </footer>
 
-        <p className="text-center text-xs text-pf-muted mt-8 pt-6 border-t border-stone-100 whitespace-pre-line">
+        <p className="text-center text-xs text-pf-muted mt-8 pt-6 border-t border-pf-border whitespace-pre-line">
           {ticket.footerLine ?? "Documento generado electrónicamente — válido como comprobante de operación."}
         </p>
       </article>

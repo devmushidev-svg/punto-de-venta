@@ -143,7 +143,7 @@ export function Field({
         {label}
       </span>
       {children}
-      {error ? <span className="text-sm text-red-600">{error}</span> : null}
+      {error ? <span className="text-sm text-pf-danger">{error}</span> : null}
     </label>
   );
 }

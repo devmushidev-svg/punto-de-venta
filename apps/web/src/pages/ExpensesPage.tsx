@@ -393,7 +393,7 @@ export function ExpensesPage() {
             </Field>
           </div>
           {err ? (
-            <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">
+            <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">
               {err}
             </p>
           ) : null}
@@ -467,7 +467,7 @@ export function ExpensesPage() {
       <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-rose-50/12 to-violet-50/20 p-0 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-stone-200/80 bg-gradient-to-r from-rose-50/90 via-pf-primary-soft/40 to-violet-50/75 text-left text-xs font-bold text-stone-600 shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-rose-50/90 via-pf-primary-soft/40 to-violet-50/75 text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
               <th className="p-3">Fecha</th>
               <th className="p-3">Libro</th>
               <th className="p-3">Categoría</th>
@@ -493,7 +493,7 @@ export function ExpensesPage() {
               list.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-b border-stone-100/90 transition hover:bg-rose-50/35"
+                  className="border-b border-pf-border/90 transition hover:bg-pf-danger-soft/35"
                 >
                   <td className="p-3 whitespace-nowrap">
                     {formatDate(r.expenseDate)}

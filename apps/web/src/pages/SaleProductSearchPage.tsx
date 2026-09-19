@@ -125,7 +125,7 @@ export function SaleProductSearchPage() {
           botón de la ventana.
         </p>
 
-        {err ? <p className="text-sm text-red-600">{err}</p> : null}
+        {err ? <p className="text-sm text-pf-danger">{err}</p> : null}
 
         <div className="overflow-x-auto rounded-xl border border-pf-border bg-pf-surface-elevated shadow-sm">
           <table className="w-full min-w-[900px] text-sm">

@@ -1579,7 +1579,7 @@ export function NewSalePage() {
           className={`fixed left-1/2 top-6 z-[9999] -translate-x-1/2 animate-[toast-in_0.35s_ease-out] rounded-2xl border px-6 py-4 shadow-2xl ${
             toast.type === "print"
               ? "border-sky-300 bg-sky-50 text-sky-800"
-              : "border-emerald-300 bg-emerald-50 text-emerald-800"
+              : "border-pf-success-soft bg-pf-success-soft text-pf-success"
           }`}
         >
           <div className="flex items-center gap-3">
@@ -1599,7 +1599,7 @@ export function NewSalePage() {
               {isEditMode ? "Editar venta" : "Nueva venta"}
             </h1>
 
-            <div className="w-full min-w-0 rounded-lg border border-slate-300 bg-white p-1.5 shadow-sm ring-1 ring-slate-200/70 sm:p-2">
+            <div className="w-full min-w-0 rounded-lg border border-pf-border bg-white p-1.5 shadow-sm ring-1 ring-slate-200/70 sm:p-2">
               <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
                 {/* Columna documento: Nº factura, términos, fecha */}
                 <div className="min-w-0 space-y-0.5 xl:col-span-2">
@@ -2250,14 +2250,14 @@ export function NewSalePage() {
         </div>
 
         {/* Resumen monetario (antes estaba duplicado en la cabecera) */}
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm shadow-sm sm:gap-x-8">
-          <div className="rounded-lg bg-slate-100 px-3 py-2 text-right">
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 rounded-xl border border-pf-border bg-white px-4 py-3 text-sm shadow-sm sm:gap-x-8">
+          <div className="rounded-lg bg-pf-surface px-3 py-2 text-right">
             <span className="font-medium text-pf-muted">Subtotal</span>
             <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
               {formatMoney(sym, totals.subtotal)}
             </span>
           </div>
-          <div className="rounded-lg bg-slate-100 px-3 py-2 text-right">
+          <div className="rounded-lg bg-pf-surface px-3 py-2 text-right">
             <span className="font-medium text-pf-muted">Impuesto</span>
             <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
               {formatMoney(sym, totals.tax)}
@@ -2275,15 +2275,15 @@ export function NewSalePage() {
           <div
             className={`mt-2 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${
               posBehavior.warnOutOfStock
-                ? "border-amber-300/80 bg-amber-50/90"
+                ? "border-pf-warning-soft/80 bg-pf-warning-soft/90"
                 : "border-pf-danger/40 bg-pf-danger-soft/30"
             }`}
           >
             <AlertTriangle
-              className={`mt-0.5 h-4 w-4 shrink-0 ${posBehavior.warnOutOfStock ? "text-amber-700" : "text-pf-danger"}`}
+              className={`mt-0.5 h-4 w-4 shrink-0 ${posBehavior.warnOutOfStock ? "text-pf-warning" : "text-pf-danger"}`}
             />
             <p
-              className={`font-medium ${posBehavior.warnOutOfStock ? "text-amber-950" : "text-pf-danger"}`}
+              className={`font-medium ${posBehavior.warnOutOfStock ? "text-pf-warning" : "text-pf-danger"}`}
             >
               {posBehavior.warnOutOfStock
                 ? stockIssueCount === 1
@@ -2295,7 +2295,7 @@ export function NewSalePage() {
             </p>
           </div>
         )}
-        {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
+        {err ? <p className="mt-2 text-sm text-pf-danger">{err}</p> : null}
         <Modal
           open={customerSearchOpen}
           title="Buscar cliente"
@@ -2505,7 +2505,7 @@ export function NewSalePage() {
           </div>
 
           {productSearchErr ? (
-            <p className="mt-3 text-sm text-red-600">{productSearchErr}</p>
+            <p className="mt-3 text-sm text-pf-danger">{productSearchErr}</p>
           ) : null}
 
           <div className="mt-3 max-h-[min(65vh,560px)] overflow-auto rounded-xl border border-pf-border bg-pf-surface-elevated shadow-sm">
@@ -2750,7 +2750,7 @@ export function NewSalePage() {
                   <div
                     className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
                       cambio > 0
-                        ? "border-emerald-300 bg-emerald-50"
+                        ? "border-pf-success-soft bg-pf-success-soft"
                         : "border-pf-border bg-pf-surface-elevated"
                     }`}
                   >
@@ -2758,7 +2758,7 @@ export function NewSalePage() {
                       Cambio
                     </span>
                     <span
-                      className={`text-xl font-black tabular-nums ${cambio > 0 ? "text-emerald-600" : "text-pf-text-tertiary"}`}
+                      className={`text-xl font-black tabular-nums ${cambio > 0 ? "text-pf-success" : "text-pf-text-tertiary"}`}
                     >
                       {formatMoney(sym, cambio)}
                     </span>
@@ -2767,7 +2767,7 @@ export function NewSalePage() {
                   <div
                     className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
                       saldo > 0
-                        ? "border-amber-300 bg-amber-50"
+                        ? "border-pf-warning-soft bg-pf-warning-soft"
                         : "border-pf-border bg-pf-surface-elevated"
                     }`}
                   >
@@ -2783,7 +2783,7 @@ export function NewSalePage() {
                 </div>
 
                 {err ? (
-                  <p className="text-sm font-medium text-red-600">{err}</p>
+                  <p className="text-sm font-medium text-pf-danger">{err}</p>
                 ) : null}
 
                 <Button

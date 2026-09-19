@@ -179,7 +179,7 @@ export function SuppliersPage() {
             />
           </Field>
         </div>
-        {err ? <p className="text-sm text-red-600 mt-2">{err}</p> : null}
+        {err ? <p className="text-sm text-pf-danger mt-2">{err}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <Button
             variant="secondary"

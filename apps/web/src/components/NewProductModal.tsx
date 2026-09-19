@@ -459,7 +459,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                       const newPrice = c > 0 ? +(c * (1 + pct / 100)).toFixed(4) : 0;
                       setForm((f) => ({ ...f, price: String(newPrice) }));
                     }}
-                    className="text-emerald-700 font-semibold"
+                    className="text-pf-success font-semibold"
                     onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-margin", NP_SAVE_SELECTOR)}
                   />
                 </Field>
@@ -486,7 +486,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                 </Field>
                 <Field label="Utilidad">
                   <div className={`flex min-h-[42px] items-center rounded-[var(--radius-pf)] border border-pf-border px-3 text-sm font-bold tabular-nums shadow-[var(--pf-control-shadow)] ${
-                    (Number(form.price) || 0) - (Number(form.cost) || 0) >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"
+                    (Number(form.price) || 0) - (Number(form.cost) || 0) >= 0 ? "bg-pf-success-soft text-pf-success" : "bg-pf-danger-soft text-pf-danger"
                   }`}>
                     {((Number(form.price) || 0) - (Number(form.cost) || 0)).toFixed(2)}
                   </div>
@@ -673,7 +673,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                             id={`np-pr-${key}-margin`}
                             type="number"
                             step="any"
-                            className="min-h-9 py-1 text-right text-emerald-700 font-semibold"
+                            className="min-h-9 py-1 text-right text-pf-success font-semibold"
                             value={c > 0 && form[key] !== "" ? margin.toFixed(2) : ""}
                             onChange={(e) => {
                               const pct = Number(e.target.value) || 0;
@@ -685,7 +685,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                             }
                           />
                         </td>
-                        <td className={`px-2 py-2 text-right tabular-nums font-bold ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                        <td className={`px-2 py-2 text-right tabular-nums font-bold ${profit >= 0 ? "text-pf-success" : "text-pf-danger"}`}>
                           {form[key] !== "" ? profit.toFixed(2) : "—"}
                         </td>
                         <td className="px-2 py-2 text-right tabular-nums font-medium text-pf-text-secondary">
@@ -758,7 +758,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                     <Button
                       type="button"
                       variant="ghost"
-                      className="min-h-10 shrink-0 text-red-600 hover:bg-red-50"
+                      className="min-h-10 shrink-0 text-pf-danger hover:bg-pf-danger-soft"
                       aria-label="Quitar tramo"
                       onClick={() =>
                         setForm((f) => ({
@@ -851,7 +851,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                   <Button
                     type="button"
                     variant="ghost"
-                    className="min-h-10 shrink-0 text-red-600"
+                    className="min-h-10 shrink-0 text-pf-danger"
                     aria-label="Quitar"
                     onClick={() => setKitRows((rows) => rows.filter((_, j) => j !== idx))}
                   >
@@ -878,7 +878,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
         </Field>
       ) : null}
 
-      {err ? <p className="mt-3 text-sm font-medium text-red-600">{err}</p> : null}
+      {err ? <p className="mt-3 text-sm font-medium text-pf-danger">{err}</p> : null}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-pf-border pt-4">
         <Button

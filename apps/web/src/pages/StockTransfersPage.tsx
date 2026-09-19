@@ -403,7 +403,7 @@ export function StockTransfersPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        className="min-h-11 touch-manipulation text-xs font-bold text-red-700 sm:min-h-9"
+                        className="min-h-11 touch-manipulation text-xs font-bold text-pf-danger sm:min-h-9"
                         onClick={() => removeLine(i)}
                       >
                         Quitar
@@ -418,7 +418,7 @@ export function StockTransfersPage() {
           <p className="text-xs text-pf-muted">Agregue productos para crear el borrador.</p>
         )}
         {err ? (
-          <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
+          <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">{err}</p>
         ) : null}
         <Button
           type="button"

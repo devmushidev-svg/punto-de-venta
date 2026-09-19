@@ -125,7 +125,7 @@ export function EmployeesPage() {
       <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-blue-50/12 to-indigo-50/20 p-0 shadow-lg backdrop-blur-sm">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-stone-200/80 bg-gradient-to-r from-blue-50/95 to-indigo-50/70 text-left text-xs font-bold text-stone-600 shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-blue-50/95 to-indigo-50/70 text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
               <th className="p-3">Código</th>
               <th className="p-3">Nombre</th>
               <th className="p-3">Puesto</th>
@@ -136,9 +136,9 @@ export function EmployeesPage() {
           </thead>
           <tbody>
             {list.map((e) => (
-              <tr key={e.id} className="border-b border-stone-100/90 transition hover:bg-blue-50/30">
+              <tr key={e.id} className="border-b border-pf-border/90 transition hover:bg-blue-50/30">
                 <td className="p-3 font-mono text-xs">{e.employeeCode ?? "—"}</td>
-                <td className="p-3 font-medium text-stone-900">{e.name}</td>
+                <td className="p-3 font-medium text-pf-text">{e.name}</td>
                 <td className="p-3 text-pf-muted">{e.position ?? "—"}</td>
                 <td className="p-3 whitespace-nowrap text-pf-muted">
                   {e.hireDate ? formatDate(e.hireDate) : "—"}
@@ -199,7 +199,7 @@ export function EmployeesPage() {
             <Textarea rows={2} value={form.notes} onChange={(ev) => setForm((f) => ({ ...f, notes: ev.target.value }))} />
           </Field>
         </div>
-        {err ? <p className="text-sm text-red-600 mt-2">{err}</p> : null}
+        {err ? <p className="text-sm text-pf-danger mt-2">{err}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="secondary" type="button" onClick={() => setModal(null)}>
             Cancelar

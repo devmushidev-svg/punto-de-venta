@@ -206,7 +206,7 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, initia
         </div>
       ) : null}
 
-      {err ? <p className="mt-3 text-sm font-medium text-red-600">{err}</p> : null}
+      {err ? <p className="mt-3 text-sm font-medium text-pf-danger">{err}</p> : null}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-pf-border pt-4">
         <Button

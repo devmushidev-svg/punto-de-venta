@@ -740,7 +740,7 @@ export function ProductsPage() {
         {movementsLoading ? (
           <p className="text-sm text-pf-muted py-6 text-center">Cargando historial…</p>
         ) : movementsErr ? (
-          <p className="text-sm text-red-600">{movementsErr}</p>
+          <p className="text-sm text-pf-danger">{movementsErr}</p>
         ) : movements.length === 0 ? (
           <p className="text-sm text-pf-muted py-4">No hay movimientos registrados para este producto.</p>
         ) : (
@@ -1180,7 +1180,7 @@ export function ProductsPage() {
                     <Button
                       type="button"
                       variant="ghost"
-                      className="min-h-10 text-red-600 shrink-0"
+                      className="min-h-10 text-pf-danger shrink-0"
                       aria-label="Quitar componente"
                       onClick={() => setKitRows((rows) => rows.filter((_, j) => j !== idx))}
                     >
@@ -1203,7 +1203,7 @@ export function ProductsPage() {
           </Field>
         ) : null}
 
-        {err ? <p className="mt-3 text-sm text-red-600">{err}</p> : null}
+        {err ? <p className="mt-3 text-sm text-pf-danger">{err}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="secondary" type="button" onClick={closeModal}>
             Cancelar

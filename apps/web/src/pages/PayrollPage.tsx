@@ -249,7 +249,7 @@ export function PayrollPage() {
     <div className="space-y-4 pf-safe-page">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <PageHero title={"Planillas"} constrained>
-          <p className="mt-1.5 text-sm font-medium text-stone-700 max-w-xl">
+          <p className="mt-1.5 text-sm font-medium text-pf-text-secondary max-w-xl">
             {canManage
               ? "Resumen mensual por empleado (bruto, deducciones, neto). Puede detallar deducciones por concepto (IHSS, rap, etc.) o usar un solo monto de deducciones como antes."
               : "Consulta de planillas registradas. Solo un administrador puede crear o cerrar periodos."}
@@ -272,7 +272,7 @@ export function PayrollPage() {
       <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-violet-50/15 to-fuchsia-50/15 p-0 shadow-lg backdrop-blur-sm">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-stone-200/80 bg-gradient-to-r from-violet-50/95 to-fuchsia-50/60 text-left text-xs font-bold text-stone-600 shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-violet-50/95 to-fuchsia-50/60 text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
               <th className="p-3">Periodo</th>
               <th className="p-3">Estado</th>
               <th className="p-3">Líneas</th>
@@ -295,8 +295,8 @@ export function PayrollPage() {
               </tr>
             ) : (
               periods.map((p) => (
-                <tr key={p.id} className="border-b border-stone-100/90 transition hover:bg-violet-50/30">
-                  <td className="p-3 font-medium text-stone-900">
+                <tr key={p.id} className="border-b border-pf-border/90 transition hover:bg-violet-50/30">
+                  <td className="p-3 font-medium text-pf-text">
                     {MONTHS.find(([n]) => n === p.month)?.[1] ?? p.month} {p.year}
                   </td>
                   <td className="p-3">{p.status === "CERRADA" ? "Cerrada" : "Borrador"}</td>
@@ -382,9 +382,9 @@ export function PayrollPage() {
                   <Input value={l.notes} onChange={(e) => setLine(i, { notes: e.target.value })} placeholder="Opcional" />
                 </Field>
               </div>
-              <div className="rounded-md bg-stone-50 border border-pf-border/80 p-2 space-y-2">
+              <div className="rounded-md bg-pf-surface border border-pf-border/80 p-2 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-stone-700">Deducciones por concepto</span>
+                  <span className="text-xs font-medium text-pf-text-secondary">Deducciones por concepto</span>
                   <Button type="button" variant="secondary" className="h-8 text-xs" onClick={() => addDeductionItem(i)}>
                     <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
                     Añadir concepto
@@ -430,7 +430,7 @@ export function PayrollPage() {
           <Plus className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
           Añadir línea
         </Button>
-        {err ? <p className="text-sm text-red-600 mt-2">{err}</p> : null}
+        {err ? <p className="text-sm text-pf-danger mt-2">{err}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="secondary" type="button" onClick={() => setCreateOpen(false)}>
             Cancelar
@@ -455,7 +455,7 @@ export function PayrollPage() {
         {detail ? (
           <div className="space-y-3">
             <p className="text-sm text-pf-muted">
-              Estado: <strong className="text-stone-800">{detail.status === "CERRADA" ? "Cerrada" : "Borrador"}</strong>
+              Estado: <strong className="text-pf-text">{detail.status === "CERRADA" ? "Cerrada" : "Borrador"}</strong>
               {detail.notes ? (
                 <>
                   {" "}
@@ -466,7 +466,7 @@ export function PayrollPage() {
             <div className="overflow-x-auto border border-pf-border rounded-lg">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-stone-50 border-b border-pf-border text-left text-pf-muted">
+                  <tr className="bg-pf-surface border-b border-pf-border text-left text-pf-muted">
                     <th className="p-2 font-medium">Empleado</th>
                     <th className="p-2 font-medium text-right">Bruto</th>
                     <th className="p-2 font-medium text-right">Deducc.</th>
@@ -488,9 +488,9 @@ export function PayrollPage() {
                         <td className="p-2 text-right font-medium tabular-nums">{formatMoney(sym, ln.net)}</td>
                       </tr>
                       {ln.deductionItems && ln.deductionItems.length > 0 ? (
-                        <tr className="border-b border-pf-border/80 bg-stone-50/80">
+                        <tr className="border-b border-pf-border/80 bg-pf-surface/80">
                           <td colSpan={4} className="p-2 pl-6 text-xs text-pf-muted">
-                            <span className="font-medium text-stone-600">Desglose: </span>
+                            <span className="font-medium text-pf-text-tertiary">Desglose: </span>
                             <ul className="mt-1 list-disc list-inside space-y-0.5">
                               {ln.deductionItems.map((di) => (
                                 <li key={di.id}>
@@ -505,7 +505,7 @@ export function PayrollPage() {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-stone-50 font-medium">
+                  <tr className="bg-pf-surface font-medium">
                     <td className="p-2">Total neto</td>
                     <td className="p-2" colSpan={2} />
                     <td className="p-2 text-right tabular-nums">
@@ -521,7 +521,7 @@ export function PayrollPage() {
                 Cerrar planilla
               </Button>
             ) : null}
-            {err ? <p className="text-sm text-red-600">{err}</p> : null}
+            {err ? <p className="text-sm text-pf-danger">{err}</p> : null}
           </div>
         ) : null}
       </Modal>

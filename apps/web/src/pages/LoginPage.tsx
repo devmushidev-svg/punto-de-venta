@@ -80,7 +80,7 @@ export function LoginPage() {
         <form onSubmit={onSubmit} className="space-y-4">
           <Field label="Empresa">
             <select
-              className="w-full min-h-[48px] rounded-xl border border-stone-200/90 bg-white/95 px-3.5 py-2.5 text-stone-900 shadow-inner shadow-stone-900/[0.03] backdrop-blur-sm focus:border-pf-primary focus:ring-2 focus:ring-pf-primary/25 focus:outline-none md:min-h-[44px] md:rounded-[var(--radius-pf)] md:border-pf-border md:bg-white md:shadow-none"
+              className="w-full min-h-[48px] rounded-xl border border-pf-border/90 bg-white/95 px-3.5 py-2.5 text-pf-text shadow-inner shadow-stone-900/[0.03] backdrop-blur-sm focus:border-pf-primary focus:ring-2 focus:ring-pf-primary/25 focus:outline-none md:min-h-[44px] md:rounded-[var(--radius-pf)] md:border-pf-border md:bg-white md:shadow-none"
               value={orgId}
               onChange={(e) => setOrgId(e.target.value)}
               required={orgs.length > 0}
@@ -101,7 +101,7 @@ export function LoginPage() {
           </Field>
           {orgs.find((o) => o.id === orgId)?.slug === "demo" ? (
             <p className="text-xs text-pf-muted leading-relaxed -mt-1">
-              Base <strong className="text-pf-text-secondary">demo</strong> (tras <code className="rounded bg-stone-100 px-1 text-[11px]">npm run db:seed</code>
+              Base <strong className="text-pf-text-secondary">demo</strong> (tras <code className="rounded bg-pf-surface px-1 text-[11px]">npm run db:seed</code>
               ): <strong className="text-pf-text-secondary">ADMIN</strong> / <strong className="text-pf-text-secondary">admin</strong> o{" "}
               <strong className="text-pf-text-secondary">CAJERO</strong> / <strong className="text-pf-text-secondary">cajero</strong> — mismo espíritu que el manual Smart POS.
             </p>
@@ -134,7 +134,7 @@ export function LoginPage() {
               </button>
             </div>
           </Field>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? <p className="text-sm text-pf-danger">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={busy || (orgs.length > 0 && !orgId)}>
             <LogIn className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
             {busy ? "Entrando…" : "Iniciar sesión"}

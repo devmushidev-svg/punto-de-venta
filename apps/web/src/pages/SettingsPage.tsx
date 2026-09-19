@@ -813,9 +813,9 @@ export function SettingsPage() {
                   onChange={(e) => void mergeBackupMaster(e.target.files?.[0] ?? null)}
                 />
               </div>
-              <div className="border-t border-red-200/80 bg-red-50/40 pt-4">
-                <p className="text-sm font-bold text-red-900">Restauración total (peligro)</p>
-                <p className="mt-0.5 text-xs text-red-900/80">
+              <div className="border-t border-pf-danger-soft/80 bg-pf-danger-soft/40 pt-4">
+                <p className="text-sm font-bold text-pf-danger">Restauración total (peligro)</p>
+                <p className="mt-0.5 text-xs text-pf-danger/80">
                   Solo si descargó un JSON de respaldo <strong>nuevo</strong> (incluye <code className="text-[11px]">passwordHash</code> en
                   usuarios). El archivo debe ser de <strong>esta misma</strong> organización.
                 </p>

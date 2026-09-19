@@ -40,14 +40,14 @@ export function HelpPage() {
           </li>
         </ul>
         <p className="text-xs text-pf-text-tertiary">
-          Equivale a la clave <code className="rounded bg-stone-100 px-1 text-[11px]">salesWorkflow</code> en el JSON general del API.
+          Equivale a la clave <code className="rounded bg-pf-surface px-1 text-[11px]">salesWorkflow</code> en el JSON general del API.
         </p>
       </Section>
 
       <Section title="Impresión térmica (80 mm)">
         <p>
           Abra el ticket desde la <strong>lista de ventas</strong> (enlace en cada fila) o desde el comprobante carta. La ruta es{" "}
-          <code className="rounded bg-stone-100 px-1 text-xs">/ventas/…/ticket</code>.
+          <code className="rounded bg-pf-surface px-1 text-xs">/ventas/…/ticket</code>.
         </p>
         <p>
           El texto del ticket se configura en <strong>Configuración → Factura y ticket</strong> (JSON <code className="text-xs">invoice.ticket</code>
@@ -61,7 +61,7 @@ export function HelpPage() {
 
       <Section title="Comprobante carta y PDF">
         <p>
-          Vista HTML: <code className="rounded bg-stone-100 px-1 text-xs">/ventas/…/comprobante</code>. Use{" "}
+          Vista HTML: <code className="rounded bg-pf-surface px-1 text-xs">/ventas/…/comprobante</code>. Use{" "}
           <strong>Imprimir / PDF (navegador)</strong> y “Guardar como PDF” si lo prefiere desde el navegador.
         </p>
         <p>
