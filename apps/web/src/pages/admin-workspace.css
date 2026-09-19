@@ -38,7 +38,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
   background: var(--pf-surface-elevated);
   margin-bottom: 20px;
   overflow: hidden;
@@ -76,7 +76,7 @@
 }
 .pf-admin-surface {
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
   background: var(--pf-surface-elevated);
   box-shadow: var(--pf-shadow-sm);
   overflow: hidden;
@@ -227,7 +227,7 @@
 }
 .pf-admin-form {
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
   background: var(--pf-surface-elevated);
   padding: 20px;
   box-shadow: var(--pf-shadow-sm);
@@ -263,7 +263,7 @@
 }
 .pf-admin-disclosure {
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
   background: var(--pf-surface-elevated);
 }
 .pf-admin-disclosure summary {

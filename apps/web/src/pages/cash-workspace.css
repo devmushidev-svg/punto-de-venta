@@ -85,7 +85,7 @@
   grid-template-columns: 1.1fr 1fr;
   background: var(--pf-surface-elevated);
   border: 1px solid var(--pf-border);
-  border-radius: 16px;
+  border-radius: var(--radius-pf);
   overflow: hidden;
 }
 .cash-start-copy {
@@ -194,7 +194,7 @@
   gap: 10px;
   align-items: center;
   padding: 12px 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-pf);
   background: var(--pf-success-soft);
   color: var(--pf-success);
   margin-bottom: 20px;
@@ -279,7 +279,7 @@
 .cash-panel {
   background: var(--pf-surface-elevated);
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
   padding: 24px;
   margin-bottom: 20px;
   min-width: 0;
@@ -294,7 +294,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
   background: var(--pf-surface-elevated);
   margin-bottom: 24px;
   overflow: hidden;
@@ -416,7 +416,7 @@
 .cash-activity {
   margin-top: 28px;
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
   background: var(--pf-surface-elevated);
   overflow: hidden;
 }
@@ -581,7 +581,7 @@
   text-align: center;
   background: var(--pf-surface-elevated);
   border: 1px solid var(--pf-border);
-  border-radius: 14px;
+  border-radius: var(--radius-pf);
 }
 .cash-empty svg {
   margin: 0 auto 14px;
