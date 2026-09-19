@@ -173,7 +173,7 @@ export function AccountsPayablePage() {
         <div className="pf-admin-table-wrap">
           <table className="w-full min-w-[1020px] text-sm">
             <thead className="sticky top-0 z-10">
-              <tr className="border-b border-pf-border/80 bg-gradient-to-r from-teal-50/90 via-pf-primary-soft/45 to-violet-50/75 text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
+              <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
                 <th className="p-2">Ref.</th>
                 <th className="p-2">Fecha</th>
                 <th className="p-2">Proveedor</th>

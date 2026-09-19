@@ -203,7 +203,7 @@ export function CompanyInfoPage() {
 
   if (loading) {
     return (
-      <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted backdrop-blur-sm">
+      <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted">
         Cargando información de la empresa…
       </p>
     );
@@ -225,13 +225,13 @@ export function CompanyInfoPage() {
           Datos fiscales, contacto, logo y moneda; se usan en tickets y documentos.
         </p>
         {!admin ? (
-          <p className="mt-3 rounded-2xl border border-pf-warning-soft/70 bg-gradient-to-r from-amber-50 to-orange-50/80 px-3 py-2.5 text-sm font-medium text-pf-warning shadow-sm">
+          <p className="mt-3 rounded-2xl border border-pf-warning-soft bg-pf-warning-soft px-3 py-2.5 text-sm font-medium text-pf-warning shadow-sm">
             Solo los administradores pueden editar.
           </p>
         ) : null}
       </PageHero>
 
-      <Card className="border-white/50 bg-gradient-to-br from-white/95 via-orange-50/10 to-sky-50/20 p-5 shadow-lg backdrop-blur-sm md:p-6">
+      <Card className="p-5 shadow-lg md:p-6">
         <div className="grid gap-8 lg:grid-cols-2 lg:gap-10">
           <div className="space-y-8">
             <section>
@@ -383,7 +383,7 @@ export function CompanyInfoPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-pf-warning-soft/40 bg-gradient-to-br from-pf-primary-soft/50 to-sky-50/30 p-4 shadow-md backdrop-blur-sm">
+            <section className="rounded-2xl border border-pf-warning-soft/40 bg-pf-primary-soft p-4 shadow-md">
               <h2 className="mb-3 text-sm font-bold text-pf-text">Idioma / formato de fecha y moneda</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Idioma">

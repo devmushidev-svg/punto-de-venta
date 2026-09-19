@@ -285,23 +285,23 @@ export function NewQuotePage({
         <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">{loadErr}</p>
       ) : null}
       {editLoading ? (
-        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-3 text-center text-sm font-medium text-pf-muted backdrop-blur-sm">
+        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-3 text-center text-sm font-medium text-pf-muted">
           Cargando cotización…
         </p>
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-fuchsia-50/12 to-orange-50/15 p-4 shadow-lg backdrop-blur-sm lg:col-span-2 md:p-5">
+        <Card className="space-y-4 p-4 shadow-lg lg:col-span-2 md:p-5">
           <Field label="Buscar producto">
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nombre o SKU" />
           </Field>
           {hits.length > 0 ? (
-            <ul className="max-h-52 divide-y divide-pf-border/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 shadow-inner backdrop-blur-sm">
+            <ul className="max-h-52 divide-y divide-pf-border/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 shadow-inner">
               {hits.map((p) => (
                 <li key={p.id}>
                   <button
                     type="button"
-                    className="flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-2 px-4 py-3 text-left text-sm font-medium transition hover:bg-gradient-to-r hover:from-fuchsia-50/70 hover:to-transparent"
+                    className="flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-2 px-4 py-3 text-left text-sm font-medium transition hover:bg-pf-surface"
                     onClick={() => addProduct(p)}
                   >
                     <span className="truncate font-medium">{p.name}</span>
@@ -314,10 +314,10 @@ export function NewQuotePage({
             </ul>
           ) : null}
 
-          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner backdrop-blur-sm">
+          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner">
             <table className="w-full min-w-[480px] text-sm">
               <thead>
-                <tr className="bg-gradient-to-r from-fuchsia-50/90 to-orange-50/50 text-left text-xs font-bold text-pf-text-secondary">
+                <tr className="bg-pf-surface text-left text-xs font-bold text-pf-text-secondary">
                   <th className="p-2">Producto</th>
                   <th className="p-2 w-24">Cant.</th>
                   <th className="p-2 w-28">P. unit.</th>
@@ -333,7 +333,7 @@ export function NewQuotePage({
                   </tr>
                 ) : (
                   lines.map((l, i) => (
-                    <tr key={l.productId} className="border-t border-pf-border/90 transition hover:bg-fuchsia-50/25">
+                    <tr key={l.productId} className="border-t border-pf-border/90 transition hover:bg-pf-surface">
                       <td className="p-2 font-bold text-pf-text">{l.product.name}</td>
                       <td className="p-2">
                         <Input
@@ -376,7 +376,7 @@ export function NewQuotePage({
           </div>
         </Card>
 
-        <Card className="h-fit space-y-3 border-white/50 bg-gradient-to-b from-white/95 via-orange-50/20 to-pf-primary-soft/30 p-4 shadow-lg backdrop-blur-sm lg:sticky lg:top-4 md:p-5">
+        <Card className="h-fit space-y-3 border-white/50 p-4 shadow-lg lg:sticky lg:top-4 md:p-5">
           <Field label="Cliente">
             <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
               <option value="">Sin cliente</option>
@@ -400,7 +400,7 @@ export function NewQuotePage({
           <Field label="Notas">
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
-          <div className="space-y-1 rounded-2xl border border-pf-warning-soft/40 bg-gradient-to-br from-pf-primary-soft/90 to-amber-50/50 p-3 text-sm shadow-inner">
+          <div className="space-y-1 rounded-2xl border border-pf-warning-soft/40 bg-pf-primary-soft p-3 text-sm shadow-inner">
             <div className="flex justify-between">
               <span className="text-pf-muted">Subtotal</span>
               <span>{formatMoney(sym, totals.subtotal)}</span>

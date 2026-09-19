@@ -1578,7 +1578,7 @@ export function NewSalePage() {
         <div
           className={`fixed left-1/2 top-6 z-[9999] -translate-x-1/2 animate-[toast-in_0.35s_ease-out] rounded-2xl border px-6 py-4 shadow-2xl ${
             toast.type === "print"
-              ? "border-sky-300 bg-sky-50 text-sky-800"
+              ? "border-pf-info-soft bg-pf-info-soft text-pf-info"
               : "border-pf-success-soft bg-pf-success-soft text-pf-success"
           }`}
         >
@@ -1599,7 +1599,7 @@ export function NewSalePage() {
               {isEditMode ? "Editar venta" : "Nueva venta"}
             </h1>
 
-            <div className="w-full min-w-0 rounded-lg border border-pf-border bg-white p-1.5 shadow-sm ring-1 ring-slate-200/70 sm:p-2">
+            <div className="w-full min-w-0 rounded-lg border border-pf-border bg-white p-1.5 shadow-sm ring-1 ring-pf-border/70 sm:p-2">
               <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
                 {/* Columna documento: Nº factura, términos, fecha */}
                 <div className="min-w-0 space-y-0.5 xl:col-span-2">
@@ -2063,7 +2063,7 @@ export function NewSalePage() {
                 <tr
                   key={l.lineKey}
                   onClick={() => setSelectedLineIndex(i)}
-                  className={`pf-table-row cursor-pointer transition hover:bg-sky-50 ${
+                  className={`pf-table-row cursor-pointer transition hover:bg-pf-surface ${
                     selectedLineIndex === i
                       ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
                       : posBehavior.showStockWhileSelling &&
@@ -2263,8 +2263,8 @@ export function NewSalePage() {
               {formatMoney(sym, totals.tax)}
             </span>
           </div>
-          <div className="rounded-lg bg-slate-900 px-4 py-2 text-right text-white shadow-md">
-            <span className="font-bold text-slate-300">Total</span>
+          <div className="rounded-lg bg-[color:var(--pf-text)] px-4 py-2 text-right text-white shadow-md">
+            <span className="font-bold text-pf-surface-muted">Total</span>
             <span className="ml-2 text-base font-black tabular-nums text-white sm:text-xl">
               {formatMoney(sym, totals.total)}
             </span>
@@ -2775,7 +2775,7 @@ export function NewSalePage() {
                       Saldo
                     </span>
                     <span
-                      className={`text-xl font-black tabular-nums ${saldo > 0 ? "text-amber-600" : "text-pf-text-tertiary"}`}
+                      className={`text-xl font-black tabular-nums ${saldo > 0 ? "text-pf-warning" : "text-pf-text-tertiary"}`}
                     >
                       {formatMoney(sym, saldo)}
                     </span>

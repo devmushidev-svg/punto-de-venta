@@ -374,7 +374,7 @@ export function StockTransfersPage() {
           </ul>
         ) : null}
         {lines.length > 0 ? (
-          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner backdrop-blur-sm">
+          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner">
             <table className="w-full min-w-[400px] text-sm">
               <thead>
                 <tr className="border-b border-pf-border text-left text-[11px] font-semibold uppercase tracking-wider text-pf-muted">

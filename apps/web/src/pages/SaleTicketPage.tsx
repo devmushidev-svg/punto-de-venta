@@ -88,7 +88,7 @@ export function SaleTicketPage() {
   if (!sale) {
     return (
       <div className="space-y-4 pf-safe-page">
-        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted backdrop-blur-sm">
+        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted">
           Cargando ticket…
         </p>
         {!isEmbed && (
@@ -128,7 +128,7 @@ export function SaleTicketPage() {
         </div>
       )}
 
-      <Card className="border-white/50 bg-white/95 p-6 shadow-lg backdrop-blur-sm print:border-0 print:bg-white print:shadow-none" id="ticket">
+      <Card className="border-white/50 bg-white/95 p-6 shadow-lg print:border-0 print:bg-white print:shadow-none" id="ticket">
         <div className="text-center border-b border-pf-border pb-4 mb-4">
           <h1 className="text-xl font-bold text-pf-text">{organization?.name ?? "MultiPOS"}</h1>
           {ticket.headerLine ? (

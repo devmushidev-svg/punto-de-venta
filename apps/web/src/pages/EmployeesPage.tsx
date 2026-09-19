@@ -122,10 +122,10 @@ export function EmployeesPage() {
         </Button>
       </div>
 
-      <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-blue-50/12 to-indigo-50/20 p-0 shadow-lg backdrop-blur-sm">
+      <Card className="overflow-x-auto p-0 shadow-lg">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-blue-50/95 to-indigo-50/70 text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
               <th className="p-3">Código</th>
               <th className="p-3">Nombre</th>
               <th className="p-3">Puesto</th>
@@ -136,7 +136,7 @@ export function EmployeesPage() {
           </thead>
           <tbody>
             {list.map((e) => (
-              <tr key={e.id} className="border-b border-pf-border/90 transition hover:bg-blue-50/30">
+              <tr key={e.id} className="border-b border-pf-border/90 transition hover:bg-pf-surface">
                 <td className="p-3 font-mono text-xs">{e.employeeCode ?? "—"}</td>
                 <td className="p-3 font-medium text-pf-text">{e.name}</td>
                 <td className="p-3 text-pf-muted">{e.position ?? "—"}</td>

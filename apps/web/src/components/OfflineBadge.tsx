@@ -40,10 +40,10 @@ export function OfflineBadge() {
   if (online && pending === 0 && failed === 0) return null;
 
   const tone = failed
-    ? "border-red-400/40 bg-red-500/15 text-red-200"
+    ? "border-pf-danger-soft bg-pf-danger-soft text-pf-danger"
     : !online
-      ? "border-amber-400/40 bg-amber-500/15 text-amber-100"
-      : "border-sky-400/40 bg-sky-500/15 text-sky-100";
+      ? "border-pf-warning-soft bg-pf-warning-soft text-pf-warning"
+      : "border-pf-info-soft bg-pf-info-soft text-pf-info";
 
   const label = !online ? "Sin conexión" : failed ? `${failed} rechazada(s)` : `Enviando ${pending}…`;
   const title = failed

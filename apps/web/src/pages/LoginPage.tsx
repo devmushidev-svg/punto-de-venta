@@ -80,7 +80,7 @@ export function LoginPage() {
         <form onSubmit={onSubmit} className="space-y-4">
           <Field label="Empresa">
             <select
-              className="w-full min-h-[48px] rounded-xl border border-pf-border/90 bg-white/95 px-3.5 py-2.5 text-pf-text shadow-inner shadow-stone-900/[0.03] backdrop-blur-sm focus:border-pf-primary focus:ring-2 focus:ring-pf-primary/25 focus:outline-none md:min-h-[44px] md:rounded-[var(--radius-pf)] md:border-pf-border md:bg-white md:shadow-none"
+              className="w-full min-h-[48px] rounded-xl border border-pf-border/90 bg-white/95 px-3.5 py-2.5 text-pf-text shadow-inner focus:border-pf-primary focus:ring-2 focus:ring-pf-primary/25 focus:outline-none md:min-h-[44px] md:rounded-[var(--radius-pf)] md:border-pf-border md:bg-white md:shadow-none"
               value={orgId}
               onChange={(e) => setOrgId(e.target.value)}
               required={orgs.length > 0}

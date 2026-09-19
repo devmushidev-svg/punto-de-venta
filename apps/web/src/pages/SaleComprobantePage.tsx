@@ -90,7 +90,7 @@ export function SaleComprobantePage() {
   if (!sale) {
     return (
       <div className="space-y-4 pf-safe-page">
-        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted backdrop-blur-sm">
+        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted">
           Cargando comprobante…
         </p>
         <Link
@@ -135,7 +135,7 @@ export function SaleComprobantePage() {
             </Button>
           </Link>
         </div>
-        <Card className="border-sky-200/60 bg-gradient-to-br from-sky-50/90 to-white/90 p-4 text-sm text-pf-text shadow-md backdrop-blur-sm">
+        <Card className="border-pf-info-soft bg-pf-info-soft p-4 text-sm text-pf-text shadow-md">
           <p className="font-medium text-pf-text">Impresión y PDF</p>
           <p className="mt-1 text-pf-text-tertiary">
             <strong className="font-semibold text-pf-text">Descargar PDF (servidor)</strong> genera el archivo en la API
@@ -143,7 +143,7 @@ export function SaleComprobantePage() {
             <strong className="font-semibold text-pf-text">Imprimir / PDF (navegador)</strong> abre el diálogo del
             sistema; elija <strong className="font-semibold text-pf-text">Guardar como PDF</strong> si prefiere desde el
             navegador. Térmica 80&nbsp;mm:{" "}
-            <Link to={`/ventas/${sale.id}/ticket`} className="font-medium text-sky-900 underline-offset-2 hover:underline">
+            <Link to={`/ventas/${sale.id}/ticket`} className="font-medium text-pf-primary-hover underline-offset-2 hover:underline">
               Ticket térmico
             </Link>
             .

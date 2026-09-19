@@ -269,10 +269,10 @@ export function PayrollPage() {
         </div>
       </div>
 
-      <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-violet-50/15 to-fuchsia-50/15 p-0 shadow-lg backdrop-blur-sm">
+      <Card className="overflow-x-auto p-0 shadow-lg">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-violet-50/95 to-fuchsia-50/60 text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
               <th className="p-3">Periodo</th>
               <th className="p-3">Estado</th>
               <th className="p-3">Líneas</th>
@@ -295,7 +295,7 @@ export function PayrollPage() {
               </tr>
             ) : (
               periods.map((p) => (
-                <tr key={p.id} className="border-b border-pf-border/90 transition hover:bg-violet-50/30">
+                <tr key={p.id} className="border-b border-pf-border/90 transition hover:bg-pf-surface">
                   <td className="p-3 font-medium text-pf-text">
                     {MONTHS.find(([n]) => n === p.month)?.[1] ?? p.month} {p.year}
                   </td>

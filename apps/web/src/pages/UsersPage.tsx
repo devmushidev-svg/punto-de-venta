@@ -146,7 +146,7 @@ export function UsersPage() {
         </Button>
       </div>
 
-      <Card className="border-white/50 bg-gradient-to-br from-white/95 via-violet-50/20 to-slate-50/40 p-4 shadow-lg backdrop-blur-sm">
+      <Card className="p-4 shadow-lg">
         <p className="mb-2 text-sm font-bold text-pf-text">Matriz de roles (resumen)</p>
         <ul className="space-y-1.5 text-sm text-pf-text-tertiary">
           {ROLES.map((r) => (
@@ -160,10 +160,10 @@ export function UsersPage() {
         </p>
       </Card>
 
-      <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 to-violet-50/15 p-0 shadow-lg backdrop-blur-sm">
+      <Card className="overflow-x-auto p-0 shadow-lg">
         <table className="w-full min-w-[520px] text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-violet-50/95 to-slate-50/70 text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
               <th className="p-3">Usuario</th>
               <th className="p-3">Nombre</th>
               <th className="p-3">Rol</th>
@@ -174,7 +174,7 @@ export function UsersPage() {
           </thead>
           <tbody>
             {list.map((u) => (
-              <tr key={u.id} className="border-b border-pf-border/90 transition hover:bg-violet-50/30">
+              <tr key={u.id} className="border-b border-pf-border/90 transition hover:bg-pf-surface">
                 <td className="p-3 font-mono">{u.username}</td>
                 <td className="p-3">{u.displayName}</td>
                 <td className="p-3 capitalize">{u.role}</td>

@@ -464,10 +464,10 @@ export function ExpensesPage() {
         </div>
       </Card>
 
-      <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-rose-50/12 to-violet-50/20 p-0 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm">
+      <Card className="overflow-x-auto p-0 shadow-lg">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-pf-border/80 bg-gradient-to-r from-rose-50/90 via-pf-primary-soft/40 to-violet-50/75 text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
+            <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
               <th className="p-3">Fecha</th>
               <th className="p-3">Libro</th>
               <th className="p-3">Categoría</th>

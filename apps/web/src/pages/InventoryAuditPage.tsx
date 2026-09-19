@@ -109,7 +109,7 @@ export function InventoryAuditPage() {
   if (user?.role !== "admin") {
     return (
       <div className="p-4 pf-safe-page">
-        <p className="rounded-2xl border border-pf-warning-soft/70 bg-gradient-to-r from-amber-50 to-orange-50/80 px-4 py-4 text-sm font-medium text-pf-warning shadow-sm">
+        <p className="rounded-2xl border border-pf-warning-soft bg-pf-warning-soft px-4 py-4 text-sm font-medium text-pf-warning shadow-sm">
           Solo el administrador puede registrar ajustes de inventario.
         </p>
       </div>
@@ -136,7 +136,7 @@ export function InventoryAuditPage() {
         </Button>
       </div>
 
-      <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-slate-50/25 to-amber-50/20 p-4 shadow-lg backdrop-blur-sm md:p-5">
+      <Card className="space-y-4 p-4 shadow-lg md:p-5">
         <div className="flex items-center gap-2 text-pf-text">
           <ClipboardCheck className="h-5 w-5 shrink-0 text-pf-warning/80" strokeWidth={2} aria-hidden />
           <h2 className="text-lg font-bold text-pf-text">Nuevo ajuste</h2>
@@ -159,12 +159,12 @@ export function InventoryAuditPage() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nombre o SKU" />
         </Field>
         {hits.length > 0 ? (
-          <ul className="max-h-48 divide-y divide-pf-border/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 text-sm shadow-inner backdrop-blur-sm">
+          <ul className="max-h-48 divide-y divide-pf-border/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 text-sm shadow-inner">
             {hits.map((p) => (
               <li key={p.id}>
                 <button
                   type="button"
-                  className="flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-2 px-4 py-3 text-left transition hover:bg-gradient-to-r hover:from-amber-50/80 hover:to-transparent"
+                  className="flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-2 px-4 py-3 text-left transition hover:bg-pf-surface"
                   onClick={() => addProduct(p)}
                 >
                   <span className="font-medium truncate">{p.name}</span>
@@ -175,10 +175,10 @@ export function InventoryAuditPage() {
           </ul>
         ) : null}
         {lines.length > 0 ? (
-          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner backdrop-blur-sm">
+          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner">
             <table className="w-full min-w-[480px] text-sm">
               <thead>
-                <tr className="bg-gradient-to-r from-slate-50/95 to-amber-50/50 text-left text-xs font-bold text-pf-text-secondary">
+                <tr className="bg-pf-surface text-left text-xs font-bold text-pf-text-secondary">
                   <th className="p-2">Producto</th>
                   <th className="p-2 w-36">Cambio (+/−)</th>
                   <th className="p-2 w-12" />
@@ -234,8 +234,8 @@ export function InventoryAuditPage() {
         </Button>
       </Card>
 
-      <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-slate-50/15 to-amber-50/12 p-0 shadow-lg backdrop-blur-sm">
-        <div className="flex items-center gap-2 border-b border-pf-border/80 bg-gradient-to-r from-white/90 to-slate-50/40 px-4 py-3">
+      <Card className="overflow-x-auto p-0 shadow-lg">
+        <div className="flex items-center gap-2 border-b border-pf-border/80 bg-pf-surface px-4 py-3">
           <History className="h-5 w-5 shrink-0 text-pf-muted" strokeWidth={2} aria-hidden />
           <h2 className="text-lg font-bold text-pf-text">Ajustes recientes</h2>
         </div>
@@ -246,7 +246,7 @@ export function InventoryAuditPage() {
         ) : (
           <table className="w-full min-w-[640px] text-sm">
             <thead className="sticky top-0 z-10">
-              <tr className="border-b border-pf-border/80 bg-gradient-to-r from-slate-50/95 to-amber-50/50 text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
+              <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">
                 <th className="p-2">Número</th>
                 <th className="p-2">Fecha</th>
                 <th className="p-2">Motivo</th>
