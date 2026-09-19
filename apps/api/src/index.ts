@@ -956,7 +956,7 @@ api.get("/products/labels/preview", requireAdmin, async (c) => {
   const rows = products
     .map(
       (p) =>
- `<div class="lbl"><div class="bc">${p.barcode ?? p.sku}</div><strong>${escapeHtml(p.name)}</strong><div>${p.sku}</div><div>L ${p.price.toFixed(2)}</div></div>`
+ `<div class="lbl"><div class="bc">${escapeHtml(p.barcode ?? p.sku)}</div><strong>${escapeHtml(p.name)}</strong><div>${escapeHtml(p.sku)}</div><div>L ${p.price.toFixed(2)}</div></div>`
     )
     .join("");
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
