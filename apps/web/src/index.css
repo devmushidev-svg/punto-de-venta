@@ -484,13 +484,12 @@ body {
 
 @utility pf-table-thead {
   border-bottom: 1px solid var(--pf-border-strong);
-  background: linear-gradient(to right, var(--pf-table-head-1), var(--pf-table-head-2), var(--pf-table-head-3));
+  background-color: var(--pf-table-head-2);
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 800;
   color: var(--pf-text-secondary);
-  box-shadow: inset 0 -1px 0 rgb(15 23 42 / 0.08), 0 1px 2px 0 rgb(15 23 42 / 0.08);
-  backdrop-filter: blur(8px);
+  box-shadow: inset 0 -1px 0 rgb(15 23 42 / 0.08);
 }
 
 @utility pf-list-row-hover {
@@ -506,13 +505,8 @@ body {
 @utility pf-card-surface {
   border-radius: var(--radius-pf);
   border: 1px solid var(--pf-border-soft);
-  background: linear-gradient(
-    to bottom right,
-    color-mix(in srgb, var(--pf-surface-elevated) 94%, white),
-    color-mix(in srgb, var(--pf-surface-soft) 75%, var(--pf-surface-elevated))
-  );
-  box-shadow: var(--pf-shadow-warm-md);
-  backdrop-filter: blur(10px);
+  background-color: var(--pf-surface-elevated);
+  box-shadow: var(--pf-shadow-card);
 
   @media (width >= 768px) {
     border-radius: var(--radius-pf);
@@ -525,14 +519,14 @@ body {
 
 @utility pf-btn-primary-gradient {
   touch-action: manipulation;
-  background-image: linear-gradient(to bottom right, var(--pf-primary), var(--pf-primary-mid), var(--pf-primary-hover));
+  background-color: var(--pf-primary);
   color: var(--pf-primary-foreground);
   box-shadow: var(--pf-shadow-btn-primary);
-  transition-property: transform, filter, box-shadow;
+  transition-property: transform, background-color, box-shadow;
   transition-duration: 200ms;
 
   &:hover {
-    filter: brightness(1.03);
+    background-color: var(--pf-primary-hover);
     box-shadow: var(--pf-shadow-btn-primary-hover);
   }
 
@@ -543,21 +537,13 @@ body {
 
 @utility pf-btn-secondary {
   border: 1px solid var(--pf-control-border);
-  background: linear-gradient(
-    to bottom right,
-    color-mix(in srgb, var(--pf-surface-elevated) 96%, white),
-    color-mix(in srgb, var(--pf-surface-soft) 88%, white)
-  );
+  background-color: var(--pf-surface-elevated);
   color: var(--pf-text-secondary);
   box-shadow: var(--pf-shadow-btn-soft);
 
   &:hover {
     border-color: var(--pf-control-border-hover);
-    background: linear-gradient(
-      to bottom right,
-      color-mix(in srgb, var(--pf-primary-soft) 35%, white),
-      color-mix(in srgb, var(--pf-surface-soft) 92%, white)
-    );
+    background-color: var(--pf-primary-soft);
     color: var(--pf-text);
   }
 }
@@ -576,16 +562,12 @@ body {
 }
 
 @utility pf-btn-danger {
-  background: linear-gradient(
-    to bottom right,
-    color-mix(in srgb, var(--pf-danger) 90%, white),
-    color-mix(in srgb, var(--pf-danger) 100%, black 4%)
-  );
+  background-color: var(--pf-danger);
   color: white;
   box-shadow: 0 10px 15px -3px rgb(220 38 38 / 0.18);
 
   &:hover {
-    filter: brightness(1.04);
+    background-color: color-mix(in srgb, var(--pf-danger) 90%, black);
   }
 }
 

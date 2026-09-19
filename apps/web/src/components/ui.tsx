@@ -32,7 +32,7 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger" }) {
   const base =
-    "inline-flex min-h-[44px] touch-manipulation items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50 md:rounded-[var(--radius-pf)]";
+    "inline-flex min-h-[44px] touch-manipulation items-center justify-center gap-2 rounded-lg border border-transparent px-4 py-2.5 text-sm font-semibold transition-[background-color,border-color,box-shadow,transform] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50 md:rounded-[var(--radius-pf)]";
   const styles = {
     primary: "pf-btn-primary-gradient focus-visible:outline-pf-primary",
     secondary: "pf-btn-secondary focus-visible:outline-pf-primary",
@@ -227,7 +227,7 @@ export function Modal({
         aria-labelledby="modal-title"
         className={`relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-t-3xl border border-[var(--pf-glass-border)] bg-[color:var(--pf-surface-overlay)] shadow-[var(--pf-shadow-warm-xl)] backdrop-blur-xl sm:rounded-2xl md:border-pf-border md:bg-pf-surface-elevated md:backdrop-blur-none md:shadow-xl ${widthCls}`}
       >
-        <div className="sticky top-0 flex items-center justify-between border-b border-[var(--pf-border-soft)] bg-gradient-to-r from-[color:var(--pf-surface-elevated)] to-[color:var(--pf-primary-soft)]/25 px-4 py-3 backdrop-blur-md md:from-pf-surface-elevated md:to-pf-surface-elevated md:backdrop-blur-none">
+        <div className="sticky top-0 flex items-center justify-between border-b border-pf-border-soft bg-pf-surface-elevated px-4 py-3">
           <h2 id="modal-title" className="text-lg font-semibold text-pf-text">
             {title}
           </h2>
