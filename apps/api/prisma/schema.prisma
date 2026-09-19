@@ -208,8 +208,12 @@ model User {
   active               Boolean               @default(true)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
+  /// Favoritos de venta tactil por usuario (JSON de ids). null = nunca los
+  /// configuro; se hereda una vez la lista antigua de la empresa.
+  touchFavoritesJson   String?
   cashSessions         CashSession[]
   sales                Sale[]
+  salesDeleted         Sale[]                @relation("SaleDeletedBy")
   purchases            Purchase[]
   stockTransfers       StockTransfer[]
   stockAdjustments     StockAdjustment[]
@@ -617,6 +621,11 @@ model Sale {
   lastSyncedAt         DateTime?
   version              Int                   @default(1)
   deletedAt            DateTime?
+  /// Quien elimino la venta y por que. Una venta eliminada nunca se borra de la
+  /// base: deja de contar en listados, reportes y caja, pero el registro queda.
+  deletedById          String?
+  deletedBy            User?                 @relation("SaleDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedReason        String?
   lines                SaleLine[]
   receivableSurcharges ReceivableSurcharge[]
 
@@ -629,6 +638,7 @@ model Sale {
   @@index([terms])
   @@index([status])
   @@index([syncStatus])
+  @@index([deletedAt])
 }
 
 /// Recargo sobre venta a crédito (aumenta lo que debe el cliente; no modifica líneas de la factura).

@@ -770,9 +770,10 @@ export function SettingsPage() {
               <div>
                 <p className="text-sm font-bold text-pf-text">Configuración general (JSON)</p>
                 <p className="mt-0.5 text-xs text-pf-text-tertiary">
-                  Objeto JSON fusionado con el existente. Incluye por ejemplo{" "}
-                  <code className="rounded bg-pf-surface-muted px-1 text-[11px] font-semibold">touchFavoriteProductIds</code>{" "}
-                  desde venta táctil.
+                  Objeto JSON fusionado con el existente. Aquí viven ajustes de
+                  toda la empresa, como{" "}
+                  <code className="rounded bg-pf-surface-muted px-1 text-[11px] font-semibold">posBehavior</code>. Los
+                  favoritos de venta táctil ya no están aquí: ahora son de cada usuario.
                 </p>
               </div>
               <Textarea

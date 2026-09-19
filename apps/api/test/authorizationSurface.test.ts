@@ -50,14 +50,14 @@ describe("superficie de autorizacion", () => {
     const flojas = Object.entries(routes)
       .filter(([r, g]) => sensibles.test(r) && g === "auth")
       .map(([r, g]) => `${r} (${g})`);
-    // GET /api/settings es lectura deliberada: la pantalla de venta tactil la
-    // necesita para sus favoritos. Cualquier otra requiere decision explicita.
+    // Cada excepcion necesita una razon escrita, no solo estar en la lista.
     const permitidas = new Set([
-      // Lectura deliberada: venta tactil necesita los favoritos para cualquier usuario.
+      // Lectura deliberada: venta tactil necesita los ajustes generales.
       "GET /api/settings (auth)",
-      // Excepcion consciente, ver F-4: los favoritos son de toda la empresa y
-      // cualquier usuario los puede cambiar. Se acepta hasta decidir si pasan a
-      // ser por usuario o exigen permiso.
+      // F-4 RESUELTO: los favoritos pasaron a ser por usuario. Ambas rutas leen
+      // y escriben la fila del propio `jwt.sub`, asi que "solo autenticado" es
+      // exactamente el alcance correcto: nadie puede tocar los de otro.
+      "GET /api/settings/touch-favorites (auth)",
       "POST /api/settings/touch-favorites (auth)",
     ]);
     const inesperadas = flojas.filter((f) => !permitidas.has(f));

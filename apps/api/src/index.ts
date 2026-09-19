@@ -1736,6 +1736,34 @@ api.get("/sales", async (c) => {
   return c.json(sales);
 });
 
+/**
+ * Bitacora de ventas eliminadas. Va declarada ANTES de `/sales/:id`, porque
+ * Hono resuelve en orden de registro y el parametro se comeria "eliminadas".
+ * Pasar `deletedAt` explicito desactiva el filtro de lib/prisma.ts.
+ */
+api.get("/sales/eliminadas", requireAdmin, async (c) => {
+  const jwt = c.get("jwt");
+  const sales = await prisma.sale.findMany({
+    where: { organizationId: jwt.orgId, deletedAt: { not: null } },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      total: true,
+      terms: true,
+      saleDate: true,
+      deletedAt: true,
+      deletedReason: true,
+      customer: { select: { name: true } },
+      user: { select: { displayName: true, username: true } },
+      deletedBy: { select: { displayName: true, username: true } },
+      _count: { select: { lines: true } },
+    },
+    orderBy: { deletedAt: "desc" },
+    take: 500,
+  });
+  return c.json(sales);
+});
+
 api.get("/sales/:id", async (c) => {
   const jwt = c.get("jwt");
   const s = await prisma.sale.findFirst({
@@ -1914,6 +1942,63 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         { error: "Fecha de venta posterior al límite de autorización SAR; revise configuración o la fecha del documento" },
         400
       );
+    }
+    throw e;
+  }
+});
+
+/**
+ * Eliminar una venta NO la borra de la base: queda con `deletedAt`, quien la
+ * elimino y el motivo, y la consulta la esconde de listados, reportes y caja
+ * (ver lib/prisma.ts). El motivo es obligatorio: una bitacora que dice "se
+ * elimino" sin decir por que no sirve para auditar nada.
+ *
+ * El inventario vuelve: si la venta no ocurrio, la mercancia no salio.
+ */
+api.delete("/sales/:id", requirePermission(PERMISSION_KEYS.SALES_DELETE), async (c) => {
+  const jwt = c.get("jwt");
+  const saleId = c.req.param("id");
+  const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }));
+  const reason = (body.reason ?? "").trim();
+  if (reason.length < 4) {
+    return c.json({ error: "Indique el motivo de la eliminación (mínimo 4 caracteres)." }, 400);
+  }
+
+  try {
+    const resultado = await prisma.$transaction(async (tx) => {
+      const venta = await tx.sale.findFirst({
+        where: { id: saleId, organizationId: jwt.orgId },
+        include: { lines: true, receivableSurcharges: true },
+      });
+      if (!venta) throw new Error("SALE_NOT_FOUND");
+      if (venta.receivableSurcharges.length > 0) throw new Error("SALE_HAS_SURCHARGES");
+
+      for (const linea of venta.lines) {
+        await restoreStockForSaleLine(tx, jwt.orgId, { productId: linea.productId, qty: linea.qty });
+      }
+
+      return tx.sale.update({
+        where: { id: venta.id },
+        data: {
+          deletedAt: new Date(),
+          deletedById: jwt.sub,
+          deletedReason: reason.slice(0, 300),
+        },
+        select: { id: true, invoiceNumber: true, total: true, deletedAt: true, deletedReason: true },
+      });
+    });
+    return c.json({ ...resultado, inventarioDevuelto: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "SALE_NOT_FOUND") return c.json({ error: "Venta no encontrada" }, 404);
+    if (msg === "SALE_HAS_SURCHARGES") {
+      return c.json(
+        { error: "No se puede eliminar una venta con recargos en cuentas por cobrar. Quite los recargos primero." },
+        400
+      );
+    }
+    if (msg === "PRODUCT_NOT_FOUND") {
+      return c.json({ error: "Un producto de la venta ya no existe; no se puede devolver su inventario." }, 400);
     }
     throw e;
   }
@@ -4109,19 +4194,50 @@ api.patch("/settings", requireAdmin, async (c) => {
   });
 });
 
+function parseIdList(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Favoritos de venta tactil, por usuario. Antes se guardaban en
+ * `organizationSettings` y cualquier cajero le cambiaba la pantalla a todos.
+ * Quien nunca los configuro hereda una vez la lista vieja de la empresa, para
+ * que nadie pierda lo que ya tenia.
+ */
+api.get("/settings/touch-favorites", async (c) => {
+  const jwt = c.get("jwt");
+  const row = await prisma.user.findFirst({
+    where: { id: jwt.sub, organizationId: jwt.orgId },
+    select: { touchFavoritesJson: true },
+  });
+  if (row?.touchFavoritesJson != null) {
+    return c.json({ productIds: parseIdList(row.touchFavoritesJson), heredado: false });
+  }
+  const st = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+  const general = JSON.parse(st?.generalJson || "{}") as Record<string, unknown>;
+  const legado = general.touchFavoriteProductIds;
+  const ids = Array.isArray(legado) ? legado.filter((x): x is string => typeof x === "string") : [];
+  return c.json({ productIds: ids, heredado: ids.length > 0 });
+});
+
 api.post("/settings/touch-favorites", async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{ productIds: string[] }>();
-  const ids = Array.isArray(body.productIds) ? body.productIds.filter((x) => typeof x === "string") : [];
-  let s = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
-  if (!s) s = await prisma.organizationSettings.create({ data: { organizationId: jwt.orgId } });
-  const prevG = JSON.parse(s.generalJson || "{}") as Record<string, unknown>;
-  prevG.touchFavoriteProductIds = ids;
-  const updated = await prisma.organizationSettings.update({
-    where: { organizationId: jwt.orgId },
-    data: { generalJson: JSON.stringify(prevG) },
+  const ids = [
+    ...new Set(Array.isArray(body.productIds) ? body.productIds.filter((x) => typeof x === "string") : []),
+  ].slice(0, 200);
+  const r = await prisma.user.updateMany({
+    where: { id: jwt.sub, organizationId: jwt.orgId },
+    data: { touchFavoritesJson: JSON.stringify(ids) },
   });
-  return c.json({ general: JSON.parse(updated.generalJson) });
+  if (r.count === 0) return c.json({ error: "Usuario no encontrado" }, 404);
+  return c.json({ productIds: ids });
 });
 
 api.get("/backup/export", requireAdmin, async (c) => {

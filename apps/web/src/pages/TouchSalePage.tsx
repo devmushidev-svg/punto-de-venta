@@ -135,13 +135,13 @@ export function TouchSalePage() {
         setCustomerTaxId("");
       }
     });
-    apiFetch<{ general: { touchFavoriteProductIds?: string[]; posBehavior?: unknown } }>("/api/settings", { token }).then(
-      (s) => {
-        const ids = s.general?.touchFavoriteProductIds;
-        if (Array.isArray(ids)) setFavIds(ids.filter((x) => typeof x === "string"));
-        setPosBehavior(parsePosBehavior(s.general?.posBehavior));
-      }
-    );
+    apiFetch<{ general: { posBehavior?: unknown } }>("/api/settings", { token }).then((s) => {
+      setPosBehavior(parsePosBehavior(s.general?.posBehavior));
+    });
+    // Los favoritos son de cada usuario, no de la empresa.
+    apiFetch<{ productIds: string[] }>("/api/settings/touch-favorites", { token })
+      .then((r) => setFavIds(r.productIds.filter((x) => typeof x === "string")))
+      .catch(() => setFavIds([]));
     apiFetch<Product[]>("/api/products?touch=1&forPos=1", { token }).then(setProducts).catch(() => setProducts([]));
   }, [token]);
 

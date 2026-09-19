@@ -1,14 +1,28 @@
-import { Columns3, Eye, FileText, FilterX, Inbox, Pencil, Plus, Printer, RefreshCw, Trash2 } from "lucide-react";
+import { Columns3, Eye, FileText, FilterX, History, Inbox, Pencil, Plus, Printer, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
-import { Button, Card, EmptyState, Input, PaginationBar, Select } from "../components/ui";
+import { Button, Card, EmptyState, Input, Modal, PaginationBar, Select, Textarea } from "../components/ui";
 import { ToolbarButton, ToolbarSeparator } from "../components/DocumentToolbar";
 import { formatDateOnly, formatMoney, formatTimeOnly } from "../lib/format";
+import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import { isCreditSaleTerm } from "../lib/saleTerms";
 import type { Customer, PaginatedResponse, Sale } from "../types";
+
+/** Fila de la bitacora de ventas eliminadas (GET /api/sales/eliminadas). */
+type DeletedSale = {
+  id: string;
+  invoiceNumber: string | null;
+  total: number;
+  saleDate: string;
+  deletedAt: string;
+  deletedReason: string | null;
+  customer: { name: string } | null;
+  user: { displayName: string };
+  deletedBy: { displayName: string } | null;
+};
 
 function saleStatus(s: Sale): string {
   const balance = s.total - s.paid;
@@ -38,6 +52,7 @@ export function SalesPage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
   const canEditSales = user?.role === "admin";
+  const canDeleteSales = hasPermission(user, PERMISSION_KEYS.SALES_DELETE);
   const canConfigColumns = user?.role === "admin";
   const sym = organization?.currencySymbol ?? "L";
   const navigate = useNavigate();
@@ -55,6 +70,14 @@ export function SalesPage() {
   const [termsFilter, setTermsFilter] = useState("");
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  const selectedSale = list.find((s) => s.id === selectedSaleId) ?? null;
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [audit, setAudit] = useState<DeletedSale[] | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteErr, setDeleteErr] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const [colVis, setColVis] = useState<Record<SalesColKey, boolean>>(SALES_LIST_COL_DEFAULT);
   const [colsOpen, setColsOpen] = useState(false);
@@ -137,6 +160,10 @@ export function SalesPage() {
     setTermsFilter("");
   }
 
+  function openSale(saleId: string) {
+    navigate(canEditSales ? `/ventas/${saleId}/editar` : `/ventas/${saleId}/ticket`);
+  }
+
   /**
    * Acciones sobre la venta seleccionada. "Nueva venta" no vive aqui: es la
    * accion global de la barra lateral. Los filtros de fecha bajaron al panel
@@ -186,22 +213,36 @@ export function SalesPage() {
           tone="danger"
           icon={Trash2}
           label="Eliminar"
-          title="Eliminar la venta seleccionada (solo administrador)"
+          title={
+            canDeleteSales
+              ? "Eliminar la venta seleccionada indicando el motivo"
+              : "Requiere el permiso sales.delete"
+          }
           onClick={() => {
-            if (!selectedSaleId || !canEditSales) return;
-            if (!window.confirm("¿Seguro que desea eliminar esta venta? Esta acción no se puede deshacer.")) return;
-            apiFetch(`/api/sales/${selectedSaleId}`, { method: "DELETE", token: token! })
-              .then(() => {
-                setSelectedSaleId(null);
-                void load();
-              })
-              .catch(() => alert("No se pudo eliminar la venta."));
+            if (!selectedSaleId || !canDeleteSales) return;
+            setDeleteReason("");
+            setDeleteErr("");
+            setDeleteOpen(true);
           }}
-          disabled={!canEditSales || !selectedSaleId}
+          disabled={!canDeleteSales || !selectedSaleId}
         />
+        {canEditSales ? (
+          <ToolbarButton
+            icon={History}
+            label="Eliminadas"
+            title="Ver las ventas eliminadas, con su motivo y quién las eliminó"
+            onClick={() => {
+              setAuditOpen(true);
+              setAudit(null);
+              apiFetch<DeletedSale[]>("/api/sales/eliminadas", { token: token! })
+                .then(setAudit)
+                .catch(() => setAudit([]));
+            }}
+          />
+        ) : null}
       </>
     ),
-    [canEditSales, load, navigate, selectedSaleId, token]
+    [canEditSales, canDeleteSales, load, navigate, selectedSaleId, token]
   );
 
   useLayoutEffect(() => {
@@ -297,7 +338,7 @@ export function SalesPage() {
             <Button
               type="button"
               variant="secondary"
-              className="min-h-10 shrink-0"
+              className="hidden min-h-10 shrink-0 sm:inline-flex"
               aria-expanded={colsOpen}
               onClick={() => setColsOpen((v) => !v)}
             >
@@ -308,7 +349,7 @@ export function SalesPage() {
         </div>
 
         {canConfigColumns && colsOpen ? (
-          <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-pf-border pt-3 text-xs">
+          <div className="hidden flex-wrap gap-x-4 gap-y-2 border-t border-pf-border pt-3 text-xs sm:flex">
             {(
               [
                 ["date", "Fecha"],
@@ -365,7 +406,89 @@ export function SalesPage() {
           />
         ) : (
           <>
-          <div className="max-h-[min(600px,calc(100vh-14rem))] overflow-auto overscroll-contain">
+          <div className="divide-y divide-pf-border-soft sm:hidden" role="list" aria-label="Ventas">
+            {list.map((s) => {
+              const balance = s.total - s.paid;
+              const selected = selectedSaleId === s.id;
+              const status = saleStatus(s);
+              const invoice = s.invoiceNumber ?? "Venta sin factura";
+              const ActionIcon = canEditSales ? Pencil : Eye;
+              const actionLabel = canEditSales ? "Editar" : "Ver ticket";
+
+              return (
+                <article
+                  key={s.id}
+                  role="listitem"
+                  className={`p-3 transition-colors ${
+                    selected ? "bg-pf-primary-soft shadow-[inset_3px_0_0_0_var(--pf-primary-mid)]" : "bg-pf-surface-elevated"
+                  }`}
+                  aria-current={selected ? "true" : undefined}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full touch-manipulation items-start justify-between gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+                    aria-pressed={selected}
+                    aria-label={`Seleccionar ${invoice}`}
+                    onClick={() => setSelectedSaleId(s.id)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-mono text-xs font-semibold text-pf-text">{invoice}</span>
+                      <span className="mt-1 block truncate text-sm font-semibold text-pf-text">
+                        {s.customer?.name ?? "Consumidor final"}
+                      </span>
+                      <span className="mt-1 block text-xs text-pf-muted">
+                        {formatDateOnly(s.saleDate)} · {formatTimeOnly(s.saleDate)}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-base font-bold tabular-nums text-pf-text">
+                        {formatMoney(sym, s.total)}
+                      </span>
+                      {balance > 0.009 ? (
+                        <span className="mt-1 block text-xs font-medium tabular-nums text-pf-warning">
+                          Saldo {formatMoney(sym, balance)}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2 text-xs">
+                      <span className="truncate rounded-md bg-pf-surface px-2 py-1 font-medium text-pf-text-secondary">
+                        {s.terms}
+                      </span>
+                      <span
+                        className={
+                          status === "PAGADA"
+                            ? "font-semibold text-pf-success"
+                            : status === "CRÉDITO"
+                              ? "font-semibold text-pf-warning"
+                              : "font-semibold text-pf-text-soft"
+                        }
+                      >
+                        {status}
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant={canEditSales ? "secondary" : "ghost"}
+                      className="min-h-11 shrink-0 px-3 text-xs"
+                      aria-label={`${actionLabel}: ${invoice}`}
+                      onClick={() => {
+                        setSelectedSaleId(s.id);
+                        openSale(s.id);
+                      }}
+                    >
+                      <ActionIcon className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      {actionLabel}
+                    </Button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="hidden max-h-[min(600px,calc(100vh-14rem))] overflow-auto overscroll-contain sm:block">
             <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1]">
                 <tr className="pf-table-thead text-left">
@@ -396,14 +519,12 @@ export function SalesPage() {
                       }`}
                       onClick={() => setSelectedSaleId(s.id)}
                       onDoubleClick={() => {
-                        if (canEditSales) navigate(`/ventas/${s.id}/editar`);
-                        else navigate(`/ventas/${s.id}/ticket`);
+                        openSale(s.id);
                       }}
                       tabIndex={0}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
-                          if (canEditSales) navigate(`/ventas/${s.id}/editar`);
-                          else navigate(`/ventas/${s.id}/ticket`);
+                          openSale(s.id);
                         }
                       }}
                     >
@@ -449,6 +570,119 @@ export function SalesPage() {
           </>
         )}
       </Card>
+
+      <Modal
+        open={deleteOpen}
+        title="Eliminar venta"
+        onClose={() => (deleting ? undefined : setDeleteOpen(false))}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-pf-text">
+            Va a eliminar la venta{" "}
+            <strong>{selectedSale?.invoiceNumber ?? "sin número"}</strong>
+            {selectedSale ? ` por ${formatMoney(sym, selectedSale.total)}` : ""}.
+          </p>
+          <div className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface p-3 text-xs text-pf-text-tertiary">
+            <p>La venta deja de contar en los listados, en los reportes y en la caja.</p>
+            <p className="mt-1">El inventario de sus productos vuelve a existencias.</p>
+            <p className="mt-1">
+              Queda registrada con su nombre, la fecha y el motivo. Un administrador puede consultarla después.
+            </p>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-pf-muted">
+              Motivo de la eliminación
+            </span>
+            <Textarea
+              autoFocus
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Ej.: factura duplicada por error del cajero"
+              className="min-h-[80px]"
+              maxLength={300}
+            />
+          </label>
+          {deleteErr ? <p className="text-sm text-pf-danger">{deleteErr}</p> : null}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" type="button" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            variant="danger"
+            disabled={deleteReason.trim().length < 4 || deleting || !selectedSaleId}
+            onClick={async () => {
+              if (!selectedSaleId || !token) return;
+              setDeleting(true);
+              setDeleteErr("");
+              try {
+                await apiFetch(`/api/sales/${selectedSaleId}`, {
+                  method: "DELETE",
+                  body: JSON.stringify({ reason: deleteReason.trim() }),
+                  token,
+                });
+                setDeleteOpen(false);
+                setSelectedSaleId(null);
+                void load();
+              } catch (e) {
+                setDeleteErr(e instanceof Error ? e.message : "No se pudo eliminar la venta.");
+              } finally {
+                setDeleting(false);
+              }
+            }}
+          >
+            {deleting ? "Eliminando…" : "Eliminar venta"}
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal open={auditOpen} title="Ventas eliminadas" onClose={() => setAuditOpen(false)} wide>
+        {audit === null ? (
+          <p className="py-8 text-center text-sm text-pf-muted">Cargando…</p>
+        ) : audit.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-sm font-medium text-pf-text">No se ha eliminado ninguna venta.</p>
+            <p className="mt-1 text-sm text-pf-text-tertiary">
+              Cuando alguien elimine una, aparecerá aquí con el motivo y su nombre.
+            </p>
+          </div>
+        ) : (
+          <div className="max-h-[60vh] overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-pf-surface-elevated">
+                <tr className="border-b border-pf-border text-left text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+                  <th scope="col" className="py-2 pr-3 font-semibold">Documento</th>
+                  <th scope="col" className="py-2 pr-3 text-right font-semibold">Total</th>
+                  <th scope="col" className="py-2 pr-3 font-semibold">Eliminó</th>
+                  <th scope="col" className="py-2 pr-3 font-semibold">Cuándo</th>
+                  <th scope="col" className="py-2 font-semibold">Motivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.map((d) => (
+                  <tr key={d.id} className="border-b border-pf-border last:border-0 align-top">
+                    <td className="py-2.5 pr-3">
+                      <span className="block font-medium text-pf-text">{d.invoiceNumber ?? "Sin número"}</span>
+                      <span className="block text-xs text-pf-text-tertiary">
+                        {d.customer?.name ?? "Consumidor final"} · vendió {d.user.displayName}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-semibold tabular-nums text-pf-text">
+                      {formatMoney(sym, d.total)}
+                    </td>
+                    <td className="py-2.5 pr-3 text-pf-text-secondary">{d.deletedBy?.displayName ?? "Usuario eliminado"}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 tabular-nums text-pf-text-tertiary">
+                      {formatDateOnly(d.deletedAt)} {formatTimeOnly(d.deletedAt)}
+                    </td>
+                    <td className="py-2.5 text-pf-text-tertiary">{d.deletedReason ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
