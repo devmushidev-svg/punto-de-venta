@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-// @ts-expect-error -- helper en JS puro, compartido con el generador del manifiesto
+import { AUTHORIZATION_MANIFEST } from "../src/lib/authorizationManifest.js";
+// @ts-expect-error -- helper en JS puro
 import { extractRoutes, readSource } from "./extractRoutes.mjs";
 
 /**
@@ -10,9 +10,7 @@ import { extractRoutes, readSource } from "./extractRoutes.mjs";
  * publique una sin declararla.
  */
 
-const manifest: Record<string, string> = JSON.parse(
-  readFileSync(new URL("./authorizationManifest.json", import.meta.url), "utf8"),
-);
+const manifest: Record<string, string> = AUTHORIZATION_MANIFEST;
 
 const routes: Record<string, string> = extractRoutes(readSource());
 

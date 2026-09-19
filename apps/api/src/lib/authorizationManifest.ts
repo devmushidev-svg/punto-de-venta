@@ -1,4 +1,11 @@
-{
+/**
+ * Superficie de autorizacion declarada. Fuente unica: la usa el middleware que
+ * niega por defecto en index.ts y la prueba authorizationSurface.test.ts.
+ *
+ * Una ruta que no este aqui se rechaza con 403 en vez de caer en "solo
+ * autenticado": olvidarse de declarar falla cerrado, no abierto.
+ */
+export const AUTHORIZATION_MANIFEST: Record<string, string> = {
   "GET /health": "public",
   "GET /uploads/logos/:file": "public",
   "POST /admin/bootstrap-org": "public",
@@ -105,5 +112,7 @@
   "GET /api/backup/export": "admin",
   "POST /api/backup/import": "admin",
   "GET /api/import/template": "admin",
-  "POST /api/import/excel": "admin"
-}
+  "POST /api/import/excel": "admin",
+};
+
+export const DECLARED_ROUTES = new Set(Object.keys(AUTHORIZATION_MANIFEST));

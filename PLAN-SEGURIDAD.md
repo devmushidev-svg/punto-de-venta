@@ -248,3 +248,14 @@ solo exige autenticación y escribe en `organizationSettings`, así que un cajer
 los favoritos de toda la empresa. La estrella en la UI no tiene guardia.
 No se cambió la conducta: es decisión de producto (por usuario, o con permiso). Queda
 como excepción explícita en la prueba, con su motivo escrito.
+
+**4.2 Cerrar por defecto — HECHO, en la variante de menor riesgo.**
+En vez de reescribir los 107 handlers, el manifiesto pasó a ser la autoridad en tiempo
+de ejecución: `src/lib/authorizationManifest.ts` es fuente única, la usan el middleware
+y la prueba, así que no pueden divergir. Una ruta de `/api` que no esté declarada se
+rechaza con 403 antes de llegar al handler.
+**Verificado en las dos capas:** con una ruta nueva sin declarar, la API responde 403 aun
+con token de admin y la prueba de CI falla nombrándola; al revertir, todo vuelve a 200.
+*Nota:* la primera versión rompió la API entera —todo 403— porque al montarse con
+`app.route("/api", api)` los `matchedRoutes` ya traen el prefijo, y la clave quedaba
+`/api/api/...`. Compilaba y las pruebas pasaban; lo detectó la matriz de regresión.

@@ -30,6 +30,7 @@ import { cashMovementDelta, isCashMovementCategory } from "./lib/cashMovementMat
 import { adjustProductStock, migrateOrgProductStocks } from "./lib/productStockLocation.js";
 import { normalizeVolumePricesPayload, resolveProductUnitPrice } from "./lib/volumePrice.js";
 import { authorizedLinePrice } from "./lib/salePricing.js";
+import { DECLARED_ROUTES } from "./lib/authorizationManifest.js";
 import { getProductMovements } from "./lib/productMovements.js";
 import { buildSaleComprobantePdf } from "./lib/saleComprobantePdf.js";
 import {
@@ -67,6 +68,18 @@ import { buildCashCloseReportHtml } from "./lib/cashCloseReportHtml.js";
 import { buildStockTransferPrintHtml } from "./lib/stockTransferPrintHtml.js";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
+
+/** Importaciones están controladas en el borde para no entregar cuerpos arbitrarios a parsers. */
+const MAX_EXCEL_IMPORT_BYTES = 10 * 1024 * 1024;
+const MAX_BACKUP_IMPORT_BYTES = 20 * 1024 * 1024;
+const MAX_TRANSFER_IMPORT_BYTES = 2 * 1024 * 1024;
+
+function contentLengthExceeds(c: { req: { header(name: string): string | undefined } }, maxBytes: number): boolean {
+  const raw = c.req.header("content-length");
+  if (!raw) return false;
+  const length = Number(raw);
+  return Number.isFinite(length) && length > maxBytes;
+}
 
 /** Product prices are stored and displayed as final prices (ISV included). */
 function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
@@ -449,6 +462,18 @@ function requireAnyPermission(...required: PermissionKey[]) {
 
 const api = new Hono<{ Variables: Variables }>();
 api.use("*", requireAuth);
+/**
+ * Niega por defecto: una ruta de /api que no este declarada en el manifiesto se
+ * rechaza. Olvidarse de decidir quien puede llamarla falla cerrado.
+ */
+api.use("*", async (c, next) => {
+  const matched = (c.req.matchedRoutes ?? []).filter((r) => r.method !== "ALL");
+  const final = matched[matched.length - 1];
+  if (final && !DECLARED_ROUTES.has(`${final.method} ${final.path}`)) {
+    return c.json({ error: "Ruta sin autorizacion declarada en el manifiesto." }, 403);
+  }
+  await next();
+});
 
 api.get("/auth/me", async (c) => {
   const jwt = c.get("jwt");
@@ -3380,6 +3405,9 @@ api.get("/stock-transfers/:id/export-file", requirePermission(PERMISSION_KEYS.IN
 });
 
 api.post("/stock-transfers/import-file", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFERS), async (c) => {
+  if (contentLengthExceeds(c, MAX_TRANSFER_IMPORT_BYTES)) {
+    return c.json({ error: "El archivo de traslado excede el límite de 2 MB." }, 413);
+  }
   const jwt = c.get("jwt");
   const body = await c.req.json<{
     version?: number;
@@ -4149,6 +4177,9 @@ api.get("/backup/export", requireAdmin, async (c) => {
 });
 
 api.post("/backup/import", requireAdmin, async (c) => {
+  if (contentLengthExceeds(c, MAX_BACKUP_IMPORT_BYTES)) {
+    return c.json({ error: "El respaldo excede el límite de 20 MB." }, 413);
+  }
   const jwt = c.get("jwt");
   const body = await c.req.json<{
     payload?: unknown;
@@ -4217,6 +4248,9 @@ api.get("/import/template", requireAdmin, async (c) => {
 });
 
 api.post("/import/excel", requireAdmin, async (c) => {
+  if (contentLengthExceeds(c, MAX_EXCEL_IMPORT_BYTES)) {
+    return c.json({ error: "El archivo Excel excede el límite de 10 MB." }, 413);
+  }
   const jwt = c.get("jwt");
   const b = await c.req.parseBody();
   const type = String(b.type ?? "");
@@ -4225,6 +4259,9 @@ api.post("/import/excel", requireAdmin, async (c) => {
     return c.json({ error: "Archivo requerido (campo file)" }, 400);
   }
   const buf = new Uint8Array(await (file as Blob).arrayBuffer());
+  if (buf.byteLength > MAX_EXCEL_IMPORT_BYTES) {
+    return c.json({ error: "El archivo Excel excede el límite de 10 MB." }, 413);
+  }
   if (type === "products") {
     const r = await importProductsFromExcel(prisma, jwt.orgId, buf);
     return c.json({ imported: r.imported, errors: r.errors });
