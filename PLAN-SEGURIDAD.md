@@ -79,7 +79,7 @@ almacenamiento local, empujarla y ver qué persiste el servidor.
 **Hecho cuando:** está escrito cuáles de esos campos el servidor recalcula y cuáles
 acepta tal cual. Si acepta el precio, es escalamiento económico.
 
-**1.3 Principal obsoleto — Claude**
+**1.3 Principal obsoleto — Claude — HECHO, sin hallazgos**
 *Pregunta falsable:* si a un usuario se le quitan permisos o se lo desactiva, ¿su token
 ya emitido sigue funcionando?
 El JWT trae `permRev`, lo que sugiere que hay revisión de permisos. Hay que probar que
@@ -90,7 +90,7 @@ dispara: emitir token, cambiar permisos del usuario, reintentar con el token vie
 
 ## Fase 2 — Superficies de inyección
 
-**2.1 XSS almacenado en los HTML de impresión — Claude**
+**2.1 XSS en los HTML generados — Claude — HECHO, HALLAZGO CORREGIDO**
 *Pregunta falsable:* ¿un valor que escribe un usuario termina sin escapar dentro del HTML
 generado?
 `apps/api/src/index.ts` interpola `${p.sku}`, `${quote.quoteNumber}` y
@@ -112,7 +112,7 @@ respeta la empresa del llamante o confía en el id que viene dentro del archivo.
 **Hecho cuando:** cada importador valida en el borde y está probado con un archivo
 malformado y uno de otra empresa.
 
-**2.3 Travesía de rutas en logos — Claude**
+**2.3 Travesía de rutas en logos — Claude — HECHO, sin hallazgos**
 `GET /uploads/logos/:file` valida con `^[a-zA-Z0-9._-]+$`, que bloquea `/` y `\`. Parece
 correcto, pero `..` pasa el patrón. Hay que probarlo con `..`, `%2e%2e%2f`, nombres
 largos y dobles extensiones, no deducirlo.
@@ -191,3 +191,33 @@ no se borra, se anula), y entonces sobra el botón. Dueño: Claude (`SalesPage.t
   Se creó para 1.1 y sirve para volver a probar aislamiento sin rearmar nada.
 - `BOOTSTRAP_SECRET` se quitó de `.env` tras usarlo: el bootstrap vuelve a fallar cerrado.
   Para crear otra empresa hay que volver a definirlo y reiniciar el API.
+
+---
+
+## Resultados de la segunda tanda
+
+**2.1 — XSS almacenado. HALLAZGO, ya corregido (commit `d904e538`).**
+`GET /products/labels/preview` interpolaba `p.sku` y `p.barcode` sin escapar mientras
+escapaba `p.name` en la misma línea. Se sirve como `text/html`. Probado creando un
+producto con SKU `ZZ<script>…</script>` y barcode `<img src=x onerror=…>`: salían
+literales. Tras el arreglo salen como entidades.
+El vector realista no es un administrador malicioso sino `POST /import/excel`, que crea
+productos desde un archivo que redactó otro — por eso 2.2 (Codex) sube de prioridad.
+Las otras dos plantillas (`print.html` de traslados, reporte de cierre) ya escapaban con
+su helper `esc()`; solo faltaba el símbolo de moneda, también corregido.
+
+**2.3 — Travesía de rutas. Sin hallazgos.**
+La protección dispara en dos capas: el enrutador no hace coincidir rutas multi-segmento
+(404) y el patrón `^[a-zA-Z0-9._-]+$` rechaza las formas codificadas (400 en `$`,
+espacio, `%3C%3E`, `%2e%2e%2f`, `%5C`, byte nulo).
+*Observación aparte:* `GET /uploads/logos/:file` responde sin credencial. Probablemente
+deliberado (los logos salen en tickets), pero conviene que sea decisión escrita.
+
+**1.3 — Principal obsoleto. Sin hallazgos, comportamiento conservador.**
+Al denegar un permiso: el token ya emitido pasa a **401 en todo** (no solo en el permiso
+quitado) porque sube `permissionsRev`; un login nuevo devuelve la lista ya recortada y el
+endpoint denegado da 403. Revocar invalida todas las sesiones vigentes de ese usuario.
+*Nota de método:* la primera pasada dio un resultado raro —el permiso parecía no quitarse—
+y resultó ser un payload mal formado de mi parte: el handler espera
+`{ allow?: string[], deny?: string[] }`, no `{ "permiso": true }`. Se verificó antes de
+reportar nada.
