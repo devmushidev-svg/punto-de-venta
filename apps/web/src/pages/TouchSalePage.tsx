@@ -188,7 +188,8 @@ export function TouchSalePage() {
       const l = prev[i];
       const step = l.product.esGranel ? 0.1 : 1;
       let newQty = l.qty + delta * step;
-      if (!l.product.esGranel) newQty = Math.round(newQty);
+      // El paso de 0.1 en granel arrastra error de coma flotante y se veia crudo en el carrito.
+      newQty = l.product.esGranel ? Math.round(newQty * 1000) / 1000 : Math.round(newQty);
       if (newQty < 0) newQty = 0;
       if (!posBehavior.warnOutOfStock && tracksStock(l.product) && newQty > l.product.stock) {
         queueMicrotask(() =>
