@@ -259,3 +259,53 @@ con token de admin y la prueba de CI falla nombrándola; al revertir, todo vuelv
 *Nota:* la primera versión rompió la API entera —todo 403— porque al montarse con
 `app.route("/api", api)` los `matchedRoutes` ya traen el prefijo, y la clave quedaba
 `/api/api/...`. Compilaba y las pruebas pasaban; lo detectó la matriz de regresión.
+
+---
+
+## Cuarta tanda — secretos y CI (Claude, commit `af129c34`)
+
+**S-1 Secretos JWT publicados en el repositorio — HALLAZGO, corregido.**
+`apps/api/.env` estuvo versionado hasta abril de 2026; lo sacó el commit `7d459f65`,
+pero el contenido sigue siendo legible en la historia de GitHub:
+
+```
+DATABASE_URL="file:./dev.db"
+JWT_SECRET="cambiar-en-produccion-usa-openssl-rand-hex-32"
+```
+
+Y `.env.example` repartía un segundo valor conocido, `dev-secret-local-change-me`.
+El guardia de producción solo comprobaba que la variable **existiera**, no que no fuera
+uno de esos valores. Un despliegue hecho copiando el ejemplo —el camino que el propio
+archivo sugiere— arrancaba con un secreto que cualquiera puede leer en GitHub, y con él
+se firman tokens de administrador de cualquier organización.
+
+Lo bueno: ese `.env` nunca tuvo credenciales reales. La base era SQLite local y el
+secreto era un texto de relleno. No hay nada que rotar salvo el secreto mismo.
+
+Corregido: `validateJwtSecret` rechaza en producción los valores publicados (sin
+distinguir mayúsculas ni espacios) y los de menos de 32 caracteres. `.env.example`
+ahora trae `JWT_SECRET=""` y explica cómo generar uno.
+
+**S-2 `BOOTSTRAP_SECRET` comparado con `!==` — corregido.**
+`/admin/bootstrap-org` crea la primera organización sin JWT. La comparación con `!==`
+corta en el primer byte distinto y filtra el secreto byte a byte. Ahora usa
+`timingSafeEqual` con costo fijo también cuando los largos difieren.
+
+**S-3 No había CI — corregido.**
+Las 42 pruebas de la tanda anterior solo corrían cuando alguien se acordaba. El
+manifiesto que "falla al agregar una ruta sin declarar" no defiende nada si nadie lo
+ejecuta. `.github/workflows/ci.yml` corre en cada push a `main` y en cada PR: build de
+API y web, las 57 pruebas, y dos guardias de secretos —rechaza un `.env` versionado y
+un valor de ejemplo suelto en el código.
+
+**Verificado que puede fallar**, que es lo único que hace útil a una prueba negativa:
+- Quitando el guardia de `validateJwtSecret`, fallan 6 de sus 9 pruebas.
+- Agregando un `apps/api/.env.produccion` con el secreto de ejemplo, los dos pasos de CI
+  lo detectan y nombran el archivo. Al quitarlo, vuelven a pasar.
+
+### Pendiente del usuario (operativo, no de código)
+Si hay algún despliegue en línea corriendo con `cambiar-en-produccion-usa-openssl-rand-hex-32`
+o con `dev-secret-local-change-me`, hay que generar un secreto nuevo
+(`openssl rand -base64 48`) y ponerlo en las variables de entorno del servidor. Al
+cambiarlo, todas las sesiones abiertas se cierran y hay que volver a iniciar sesión —
+que es justo lo que se quiere si el secreto viejo era público.
