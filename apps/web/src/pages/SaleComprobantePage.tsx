@@ -95,7 +95,7 @@ export function SaleComprobantePage() {
         </p>
         <Link
           to="/ventas"
-          className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl border border-orange-200/50 bg-gradient-to-r from-pf-primary-soft/90 to-amber-50/80 text-sm font-bold text-pf-primary-foreground shadow-md sm:w-auto sm:px-4 touch-manipulation"
+          className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl border border-[color:var(--pf-primary-mid)] bg-pf-primary-soft text-sm font-semibold text-pf-primary-hover shadow-md sm:w-auto sm:px-4 touch-manipulation"
         >
           Volver
         </Link>
@@ -137,7 +137,7 @@ export function SaleComprobantePage() {
         </div>
         <Card className="border-sky-200/60 bg-gradient-to-br from-sky-50/90 to-white/90 p-4 text-sm text-stone-800 shadow-md backdrop-blur-sm">
           <p className="font-medium text-stone-900">Impresión y PDF</p>
-          <p className="mt-1 text-pf-muted text-stone-700">
+          <p className="mt-1 text-pf-text-tertiary">
             <strong className="font-semibold text-stone-900">Descargar PDF (servidor)</strong> genera el archivo en la API
             (misma información que esta vista; respeta título/SKU del comprobante en configuración).{" "}
             <strong className="font-semibold text-stone-900">Imprimir / PDF (navegador)</strong> abre el diálogo del

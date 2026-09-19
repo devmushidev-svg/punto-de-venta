@@ -272,7 +272,7 @@ export function NewQuotePage({
       <div className="flex flex-wrap items-center gap-2">
         <Link
           to={backTo}
-          className="inline-flex min-h-[44px] items-center rounded-xl border border-orange-200/50 bg-gradient-to-r from-pf-primary-soft/90 to-amber-50/80 px-4 text-sm font-bold text-pf-primary-foreground shadow-sm transition hover:brightness-105 touch-manipulation sm:min-h-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-1 sm:font-medium sm:text-pf-primary-hover sm:shadow-none sm:underline sm:underline-offset-2"
+          className="inline-flex min-h-[44px] items-center rounded-xl border border-[color:var(--pf-primary-mid)] bg-pf-primary-soft px-4 text-sm font-semibold text-pf-primary-hover shadow-sm transition hover:brightness-105 touch-manipulation sm:min-h-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-1 sm:font-medium sm:text-pf-primary-hover sm:shadow-none sm:underline sm:underline-offset-2"
         >
           ← Volver
         </Link>

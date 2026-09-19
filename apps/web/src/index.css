@@ -76,6 +76,7 @@
   --pf-shadow-card: 0 1px 2px 0 rgb(31 36 33 / 0.05);
   /* Alias corto: varias hojas ya lo usaban sin que existiera, y la sombra no se pintaba. */
   --pf-shadow-sm: 0 1px 2px 0 rgb(31 36 33 / 0.05);
+  --pf-shadow-lg: 0 8px 24px -8px rgb(31 36 33 / 0.12);
   --pf-shadow-btn-primary: 0 1px 2px 0 rgb(31 36 33 / 0.1);
   --pf-shadow-btn-primary-hover: 0 2px 6px -1px rgb(153 63 36 / 0.22);
   --pf-shadow-btn-soft: 0 1px 2px 0 rgb(31 36 33 / 0.06);
