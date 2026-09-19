@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Sin esto, un fallo pasa desapercibido: las pruebas de autorizacion solo
+# sirven si algo las corre en cada cambio.
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    env:
+      # Las pruebas son unitarias y no tocan la base; Prisma solo necesita
+      # que la variable exista para generar el cliente.
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Ningun archivo de entorno versionado
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
+            echo "::error::Hay un archivo .env versionado. Los secretos no se commitean."
+            exit 1
+          fi
+
+      - name: Ningun secreto de ejemplo fuera de .env.example
+        run: |
+          if git grep -nI -e 'dev-secret-local-change-me' \
+                          -e 'cambiar-en-produccion-usa-openssl-rand-hex-32' \
+                          -- . ':!apps/api/.env.example' ':!apps/api/src/lib/auth.ts' \
+                             ':!apps/api/test/jwtSecret.test.ts' ':!.github/workflows/ci.yml'; then
+            echo "::error::Un secreto de ejemplo aparece en el codigo."
+            exit 1
+          fi
+
+      - name: Tipos y compilacion (API)
+        run: npm run build -w apps/api
+
+      - name: Tipos y compilacion (web)
+        run: npm run build -w apps/web
+
+      # El manifiesto de autorizacion falla si se agrega una ruta sin declarar
+      # su guardia, y las pruebas de precio fallan si el servidor vuelve a
+      # confiar en el precio que manda el navegador.
+      - name: Pruebas de la API
+        run: npm test -w apps/api
+
+      - name: Pruebas de la web
+        run: npm test -w apps/web

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
@@ -227,13 +228,22 @@ function slugifyOrgName(name: string): string {
   return (base.slice(0, 48) || "org").replace(/^-+|-+$/g, "") || "org";
 }
 
+/** Comparacion en tiempo constante: `!==` filtra el secreto byte a byte. */
+function secretosIguales(a: string, b: string) {
+  const ba = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  // timingSafeEqual exige el mismo largo; comparar contra si mismo mantiene el costo fijo.
+  if (ba.length !== bb.length) return timingSafeEqual(ba, ba) && false;
+  return timingSafeEqual(ba, bb);
+}
+
 /** Primera organización sin JWT. Requiere `BOOTSTRAP_SECRET` y cabecera `X-Bootstrap-Secret`. */
 app.post("/admin/bootstrap-org", async (c) => {
   const secret = process.env.BOOTSTRAP_SECRET?.trim();
   if (!secret) {
     return c.json({ error: "Bootstrap deshabilitado (defina BOOTSTRAP_SECRET en el servidor)." }, 503);
   }
-  if ((c.req.header("X-Bootstrap-Secret") || "").trim() !== secret) {
+  if (!secretosIguales((c.req.header("X-Bootstrap-Secret") || "").trim(), secret)) {
     return c.json({ error: "Secreto inválido" }, 401);
   }
   const body = await c.req.json<{ name?: string; slug?: string; adminUsername?: string; adminPassword?: string }>();
