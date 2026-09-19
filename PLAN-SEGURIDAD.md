@@ -30,22 +30,25 @@ Nadie edita los archivos del otro. Si un hallazgo cruza la frontera, se anota y 
 
 ## Fase 0 — Prerrequisitos (bloquean la Fase 1)
 
-**0.1 Segunda organización — Claude**
+**0.1 Segunda organización — Claude — HECHO**
 Hoy la base demo tiene una sola empresa, así que el actor más importante —*un usuario
 válido de otra empresa*— no se puede probar. Sin esto, la Fase 1.1 no existe.
 Vía: habilitar `BOOTSTRAP_SECRET` en `apps/api/.env` y usar `POST /admin/bootstrap-org`,
 que ya funciona y falla cerrado.
 **Hecho cuando:** existen dos empresas con datos propios y un usuario en cada una.
 
-**0.2 Limpiar datos de prueba — Claude**
+**0.2 Limpiar datos de prueba — Claude — BLOQUEADO**
 Quedaron 3 ventas (A-000002, A-000003, 000019) y la cotización SEED-Q-03 convertida.
-Decidir si se borran antes de sembrar la segunda empresa.
+No se pueden borrar: **`DELETE /api/sales/:id` no existe en la API** (la única ruta
+delete es `/products/:id`), pero `SalesPage.tsx:193` la llama. Ver hallazgo F-1.
+No se borran por fuera de la API: que un sistema fiscal no permita borrar facturas es
+probablemente correcto.
 
 ---
 
 ## Fase 1 — Crítico
 
-**1.1 Aislamiento entre empresas — Claude**
+**1.1 Aislamiento entre empresas — Claude — HECHO, sin hallazgos**
 *Pregunta falsable:* ¿un usuario de la empresa B puede leer o modificar un objeto de la
 empresa A conociendo su id?
 Método: capturar cada petición como dueño legítimo en A, repetirla con **solo** la
@@ -58,6 +61,13 @@ Objetivos: `/sales/:id`, `/customers/:id`, `/products/:id`, `/quotes/:id`,
 otra empresa, no una lista vacía ni los propios.
 **Hecho cuando:** cada objetivo tiene un 404/403 registrado, o un hallazgo con el diff
 de la petición.
+
+> **Resultado (probado con dos empresas reales):** lecturas de objeto por id →
+> 404 al ajeno contra 200 al dueño, en venta, cliente, producto, cotización y
+> movimientos. Listados → la empresa B ve 0 mientras A ve 13/84/6/12. Escritura
+> con cuerpo válido sobre venta ajena → 404 "Venta no encontrada", objeto intacto.
+> El filtro vive en la consulta (`findFirst({ where: { id, organizationId } })`),
+> que es el mejor lugar. **No se encontraron hallazgos.**
 
 **1.2 Frontera de confianza del cliente en ventas offline — Codex**
 *Pregunta falsable:* ¿puede un cliente manipulado empujar por `/sync/push` una venta con
@@ -156,3 +166,28 @@ lo que se agregue mañana queda expuesto a todos los roles.
   Falla cerrado: comprueba `if (!secret)` antes de comparar.
 - JWT con rol falsificado a `admin` → 401 en los cuatro endpoints probados.
 - `/settings` a 200 para cajero: **no es hallazgo**, el cuerpo solo trae favoritos.
+
+---
+
+## Hallazgos abiertos
+
+**F-1 — El botón "Eliminar venta" llama a un endpoint que no existe.**
+`SalesPage.tsx:193` hace `DELETE /api/sales/:id`; la API solo define
+`delete("/products/:id")`. El administrador selecciona una venta, confirma un aviso que
+dice "esta acción no se puede deshacer" y recibe "No se pudo eliminar la venta."
+No es un fallo de seguridad: es una acción destructiva prometida y no implementada.
+Decisión de producto pendiente — lo más probable es que **no** deba existir (una factura
+no se borra, se anula), y entonces sobra el botón. Dueño: Claude (`SalesPage.tsx`).
+
+**F-2 — `/settings` sin filtrado por campo.** Ver 4.3.
+
+**F-3 — `DELETE /products/<id-inexistente>` responde 200 en vez de 404.** Cosmético.
+
+---
+
+## Estado del entorno de pruebas
+
+- Existe una segunda empresa, `pruebab` / **Empresa Prueba B**, con usuario `ADMINB`.
+  Se creó para 1.1 y sirve para volver a probar aislamiento sin rearmar nada.
+- `BOOTSTRAP_SECRET` se quitó de `.env` tras usarlo: el bootstrap vuelve a fallar cerrado.
+  Para crear otra empresa hay que volver a definirlo y reiniciar el API.
