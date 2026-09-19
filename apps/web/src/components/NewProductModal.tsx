@@ -473,7 +473,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                     onKeyDown={(e) => handleEnterFieldNav(e, NP_PRODUCT_TAB_ORDER, "np-f-tax", NP_SAVE_SELECTOR)}
                   />
                 </Field>
-                <Field label="Precio de venta (lista 1)">
+                <Field label="Precio final de venta (lista 1, ISV incluido)">
                   <Input
                     id="np-f-price"
                     type="number"
@@ -491,9 +491,9 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                     {((Number(form.price) || 0) - (Number(form.cost) || 0)).toFixed(2)}
                   </div>
                 </Field>
-                <Field label="Precio con ISV">
+                <Field label="Precio final (ISV incluido)">
                   <div className="flex min-h-[42px] items-center rounded-[var(--radius-pf)] border border-pf-border bg-pf-primary-soft/25 px-3 text-sm font-bold tabular-nums text-pf-text shadow-[var(--pf-control-shadow)]">
-                    {((Number(form.price) || 0) * (1 + (Number(form.taxPercent) || 0) / 100)).toFixed(2)}
+                    {(Number(form.price) || 0).toFixed(2)}
                   </div>
                 </Field>
               </div>
@@ -637,7 +637,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                     <th className="px-2 py-2 text-right">Precio</th>
                     <th className="px-2 py-2 text-right">Utilidad %</th>
                     <th className="px-2 py-2 text-right">Utilidad</th>
-                    <th className="px-2 py-2 text-right">Precio con ISV</th>
+                    <th className="px-2 py-2 text-right">Precio final (ISV incluido)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -651,7 +651,6 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                     const p = Number(form[key]) || 0;
                     const margin = c > 0 ? ((p - c) / c * 100) : 0;
                     const profit = p - c;
-                    const withTax = p * (1 + (Number(form.taxPercent) || 0) / 100);
                     return (
                       <tr key={key} className="border-b border-pf-border/50 last:border-0">
                         <td className="px-2 py-2 text-xs font-medium text-pf-text">{label}</td>
@@ -689,7 +688,7 @@ export function NewProductModal({ open, onClose, existingProductId = null, onSav
                           {form[key] !== "" ? profit.toFixed(2) : "—"}
                         </td>
                         <td className="px-2 py-2 text-right tabular-nums font-medium text-pf-text-secondary">
-                          {form[key] !== "" ? withTax.toFixed(2) : "—"}
+                          {form[key] !== "" ? p.toFixed(2) : "—"}
                         </td>
                       </tr>
                     );

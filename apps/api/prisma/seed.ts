@@ -19,6 +19,12 @@ function daysAgoDate(days: number): Date {
   return d;
 }
 
+function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
+  if (taxPercent <= 0) return { net: gross, tax: 0 };
+  const tax = gross * (taxPercent / (100 + taxPercent));
+  return { net: gross - tax, tax };
+}
+
 async function main() {
   const slug = "demo";
   let org = await prisma.organization.findUnique({ where: { slug } });
@@ -300,11 +306,10 @@ async function main() {
         if (prod.productType === "INSUMO") throw new Error(`Seed: no vender insumo ${L.sku} en demo`);
 
         const discountPercent = L.discountPercent ?? 0;
-        const base = L.unitPrice * L.qty * (1 - discountPercent / 100);
-        const lineTax = base * (prod.taxPercent / 100);
-        const lineTotal = base + lineTax;
-        subtotal += base;
-        tax += lineTax;
+        const lineTotal = L.unitPrice * L.qty * (1 - discountPercent / 100);
+        const split = splitTaxIncluded(lineTotal, prod.taxPercent);
+        subtotal += split.net;
+        tax += split.tax;
         linePayload.push({
           productId: prod.id,
           qty: L.qty,
@@ -448,9 +453,8 @@ async function main() {
     const p = qProducts[i];
     const qty = i === 0 ? 2 : i === 1 ? 5 : 12;
     const unitPrice = p.price;
-    const base = unitPrice * qty;
-    const lineTax = base * (p.taxPercent / 100);
-    const lineTotal = base + lineTax;
+    const lineTotal = unitPrice * qty;
+    const split = splitTaxIncluded(lineTotal, p.taxPercent);
 
     await prisma.quote.create({
       data: {
@@ -462,8 +466,8 @@ async function main() {
         customerId: cust.id,
         quoteNumber: `SEED-Q-${String(i + 1).padStart(2, "0")}`,
         status: "BORRADOR",
-        subtotal: base,
-        tax: lineTax,
+        subtotal: split.net,
+        tax: split.tax,
         total: lineTotal,
         notes: note,
         lines: {

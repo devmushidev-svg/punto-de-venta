@@ -200,9 +200,11 @@ export function NewQuotePage({
     let sub = 0;
     let tax = 0;
     for (const l of lines) {
-      const base = l.unitPrice * l.qty;
-      const t = base * (l.product.taxPercent / 100);
-      sub += base;
+      const gross = l.unitPrice * l.qty;
+      const t = l.product.taxPercent > 0
+        ? gross * (l.product.taxPercent / (100 + l.product.taxPercent))
+        : 0;
+      sub += gross - t;
       tax += t;
     }
     return { subtotal: sub, tax, total: sub + tax };
@@ -406,7 +408,7 @@ export function NewQuotePage({
               <span>{formatMoney(sym, totals.subtotal)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-pf-muted">Impuesto</span>
+              <span className="text-pf-muted">ISV incluido</span>
               <span>{formatMoney(sym, totals.tax)}</span>
             </div>
             <div className="flex justify-between text-base font-bold pt-2 border-t border-pf-border">

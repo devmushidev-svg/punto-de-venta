@@ -201,8 +201,14 @@ function newLineKey(): string {
 }
 
 function computeLineTotal(l: Line): number {
-  const base = l.unitPrice * l.qty * (1 - l.discountPercent / 100);
-  return base + base * (l.product.taxPercent / 100);
+  // El precio de catálogo ya incluye ISV; el descuento se aplica sobre ese total.
+  return l.unitPrice * l.qty * (1 - l.discountPercent / 100);
+}
+
+function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
+  if (!Number.isFinite(taxPercent) || taxPercent <= 0) return { net: gross, tax: 0 };
+  const tax = gross * (taxPercent / (100 + taxPercent));
+  return { net: gross - tax, tax };
 }
 
 function normProductLookup(s: string | null | undefined): string {
@@ -1098,10 +1104,10 @@ export function NewSalePage() {
     let sub = 0;
     let tax = 0;
     for (const l of lines) {
-      const base = l.unitPrice * l.qty * (1 - l.discountPercent / 100);
-      const t = base * (l.product.taxPercent / 100);
-      sub += base;
-      tax += t;
+      const gross = computeLineTotal(l);
+      const split = splitTaxIncluded(gross, l.product.taxPercent);
+      sub += split.net;
+      tax += split.tax;
     }
     const rawTotal = sub + tax;
     if (!posBehavior.roundTotals)
@@ -2051,7 +2057,7 @@ export function NewSalePage() {
                 <th className="px-2 py-2">Descripción</th>
                 <th className="px-2 py-2 w-[6rem] text-right">Cant.</th>
                 <th className="px-2 py-2 w-14">Und.</th>
-                <th className="px-2 py-2 w-32 text-right">Precio</th>
+                <th className="px-2 py-2 w-32 text-right">Precio final</th>
                 <th className="px-2 py-2 w-28 text-right">Desc. %</th>
                 <th className="px-2 py-2 w-20 text-right">ISV %</th>
                 <th className="px-2 py-2 min-w-[5.5rem] text-right">Total</th>
@@ -2258,7 +2264,7 @@ export function NewSalePage() {
             </span>
           </div>
           <div className="rounded-lg bg-pf-surface px-3 py-2 text-right">
-            <span className="font-medium text-pf-muted">Impuesto</span>
+            <span className="font-medium text-pf-muted">ISV incluido</span>
             <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
               {formatMoney(sym, totals.tax)}
             </span>

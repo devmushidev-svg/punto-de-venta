@@ -67,6 +67,15 @@ import { buildStockTransferPrintHtml } from "./lib/stockTransferPrintHtml.js";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
 
+/** Product prices are stored and displayed as final prices (ISV included). */
+function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
+  if (!Number.isFinite(gross) || !Number.isFinite(taxPercent) || taxPercent <= 0) {
+    return { net: gross, tax: 0 };
+  }
+  const tax = gross * (taxPercent / (100 + taxPercent));
+  return { net: gross - tax, tax };
+}
+
 const LOGO_UPLOAD_DIR = join(process.cwd(), "uploads", "logos");
 
 function isValidProductType(pt: string): pt is (typeof PRODUCT_TYPES)[number] {
@@ -1438,12 +1447,11 @@ api.post("/sales", async (c) => {
       const unitPrice =
         line.unitPrice ?? resolveProductUnitPrice(product, line.qty, priceTier);
       const discountPercent = line.discountPercent ?? 0;
-      const base = unitPrice * line.qty * (1 - discountPercent / 100);
+      const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
       const taxPercent = product.taxPercent;
-      const lineTax = base * (taxPercent / 100);
-      const lineTotal = base + lineTax;
-      subtotal += base;
-      tax += lineTax;
+      const split = splitTaxIncluded(lineTotal, taxPercent);
+      subtotal += split.net;
+      tax += split.tax;
       saleLines.push({
         productId: product.id,
         qty: line.qty,
@@ -1772,12 +1780,11 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         }
         const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, priceTier);
         const discountPercent = line.discountPercent ?? 0;
-        const base = unitPrice * line.qty * (1 - discountPercent / 100);
+        const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
         const taxPercent = product.taxPercent;
-        const lineTax = base * (taxPercent / 100);
-        const lineTotal = base + lineTax;
-        subtotal += base;
-        tax += lineTax;
+        const split = splitTaxIncluded(lineTotal, taxPercent);
+        subtotal += split.net;
+        tax += split.tax;
         saleLines.push({
           productId: product.id,
           qty: line.qty,
@@ -2759,12 +2766,11 @@ api.post("/quotes", async (c) => {
       if (!product) throw new Error("PRODUCT_NOT_FOUND");
       if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
       const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, 1);
-      const base = unitPrice * line.qty;
+      const lineTotal = unitPrice * line.qty;
       const taxPercent = product.taxPercent;
-      const lineTax = base * (taxPercent / 100);
-      const lineTotal = base + lineTax;
-      subtotal += base;
-      tax += lineTax;
+      const split = splitTaxIncluded(lineTotal, taxPercent);
+      subtotal += split.net;
+      tax += split.tax;
       linesData.push({ productId: product.id, qty: line.qty, unitPrice, taxPercent, lineTotal });
     }
 
@@ -2836,12 +2842,11 @@ api.patch("/quotes/:id", async (c) => {
         if (!product) throw new Error("PRODUCT_NOT_FOUND");
         if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
         const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, 1);
-        const base = unitPrice * line.qty;
+        const lineTotal = unitPrice * line.qty;
         const taxPercent = product.taxPercent;
-        const lineTax = base * (taxPercent / 100);
-        const lineTotal = base + lineTax;
-        subtotal += base;
-        tax += lineTax;
+        const split = splitTaxIncluded(lineTotal, taxPercent);
+        subtotal += split.net;
+        tax += split.tax;
         linesData.push({ productId: product.id, qty: line.qty, unitPrice, taxPercent, lineTotal });
       }
 
@@ -2949,11 +2954,10 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
       } else if (!isService && product.stock < l.qty) {
         throw new Error("STOCK");
       }
-      const base = l.unitPrice * l.qty;
-      const lineTax = base * (l.taxPercent / 100);
-      const lineTotal = base + lineTax;
-      subtotal += base;
-      tax += lineTax;
+      const lineTotal = l.unitPrice * l.qty;
+      const split = splitTaxIncluded(lineTotal, l.taxPercent);
+      subtotal += split.net;
+      tax += split.tax;
       saleLines.push({
         productId: l.productId,
         qty: l.qty,
