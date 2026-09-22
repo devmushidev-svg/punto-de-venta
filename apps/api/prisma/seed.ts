@@ -113,13 +113,24 @@ async function main() {
     const exists = await prisma.user.findFirst({
       where: { organizationId: org!.id, username },
     });
-    if (exists) return exists;
     const passwordHash = await bcrypt.hash(password, 10);
-    return prisma.user.create({
+    if (exists) {
+      return prisma.user.update({
+        where: { id: exists.id },
         data: {
-          organizationId: org!.id,
           branchId: branch.id,
-          username,
+          passwordHash,
+          displayName,
+          role,
+          active: true,
+        },
+      });
+    }
+    return prisma.user.create({
+      data: {
+        organizationId: org!.id,
+        branchId: branch.id,
+        username,
         passwordHash,
         displayName,
         role,
