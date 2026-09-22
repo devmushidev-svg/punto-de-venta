@@ -27,13 +27,33 @@ export function LoginPage() {
   }, [loading, token, navigate]);
 
   useEffect(() => {
+    let cancelled = false;
     apiFetch<OrgRow[]>("/auth/organizations")
-      .then((list) => {
+      .then(async (list) => {
+        if (cancelled) return;
         setOrgs(list);
+        const demoOrg = list.find((org) => org.slug === "demo");
         if (list.length === 1) setOrgId(list[0].id);
+
+        // La base demo permite entrar directamente para poder probar el sistema
+        // aunque todavía no se hayan creado usuarios propios.
+        if (demoOrg) {
+          setBusy(true);
+          try {
+            await login({ organizationId: demoOrg.id, username: "ADMIN", password: "admin" });
+            if (!cancelled) navigate("/", { replace: true });
+          } catch {
+            // Si el seed todavía no se ejecutó, se mantiene el formulario normal.
+          } finally {
+            if (!cancelled) setBusy(false);
+          }
+        }
       })
       .catch(() => setOrgs([]));
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [login, navigate]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
