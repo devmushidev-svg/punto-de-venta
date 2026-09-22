@@ -1,7 +1,7 @@
 export type ConnectionMode = "local" | "cloud";
 
 // URL de la API en la nube fijada en build (Vercel: VITE_API_BASE). Fallback cuando no hay nada en localStorage.
-const ENV_API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const ENV_API_BASE = (import.meta.env.VITE_API_BASE || "https://api-iota-ten-28.vercel.app").replace(/\/$/, "");
 
 export function getConnectionMode(): ConnectionMode {
   return localStorage.getItem("pf_connection_mode") === "cloud" ? "cloud" : "local";
