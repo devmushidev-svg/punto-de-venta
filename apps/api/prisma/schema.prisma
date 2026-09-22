@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("POSTGRES_PRISMA_URL")
 }
 
 model Organization {
@@ -422,7 +422,7 @@ model ProductStock {
   @@index([locationId])
 }
 
-/// Ajuste manual de inventario (auditoría) con motivo y líneas por producto.
+/// Ajuste manual de inventario (auditor��a) con motivo y líneas por producto.
 model StockAdjustment {
   id               String                @id @default(cuid())
   organizationId   String

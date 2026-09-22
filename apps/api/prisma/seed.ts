@@ -119,8 +119,13 @@ async function main() {
     });
   };
 
-  const adminUser = await ensureUser("ADMIN", "Administrador", "admin", "admin");
-  const cajeroUser = await ensureUser("CAJERO", "María Cajero", "cajero", "cajero");
+  const adminPassword = process.env.DEMO_ADMIN_PASSWORD?.trim();
+  const cashierPassword = process.env.DEMO_CASHIER_PASSWORD?.trim();
+  if (!adminPassword || !cashierPassword) {
+    throw new Error("DEMO_ADMIN_PASSWORD and DEMO_CASHIER_PASSWORD are required to seed demo users");
+  }
+  const adminUser = await ensureUser("ADMIN", "Administrador", "admin", adminPassword);
+  const cajeroUser = await ensureUser("CAJERO", "María Cajero", "cajero", cashierPassword);
 
   const demoEmployee = await prisma.employee.findFirst({
     where: { organizationId: org.id, employeeCode: "E001" },

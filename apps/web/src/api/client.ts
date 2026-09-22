@@ -17,11 +17,13 @@ export function getCloudApiBase(): string {
   return localStorage.getItem("pf_cloud_api_base") || "";
 }
 
+const envApiBase = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") || "";
+
 const base = () => {
   if (getConnectionMode() === "cloud") {
-    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || "";
+    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || envApiBase;
   }
-  return localStorage.getItem("pf_api_base") || "";
+  return localStorage.getItem("pf_api_base") || envApiBase;
 };
 
 export function setApiBase(url: string) {
