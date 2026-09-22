@@ -20,11 +20,24 @@ export function getCloudApiBase(): string {
   return localStorage.getItem("pf_cloud_api_base") || "";
 }
 
+function usableStoredApiBase(value: string | null): string {
+  const stored = value?.trim().replace(/\/$/, "") || "";
+  if (!stored) return "";
+
+  // Older builds could persist the frontend URL as the API URL. Ignore it so a
+  // production deploy always falls back to the configured backend instead.
+  if (typeof window !== "undefined" && stored === window.location.origin) return "";
+  return stored;
+}
+
 const base = () => {
+  const storedApiBase = usableStoredApiBase(localStorage.getItem("pf_api_base"));
+  const storedCloudApiBase = usableStoredApiBase(localStorage.getItem("pf_cloud_api_base"));
+
   if (getConnectionMode() === "cloud") {
-    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || ENV_API_BASE;
+    return storedCloudApiBase || storedApiBase || ENV_API_BASE;
   }
-  return localStorage.getItem("pf_api_base") || ENV_API_BASE;
+  return storedApiBase || ENV_API_BASE;
 };
 
 export function setApiBase(url: string) {

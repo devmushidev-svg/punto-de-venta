@@ -168,7 +168,11 @@ type Variables = { jwt: JwtPayload };
 
 export const app = new Hono<{ Variables: Variables }>();
 
-const DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+const DEFAULT_CORS_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://pos-system-with-supabase.vercel.app",
+];
 
 function parseCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGINS?.trim();
@@ -180,10 +184,11 @@ function parseCorsOrigins(): string[] {
 app.use(
   "*",
   cors({
-    origin: parseCorsOrigins(),
-    allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
-    credentials: true,
+      // Authentication uses Bearer tokens, so the public API does not need cookies.
+      origin: "*",
+      allowHeaders: ["Content-Type", "Authorization"],
+      allowMethods: ["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
+      credentials: false,
   })
 );
 
