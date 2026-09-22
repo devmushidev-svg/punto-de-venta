@@ -14,6 +14,7 @@ export function ToolbarButton({
   disabled,
   title,
   tone = "default",
+  mobilePriority,
 }: {
   icon: LucideIcon;
   label: string;
@@ -22,7 +23,13 @@ export function ToolbarButton({
   disabled?: boolean;
   title?: string;
   tone?: "default" | "primary" | "danger";
+  /**
+   * En teléfono la cinta sólo deja a la vista lo que se puede resolver en un
+   * toque. Las acciones "overflow" siguen disponibles dentro de Más acciones.
+   */
+  mobilePriority?: "primary" | "quick" | "overflow";
 }) {
+  const resolvedMobilePriority = mobilePriority ?? (tone === "primary" ? "primary" : "quick");
   const toneClass =
     tone === "primary"
       ? "border-transparent bg-pf-primary text-[color:var(--pf-primary-foreground)] hover:bg-pf-primary-hover"
@@ -32,13 +39,15 @@ export function ToolbarButton({
   return (
     <button
       type="button"
-      title={title}
+      title={title ?? label}
+      aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] disabled:pointer-events-none disabled:opacity-40 ${toneClass}`}
+      data-mobile-priority={resolvedMobilePriority}
+      className={`pf-document-toolbar-button inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] disabled:pointer-events-none disabled:opacity-40 ${toneClass}`}
     >
       <Icon className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-      <span className="whitespace-nowrap">{label}</span>
+      <span className="pf-document-toolbar-label whitespace-nowrap">{label}</span>
       {shortcut ? (
         <kbd className="hidden rounded border border-current/25 px-1 font-sans text-[10px] font-semibold opacity-60 sm:inline">
           {shortcut}
@@ -49,7 +58,7 @@ export function ToolbarButton({
 }
 
 export function ToolbarSeparator() {
-  return <span className="mx-1 h-6 w-px shrink-0 bg-pf-border" aria-hidden />;
+  return <span className="pf-document-toolbar-separator mx-1 h-6 w-px shrink-0 bg-pf-border" aria-hidden />;
 }
 
 export type ToolbarMenuItem = {
@@ -119,10 +128,11 @@ export function ToolbarMenu({ items, label = "Más acciones" }: { items: Toolbar
         aria-expanded={open}
         aria-haspopup="menu"
         title={label}
-        className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-pf-border px-3 text-[13px] font-semibold text-pf-text-secondary transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+        aria-label={label}
+        className="pf-document-toolbar-button pf-document-toolbar-menu inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-pf-border px-3 text-[13px] font-semibold text-pf-text-secondary transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
       >
         <MoreHorizontal className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-        <span className="whitespace-nowrap">{label}</span>
+        <span className="pf-document-toolbar-label whitespace-nowrap">{label}</span>
       </button>
       {open && pos
         ? createPortal(

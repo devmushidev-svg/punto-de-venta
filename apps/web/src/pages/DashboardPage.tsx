@@ -170,7 +170,7 @@ export function DashboardPage() {
         </Link>
       </header>
 
-      <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1.65fr)_minmax(17rem,0.85fr)]">
+      <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0">
           {canReports ? (
             <section className="flex flex-wrap items-end gap-x-10 gap-y-5 border-b border-pf-border pb-5" aria-label="Resumen del día">
@@ -321,7 +321,10 @@ export function DashboardPage() {
         </div>
 
         <aside className="min-w-0" aria-label="Pendientes">
-          <h2 className="mb-3 text-sm font-bold tracking-tight text-pf-text">Requiere atención</h2>
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-bold tracking-tight text-pf-text">Requiere atención</h2>
+            {alerts.length > 0 ? <span className="text-xs font-semibold tabular-nums text-pf-muted">{alerts.length}</span> : null}
+          </div>
           {alerts.length === 0 ? (
             <div className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-4 py-6 text-center">
               <p className="text-sm font-medium text-pf-text">Todo en orden</p>
@@ -335,7 +338,7 @@ export function DashboardPage() {
                   <li key={alert.id}>
                     <Link
                       to={alert.to}
-                      className="flex gap-3 rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-3.5 transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+                      className="flex gap-3 rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-3 transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
                     >
                       <Icon
                         className={`mt-0.5 h-[18px] w-[18px] shrink-0 ${alert.tone === "danger" ? "text-pf-danger" : "text-pf-warning"}`}

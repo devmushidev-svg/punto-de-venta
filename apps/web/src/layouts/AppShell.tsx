@@ -41,6 +41,7 @@ import { useAuth, type UserInfo } from "../auth/AuthContext";
 import { isSaleDocPath, isSaleDocumentPath, isSalesListPath } from "../lib/appUrl";
 import { hasPermission, PERMISSION_KEYS, type PermissionKey } from "../lib/permissions";
 import { BrandLockup, BrandLogo } from "../components/BrandLogo";
+import { AppAmbient } from "../components/AppAmbient";
 import { Button } from "../components/ui";
 import { OfflineBadge } from "../components/OfflineBadge";
 import { apiFetch } from "../api/client";
@@ -315,6 +316,8 @@ function UserMenu({ onLock, onLogout, buildVersion }: { onLock: () => void; onLo
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label="Abrir menú de usuario"
+        title="Menú de usuario"
         className="flex min-h-11 items-center gap-2 rounded-lg border border-pf-border px-2.5 py-1.5 text-sm font-medium text-pf-text-secondary md:min-h-9 transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
       >
         <User className="h-4 w-4 shrink-0 text-pf-muted" strokeWidth={1.9} aria-hidden />
@@ -377,14 +380,14 @@ function OpenDocChip({
         active ? "border-[color:var(--pf-primary-mid)] bg-pf-primary-soft text-[color:var(--pf-sale-tab-ink)]" : "border-pf-border text-pf-text-tertiary"
       }`}
     >
-      <button type="button" onClick={onOpen} className="max-w-[10rem] truncate px-2.5 py-1.5">
+      <button type="button" onClick={onOpen} className="min-h-11 max-w-[10rem] truncate px-2.5 py-1.5">
         {label}
       </button>
       <button
         type="button"
         onClick={onClose}
         aria-label={`Cerrar ${label}`}
-        className="flex items-center px-1.5 transition-colors hover:bg-[color:var(--pf-surface-muted)]"
+        className="flex min-h-11 min-w-11 items-center justify-center px-1.5 transition-colors hover:bg-[color:var(--pf-surface-muted)]"
       >
         <X className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
       </button>
@@ -492,6 +495,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const hideChromeForPrint = /^\/ventas\/[^/]+\/comprobante$/.test(location.pathname);
   /** Documento de venta: menos margen lateral para dejar el ancho a los productos. */
   const saleDocWideLayout = onSaleDoc && !hideChromeForPrint;
+  const showAmbient = !hideChromeForPrint;
   const title = pageTitle(location.pathname);
 
   async function unlockScreen() {
@@ -545,8 +549,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const saleToolbarStrip =
     saleDoc && saleToolbarSlot && !hideChromeForPrint ? (
       <div className="pf-ribbon-shell print:hidden">
-        <div className="overflow-x-auto [scrollbar-width:thin]">
-          <div className="flex min-h-10 flex-row items-center gap-1 px-1 py-1 lg:px-3" role="toolbar" aria-label="Acciones del documento de venta">
+        <div className="overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
+          <div className="pf-document-toolbar-actions flex min-h-11 flex-row items-center gap-1 px-1.5 py-1 lg:px-3" role="toolbar" aria-label="Acciones del documento de venta">
             {saleToolbarSlot}
           </div>
         </div>
@@ -582,7 +586,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
   return (
     <SaleDocumentToolbarSetterContext.Provider value={setSaleToolbarSlot}>
-      <div className={`flex min-h-screen min-h-dvh${hideChromeForPrint ? " print:bg-white" : ""}`}>
+      <div className={`relative isolate flex min-h-screen min-h-dvh${hideChromeForPrint ? " print:bg-white" : ""}`}>
+        {showAmbient ? <AppAmbient className="print:hidden" /> : null}
         {/* Barra lateral (escritorio) */}
         <aside
           className={`pf-sidebar-shell fixed inset-y-0 left-0 z-30 hidden h-dvh shrink-0 flex-col md:flex print:hidden ${
@@ -625,7 +630,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </div>
         </aside>
 
-        <div className={`flex min-w-0 flex-1 flex-col ${sidebarExpanded ? "md:ml-60" : "md:ml-16"}`}>
+        <div className={`relative z-10 flex min-w-0 flex-1 flex-col ${sidebarExpanded ? "md:ml-60" : "md:ml-16"}`}>
           {/* Cabecera compacta */}
           <header
             className={`pf-app-shell-header sticky top-0 z-20 print:hidden${hideChromeForPrint ? " print:hidden" : ""}`}
@@ -737,7 +742,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
         ) : null}
 
         {screenLocked ? (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[color:var(--pf-modal-scrim-from)] px-4 backdrop-blur-sm print:hidden">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[color:var(--pf-modal-scrim-from)] px-4 print:hidden">
             <div className="w-full max-w-sm rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-5 shadow-[var(--pf-shadow-warm-xl)]">
               <p className="text-center text-sm font-bold text-pf-text">Pantalla bloqueada</p>
               <p className="mt-1 text-center text-xs text-pf-muted">Ingrese su contraseña para continuar.</p>

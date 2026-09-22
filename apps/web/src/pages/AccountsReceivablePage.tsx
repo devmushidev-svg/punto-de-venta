@@ -252,7 +252,72 @@ export function AccountsReceivablePage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div
+            className="divide-y divide-pf-border sm:hidden"
+            role="list"
+            aria-label="Facturas por cobrar"
+          >
+            {sorted.map((r) => {
+              const days = daysOverdue(r.dueDate);
+              const due = dueLabel(days);
+              return (
+                <article key={r.saleId} className="space-y-3 px-4 py-4" role="listitem">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-semibold text-pf-text">
+                        {r.customer?.name ?? "Sin cliente"}
+                      </p>
+                      <p className="mt-1 font-mono text-xs text-pf-text-tertiary">
+                        Factura {r.invoiceNumber ?? r.saleId.slice(0, 8)}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-pf-muted">
+                        Saldo
+                      </p>
+                      <p className="mt-0.5 text-lg font-bold tabular-nums text-pf-text">
+                        {formatMoney(sym, r.balance)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`flex items-start gap-2 text-sm font-medium ${
+                      due.tone === "danger"
+                        ? "text-pf-danger"
+                        : due.tone === "warning"
+                          ? "text-pf-warning"
+                          : "text-pf-text-tertiary"
+                    }`}
+                  >
+                    {due.tone === "danger" ? (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                    ) : null}
+                    <div className="min-w-0">
+                      <p>{due.text}</p>
+                      {r.dueDate ? (
+                        <p className="mt-0.5 text-xs text-pf-text-tertiary">
+                          Fecha de pago: {formatDate(r.dueDate)}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-12 w-full"
+                    onClick={() => openPay(r)}
+                  >
+                    <Coins className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                    Registrar abono
+                  </Button>
+                </article>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[720px] text-sm">
               <caption className="sr-only">Facturas con saldo pendiente, las más atrasadas primero</caption>
               <thead>
@@ -312,6 +377,7 @@ export function AccountsReceivablePage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

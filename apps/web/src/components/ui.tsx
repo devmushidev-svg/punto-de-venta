@@ -97,7 +97,7 @@ export function PaginationBar({
         <Button
           type="button"
           variant="secondary"
-          className="min-h-0 rounded-lg px-2 py-1.5 text-xs"
+          className="min-h-11 min-w-11 rounded-lg px-2 py-1.5 text-xs sm:min-h-0 sm:min-w-0"
           disabled={page <= 1}
           onClick={() => onPageChange(Math.max(1, page - 1))}
           aria-label="Pagina anterior"
@@ -108,7 +108,7 @@ export function PaginationBar({
         <Button
           type="button"
           variant="secondary"
-          className="min-h-0 rounded-lg px-2 py-1.5 text-xs"
+          className="min-h-11 min-w-11 rounded-lg px-2 py-1.5 text-xs sm:min-h-0 sm:min-w-0"
           disabled={page >= totalPages}
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           aria-label="Pagina siguiente"
@@ -227,14 +227,14 @@ export function Modal({
         aria-labelledby="modal-title"
         className={`relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-t-3xl border border-[var(--pf-glass-border)] bg-[color:var(--pf-surface-overlay)] shadow-[var(--pf-shadow-warm-xl)] backdrop-blur-xl sm:rounded-2xl md:border-pf-border md:bg-pf-surface-elevated md:backdrop-blur-none md:shadow-xl ${widthCls}`}
       >
-        <div className="sticky top-0 flex items-center justify-between border-b border-pf-border-soft bg-pf-surface-elevated px-4 py-3">
-          <h2 id="modal-title" className="text-lg font-semibold text-pf-text">
+        <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-pf-border-soft bg-pf-surface-elevated px-4 py-3">
+          <h2 id="modal-title" className="min-w-0 flex-1 break-words text-lg font-semibold text-pf-text">
             {title}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-pf-text-soft hover:bg-pf-primary-soft hover:text-pf-text"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg p-2 text-pf-text-soft hover:bg-pf-primary-soft hover:text-pf-text"
             aria-label="Cerrar diálogo"
           >
             ✕

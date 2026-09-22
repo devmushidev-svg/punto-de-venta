@@ -305,6 +305,9 @@ export function NewSalePage() {
   const [documentSaleDate, setDocumentSaleDate] = useState(() => new Date());
   const [saleDatePickerOpen, setSaleDatePickerOpen] = useState(false);
   const [saleDateDraft, setSaleDateDraft] = useState("");
+  const [saleExtraOpen, setSaleExtraOpen] = useState(
+    () => typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches,
+  );
   const quickAddInputRef = useRef<HTMLInputElement | null>(null);
   /** Evita un segundo Enter (lector) mientras el primero aún procesa; el estado `quickAddBusy` llega tarde en el mismo tick. */
   const quickAddBusyRef = useRef(false);
@@ -338,6 +341,14 @@ export function NewSalePage() {
       .then((s) => setPosBehavior(parsePosBehavior(s.general?.posBehavior)))
       .catch(() => setPosBehavior(DEFAULT_POS_BEHAVIOR));
   }, [token]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 640px)");
+    const syncDisclosure = () => setSaleExtraOpen(media.matches);
+    syncDisclosure();
+    media.addEventListener("change", syncDisclosure);
+    return () => media.removeEventListener("change", syncDisclosure);
+  }, []);
 
   useEffect(() => {
     if (isEditMode) return;
@@ -744,9 +755,11 @@ export function NewSalePage() {
 
   const focusSaleLineField = useCallback(
     (lineIndex: number, field: SaleLineField) => {
-      const el = document.querySelector<HTMLInputElement>(
-        `[data-sale-form-line="${lineIndex}"][data-sale-form-field="${field}"]`,
-      );
+      const el = Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          `[data-sale-form-line="${lineIndex}"][data-sale-form-field="${field}"]`,
+        ),
+      ).find((candidate) => candidate.offsetParent !== null);
       if (!el) return;
       el.focus();
       el.select();
@@ -1436,6 +1449,7 @@ export function NewSalePage() {
       <>
         <ToolbarButton
           tone="primary"
+          mobilePriority="primary"
           icon={Save}
           label={isEditMode ? "Guardar cambios" : "Guardar venta"}
           shortcut="F5 / Ctrl+Enter"
@@ -1462,6 +1476,7 @@ export function NewSalePage() {
           onClick={() => setCustomerSearchOpen(true)}
         />
         <ToolbarButton
+          mobilePriority="overflow"
           icon={Search}
           label="Productos"
           shortcut="F4 / Ctrl+K"
@@ -1470,6 +1485,7 @@ export function NewSalePage() {
         />
         <ToolbarSeparator />
         <ToolbarButton
+          mobilePriority="overflow"
           icon={Plus}
           label="Insertar fila"
           shortcut="F9"
@@ -1478,6 +1494,7 @@ export function NewSalePage() {
         />
         <ToolbarButton
           tone="danger"
+          mobilePriority="overflow"
           icon={X}
           label="Eliminar fila"
           shortcut="F10"
@@ -1493,6 +1510,26 @@ export function NewSalePage() {
               label: "Guardar y abrir factura carta",
               onClick: () => openCheckout({ destination: "comprobante" }),
               disabled: busy || !hasBillableLines || loadingSale,
+            },
+            {
+              icon: Search,
+              label: "Buscar productos",
+              shortcut: "F4 / Ctrl+K",
+              onClick: openProductSearchModal,
+            },
+            {
+              icon: Plus,
+              label: "Agregar producto por código",
+              shortcut: "F9",
+              onClick: insertRowAfterSelection,
+            },
+            {
+              icon: X,
+              label: "Eliminar fila seleccionada",
+              shortcut: "F10",
+              onClick: deleteSelectedOrLastRow,
+              disabled: lines.length === 0,
+              danger: true,
             },
             {
               icon: UserPlus,
@@ -1554,9 +1591,11 @@ export function NewSalePage() {
     if (!p) return;
     pendingLineFieldFocusRef.current = null;
     const focusLineField = (): boolean => {
-      const el = document.querySelector<HTMLInputElement>(
-        `[data-sale-form-line="${p.lineIndex}"][data-sale-form-field="${p.field}"]`,
-      );
+      const el = Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          `[data-sale-form-line="${p.lineIndex}"][data-sale-form-field="${p.field}"]`,
+        ),
+      ).find((candidate) => candidate.offsetParent !== null);
       if (!el) return false;
       quickAddInputRef.current?.blur();
       el.focus({ preventScroll: true });
@@ -1615,7 +1654,7 @@ export function NewSalePage() {
             <div className="w-full min-w-0 rounded-lg border border-pf-border bg-white p-1.5 shadow-sm ring-1 ring-pf-border/70 sm:p-2">
               <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
                 {/* Columna documento: Nº factura, términos, fecha */}
-                <div className="min-w-0 space-y-0.5 xl:col-span-2">
+                <div className="pf-sale-doc-key-fields flex min-w-0 flex-col gap-0.5 xl:col-span-2">
                   <Field label="Nº factura" className="min-w-0" compact>
                     <Input
                       readOnly
@@ -1861,7 +1900,7 @@ export function NewSalePage() {
                       ) : null}
                     </div>
                   </Field>
-                  <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-3 xl:grid-cols-3 sm:gap-1">
+                  <div className="pf-sale-customer-contact grid grid-cols-1 gap-0.5 sm:grid-cols-3 xl:grid-cols-3 sm:gap-1">
                     <Field label="DIR" className="min-w-0" compact>
                       <Input
                         ref={saleAddressRef}
@@ -1906,8 +1945,15 @@ export function NewSalePage() {
                   </div>
                 </div>
 
-                {/* Notas y lista de precios (el total va en subtotal/impuesto y en la cinta) */}
-                <div className="flex min-h-0 min-w-0 flex-col gap-0.5 xl:col-span-6">
+                {/* Los datos secundarios se pliegan en teléfono: cliente y productos
+                    siguen siendo el primer tramo visible del flujo de cobro. */}
+                <details
+                  className="pf-sale-extra-details min-h-0 min-w-0 xl:col-span-6"
+                  open={saleExtraOpen}
+                  onToggle={(e) => setSaleExtraOpen(e.currentTarget.open)}
+                >
+                  <summary>Datos de venta y lista de precios</summary>
+                  <div className="pf-sale-extra-details-body min-h-0 min-w-0 flex-col gap-0.5">
                   <Field
                     label="Vendedor (opc.)"
                     className="min-w-0 shrink-0"
@@ -1957,7 +2003,8 @@ export function NewSalePage() {
                       <option value={4}>Precio 4</option>
                     </Select>
                   </Field>
-                </div>
+                  </div>
+                </details>
               </div>
 
               {isCreditSaleTerm(terms) ? (
@@ -2002,7 +2049,7 @@ export function NewSalePage() {
                 </p>
               </div>
             </div>
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-xl sm:justify-end">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:max-w-xl sm:justify-end">
               <Input
                 ref={quickAddInputRef}
                 value={quickAddCode}
@@ -2036,7 +2083,7 @@ export function NewSalePage() {
                 aria-label="Agregar producto por código"
               />
               {quickAddErr ? (
-                <p className="max-w-[13rem] text-xs font-semibold text-pf-danger">
+                <p className="basis-full text-xs font-semibold text-pf-danger">
                   {quickAddErr}
                 </p>
               ) : null}
@@ -2055,8 +2102,198 @@ export function NewSalePage() {
           </div>
         </div>
 
-        {/* Cuadrícula principal */}
-        <div className="flex-1 overflow-x-auto rounded-b-2xl border border-t-0 border-pf-border bg-pf-surface-elevated shadow-[var(--pf-shadow-sm)]">
+        {/* En móvil las líneas son tarjetas editables: cantidad, precio y total
+            caben en el ancho útil sin esconder el botón de quitar. */}
+        <div className="overflow-hidden rounded-b-2xl border border-t-0 border-pf-border bg-pf-surface-elevated shadow-[var(--pf-shadow-sm)] sm:hidden">
+          {lines.length === 0 ? (
+            <div className="px-4 py-12 text-center">
+              <p className="text-sm font-semibold text-pf-text">
+                Todavía no hay productos en la venta
+              </p>
+              <p className="mt-1 text-xs text-pf-text-tertiary">
+                Escanee un código arriba o abra el catálogo para empezar.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-pf-border-soft">
+              {lines.map((l, i) => (
+                <article
+                  key={l.lineKey}
+                  onClick={() => setSelectedLineIndex(i)}
+                  className={`p-3 transition-colors ${
+                    selectedLineIndex === i
+                      ? "bg-pf-primary-soft/45 shadow-[inset_3px_0_0_0_var(--pf-primary-mid)]"
+                      : posBehavior.showStockWhileSelling &&
+                          tracksStock(l.product) &&
+                          l.qty > l.product.stock
+                        ? "bg-pf-danger-soft/30"
+                        : ""
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-2 text-sm font-bold leading-snug text-pf-text">
+                        {l.product.name}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[11px] text-pf-text-tertiary">
+                        {l.product.sku} · {l.product.unit}
+                      </p>
+                      {posBehavior.showStockWhileSelling ? (
+                        <p
+                          className={`mt-1 text-[11px] font-medium ${
+                            tracksStock(l.product) && l.qty > l.product.stock
+                              ? "text-pf-danger"
+                              : "text-pf-muted"
+                          }`}
+                        >
+                          {l.product.productType === "KIT"
+                            ? "Combo (exist. por componentes)"
+                            : `Exist. ${l.product.stock}`}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Quitar ${l.product.name}`}
+                      title={`Quitar ${l.product.name}`}
+                      className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-pf-danger transition hover:bg-pf-danger-soft active:scale-95 touch-manipulation"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeLine(i);
+                      }}
+                    >
+                      <X className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
+                        Cant.
+                      </span>
+                      <Input
+                        type="number"
+                        step="any"
+                        data-sale-form-line={i}
+                        data-sale-form-field="qty"
+                        className="!min-h-11 w-full px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        value={l.qty}
+                        onFocus={() => setSelectedLineIndex(i)}
+                        onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "qty")}
+                        onChange={(e) => {
+                          const parsed = Number(e.target.value);
+                          let qty = Number.isFinite(parsed)
+                            ? Math.max(0, parsed)
+                            : l.qty;
+
+                          if (
+                            tracksStock(l.product) &&
+                            !posBehavior.warnOutOfStock
+                          ) {
+                            const cap = l.product.stock;
+                            if (!l.product.esGranel) qty = Math.round(qty);
+                            if (qty > cap) {
+                              setErr(
+                                `«${l.product.name}»: no puede vender más de ${cap} (existencia). Aumente el stock en Productos antes de continuar.`,
+                              );
+                              qty = cap;
+                            }
+                            if (qty > 0) {
+                              const floor = l.product.esGranel ? 0.0001 : 1;
+                              if (qty < floor) {
+                                qty = floor;
+                                if (qty > cap) qty = cap;
+                              }
+                            }
+                          } else {
+                            qty = Number.isFinite(parsed)
+                              ? Math.max(0, parsed)
+                              : l.qty;
+                            if (qty > 0 && qty < 0.0001) qty = 0.0001;
+                          }
+
+                          updateLine(i, {
+                            qty,
+                            unitPrice: resolveProductUnitPrice(
+                              l.product,
+                              qty,
+                              priceTier,
+                            ),
+                          });
+                        }}
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
+                        Precio final
+                      </span>
+                      <Input
+                        type="number"
+                        step="any"
+                        data-sale-form-line={i}
+                        data-sale-form-field="price"
+                        className="!min-h-11 w-full px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        value={l.unitPrice}
+                        readOnly={!canOverridePrice}
+                        aria-readonly={!canOverridePrice}
+                        title={
+                          canOverridePrice
+                            ? "Puede ajustar el precio con el permiso sales.price_override"
+                            : "El precio se toma del catálogo"
+                        }
+                        onFocus={() => setSelectedLineIndex(i)}
+                        onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "price")}
+                        onChange={(e) =>
+                          updateLine(i, {
+                            unitPrice: Number(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </label>
+                    <div className="min-w-[4.75rem] rounded-lg bg-pf-surface px-2 py-2 text-right">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
+                        Total
+                      </p>
+                      <p className="mt-0.5 text-sm font-black tabular-nums text-pf-text">
+                        {formatMoney(sym, computeLineTotal(l))}
+                      </p>
+                    </div>
+                  </div>
+
+                  {canOverridePrice ? (
+                    <label className="mt-2 block max-w-[10rem]">
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
+                        Descuento %
+                      </span>
+                      <Input
+                        type="number"
+                        step="any"
+                        data-sale-form-line={i}
+                        data-sale-form-field="disc"
+                        className="!min-h-11 w-full px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        value={l.discountPercent}
+                        onFocus={() => setSelectedLineIndex(i)}
+                        onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "disc")}
+                        onChange={(e) =>
+                          updateLine(i, {
+                            discountPercent: Number(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </label>
+                  ) : l.discountPercent > 0 ? (
+                    <p className="mt-2 text-xs font-medium text-pf-text-tertiary">
+                      Descuento aplicado: {l.discountPercent}%
+                    </p>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Cuadrícula completa para teclado y escritorio. */}
+        <div className="hidden flex-1 overflow-x-auto rounded-b-2xl border border-t-0 border-pf-border bg-pf-surface-elevated shadow-[var(--pf-shadow-sm)] sm:block">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="pf-table-thead text-left uppercase tracking-wide">

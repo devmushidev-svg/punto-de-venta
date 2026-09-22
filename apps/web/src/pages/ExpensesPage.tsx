@@ -465,58 +465,114 @@ export function ExpensesPage() {
       </Card>
 
       <Card className="overflow-x-auto p-0 shadow-lg">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10">
-            <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
-              <th className="p-3">Fecha</th>
-              <th className="p-3">Libro</th>
-              <th className="p-3">Categoría</th>
-              <th className="p-3 text-right">Monto</th>
-              <th className="p-3">Usuario</th>
-              <th className="p-3">Notas</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={6} className="p-6 text-center text-pf-muted">
-                  Cargando…
-                </td>
+        <div className="sm:hidden">
+          {loading ? (
+            <p className="p-6 text-center text-sm text-pf-muted">Cargando…</p>
+          ) : list.length === 0 ? (
+            <p className="p-6 text-center text-sm text-pf-muted">
+              Sin gastos en el rango.
+            </p>
+          ) : (
+            <div className="divide-y divide-pf-border" role="list" aria-label="Gastos registrados">
+              {list.map((r) => (
+                <article key={r.id} className="space-y-3 px-4 py-4" role="listitem">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-semibold text-pf-text">
+                        {r.expenseCategory?.name ?? r.category}
+                      </p>
+                      <p className="mt-1 text-xs text-pf-text-tertiary">
+                        {formatDate(r.expenseDate)}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-base font-bold tabular-nums text-pf-text">
+                      {formatMoney(sym, r.amount)}
+                    </p>
+                  </div>
+
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-y border-pf-border py-2.5 text-xs">
+                    <div className="min-w-0">
+                      <dt className="text-pf-muted">Libro</dt>
+                      <dd className="mt-0.5 break-words font-medium text-pf-text">
+                        {r.book?.name ?? "Sin libro"}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-pf-muted">Registró</dt>
+                      <dd className="mt-0.5 break-words font-medium text-pf-text">
+                        {r.user.displayName}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {r.notes ? (
+                    <div>
+                      <p className="text-xs font-semibold text-pf-text-secondary">Notas</p>
+                      <p className="mt-1 break-words text-sm text-pf-text-tertiary">
+                        {r.notes}
+                      </p>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto sm:block">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
+                <th className="p-3">Fecha</th>
+                <th className="p-3">Libro</th>
+                <th className="p-3">Categoría</th>
+                <th className="p-3 text-right">Monto</th>
+                <th className="p-3">Usuario</th>
+                <th className="p-3">Notas</th>
               </tr>
-            ) : list.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="p-6 text-center text-pf-muted">
-                  Sin gastos en el rango.
-                </td>
-              </tr>
-            ) : (
-              list.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b border-pf-border/90 transition hover:bg-pf-danger-soft/35"
-                >
-                  <td className="p-3 whitespace-nowrap">
-                    {formatDate(r.expenseDate)}
-                  </td>
-                  <td className="p-3 text-pf-muted">{r.book?.name ?? "—"}</td>
-                  <td className="p-3">
-                    {r.expenseCategory?.name ?? r.category}
-                  </td>
-                  <td className="p-3 text-right font-medium tabular-nums">
-                    {formatMoney(sym, r.amount)}
-                  </td>
-                  <td className="p-3 text-pf-muted">{r.user.displayName}</td>
-                  <td
-                    className="p-3 text-pf-muted max-w-[220px] truncate"
-                    title={r.notes ?? ""}
-                  >
-                    {r.notes ?? "—"}
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-pf-muted">
+                    Cargando…
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : list.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-pf-muted">
+                    Sin gastos en el rango.
+                  </td>
+                </tr>
+              ) : (
+                list.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="border-b border-pf-border/90 transition hover:bg-pf-danger-soft/35"
+                  >
+                    <td className="p-3 whitespace-nowrap">
+                      {formatDate(r.expenseDate)}
+                    </td>
+                    <td className="p-3 text-pf-muted">{r.book?.name ?? "—"}</td>
+                    <td className="p-3">
+                      {r.expenseCategory?.name ?? r.category}
+                    </td>
+                    <td className="p-3 text-right font-medium tabular-nums">
+                      {formatMoney(sym, r.amount)}
+                    </td>
+                    <td className="p-3 text-pf-muted">{r.user.displayName}</td>
+                    <td
+                      className="p-3 text-pf-muted max-w-[220px] truncate"
+                      title={r.notes ?? ""}
+                    >
+                      {r.notes ?? "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </div>
   );

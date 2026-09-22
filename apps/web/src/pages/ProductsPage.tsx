@@ -21,6 +21,31 @@ type StockLocRow = {
   location: { code: string; name: string };
 };
 
+function productAvailability(product: Product) {
+  if (!product.active) {
+    return { label: "Inactivo", className: "border-pf-border bg-pf-surface-muted text-pf-muted" };
+  }
+  if (product.productType === "SERVICIO") {
+    return { label: "Servicio", className: "border-pf-primary/25 bg-pf-primary-soft/60 text-pf-primary-hover" };
+  }
+  if (product.productType === "KIT") {
+    return { label: "Combo", className: "border-pf-primary/25 bg-pf-primary-soft/60 text-pf-primary-hover" };
+  }
+  if (product.stock <= 0) {
+    return { label: "Agotado", className: "border-pf-danger-soft bg-pf-danger-soft/70 text-pf-danger" };
+  }
+  if (product.stock <= product.minStock) {
+    return { label: "Bajo mínimo", className: "border-pf-warning-soft bg-pf-warning-soft/70 text-pf-warning" };
+  }
+  return { label: "Disponible", className: "border-pf-success-soft bg-pf-success-soft/70 text-pf-success" };
+}
+
+function productStockValue(product: Product) {
+  if (product.productType === "SERVICIO") return "No aplica";
+  if (product.productType === "KIT") return "Por componentes";
+  return `${product.stock} ${product.unit}`;
+}
+
 const emptyForm = {
   sku: "",
   name: "",
@@ -431,8 +456,8 @@ export function ProductsPage() {
   return (
     <div className="flex min-h-0 flex-col space-y-3 pf-safe-page sm:space-y-4">
       <Card className="space-y-3 p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-[200px] flex-1">
+        <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+          <div className="col-span-2 min-w-0 sm:min-w-[200px] sm:flex-1">
             <label
               htmlFor="products-search"
               className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-pf-muted"
@@ -448,7 +473,7 @@ export function ProductsPage() {
               className="min-w-0"
             />
           </div>
-          <label className="min-w-[150px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:min-w-[150px] sm:shrink-0">
             Existencia
             <Select
               className="mt-1 min-h-10"
@@ -461,7 +486,7 @@ export function ProductsPage() {
               <option value="low">Bajo mínimo</option>
             </Select>
           </label>
-          <label className="min-w-[150px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:min-w-[150px] sm:shrink-0">
             Proveedor
             <Select className="mt-1 min-h-10" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
               <option value="">Todos</option>
@@ -472,29 +497,29 @@ export function ProductsPage() {
               ))}
             </Select>
           </label>
-          <label className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:shrink-0">
             Vence desde
             <Input
               type="date"
               value={expiresAfter}
               onChange={(e) => setExpiresAfter(e.target.value)}
-              className="mt-1 min-h-10 w-[140px]"
+              className="mt-1 min-h-10 w-full sm:w-[140px]"
             />
           </label>
-          <label className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:shrink-0">
             Vence hasta
             <Input
               type="date"
               value={expiresBefore}
               onChange={(e) => setExpiresBefore(e.target.value)}
-              className="mt-1 min-h-10 w-[140px]"
+              className="mt-1 min-h-10 w-full sm:w-[140px]"
             />
           </label>
 
           <Button
             type="button"
             variant="secondary"
-            className="min-h-10 shrink-0"
+            className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0"
             title="Recargar la lista"
             aria-label="Recargar la lista"
             onClick={() => load()}
@@ -502,7 +527,7 @@ export function ProductsPage() {
             <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
           </Button>
           {hasFilters ? (
-            <Button type="button" variant="ghost" className="min-h-10 shrink-0" onClick={clearFilters}>
+            <Button type="button" variant="ghost" className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0" onClick={clearFilters}>
               <FilterX className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               Limpiar
             </Button>
@@ -511,7 +536,7 @@ export function ProductsPage() {
             <Button
               type="button"
               variant="secondary"
-              className="min-h-10 shrink-0"
+              className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0"
               onClick={() => void openLabelsPreview()}
             >
               <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
@@ -519,7 +544,7 @@ export function ProductsPage() {
             </Button>
           ) : null}
           {admin ? (
-            <Button type="button" onClick={openNew} className="min-h-10 shrink-0">
+            <Button type="button" onClick={openNew} className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0">
               <PackagePlus className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               Nuevo producto
             </Button>
@@ -591,7 +616,95 @@ export function ProductsPage() {
           />
         ) : (
           <>
-          <div className="max-h-[min(520px,calc(100vh-15rem))] overflow-auto overscroll-contain rounded-2xl md:rounded-none">
+          <div className="space-y-2 p-2 sm:hidden" role="list" aria-label="Productos">
+            {list.map((p) => {
+              const availability = productAvailability(p);
+              return (
+                <article
+                  key={p.id}
+                  role="listitem"
+                  className="rounded-xl border border-pf-border bg-pf-surface-elevated p-3 shadow-[var(--pf-shadow-sm)]"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className={`truncate text-sm font-bold ${p.active ? "text-pf-text" : "text-pf-muted line-through"}`}>
+                        {p.name}
+                      </p>
+                      <p className="mt-0.5 truncate font-mono text-[11px] text-pf-muted">{p.sku}</p>
+                    </div>
+                    {admin ? (
+                      <label className="flex min-h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-1 text-xs font-medium text-pf-text-secondary">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(labelPick[p.id])}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setLabelPick((m) => {
+                              const next = { ...m };
+                              if (on) next[p.id] = true;
+                              else delete next[p.id];
+                              return next;
+                            });
+                            setLabelsErr("");
+                          }}
+                          aria-label={`Incluir ${p.name} en etiquetas`}
+                          className="h-4 w-4 rounded border-pf-border"
+                        />
+                        <span>Etiqueta</span>
+                      </label>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-pf-surface-soft px-2.5 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pf-muted">Precio</p>
+                      <p className="mt-0.5 text-sm font-bold tabular-nums text-pf-text">{formatMoney(sym, p.price)}</p>
+                    </div>
+                    <div className="rounded-lg bg-pf-surface-soft px-2.5 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pf-muted">Existencia</p>
+                      <p className="mt-0.5 truncate text-sm font-bold tabular-nums text-pf-text" title={productStockValue(p)}>
+                        {productStockValue(p)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-1 font-semibold ${availability.className}`}>
+                      {availability.label}
+                    </span>
+                    {p.category ? <span className="truncate text-pf-text-tertiary">{p.category}</span> : null}
+                    {p.location ? <span className="truncate text-pf-muted">· {p.location}</span> : null}
+                  </div>
+
+                  <div className="mt-3 flex gap-2 border-t border-pf-border/70 pt-3">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="min-h-10 flex-1 px-3 text-xs"
+                      onClick={() => setMovementsFor(p)}
+                      aria-label={`Movimientos de ${p.name}`}
+                    >
+                      <History className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                      Movimientos
+                    </Button>
+                    {admin ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="min-h-10 flex-1 px-3 text-xs"
+                        onClick={() => openEdit(p)}
+                      >
+                        <Pencil className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                        Editar
+                      </Button>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="hidden max-h-[min(520px,calc(100vh-15rem))] overflow-auto overscroll-contain rounded-2xl sm:block md:rounded-none">
             <table className="w-full min-w-[1120px] border-collapse text-sm">
             <thead className="sticky top-0 z-[1]">
               <tr className="pf-table-thead text-left">

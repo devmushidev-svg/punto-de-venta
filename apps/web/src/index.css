@@ -335,6 +335,170 @@
   --pf-control-shadow: inset 0 1px 2px 0 rgb(15 76 104 / 0.04);
 }
 
+/* Preset oscuro: tinta mineral, cobre suave y superficies estratificadas para uso prolongado. */
+[data-pf-theme="night"] {
+  color-scheme: dark;
+
+  --pf-primary: #df8665;
+  --pf-primary-hover: #ee9b79;
+  --pf-primary-mid: #c9694c;
+  --pf-primary-soft: #3c2620;
+  --pf-primary-foreground: #171a18;
+
+  --pf-surface: #101614;
+  --pf-surface-elevated: #1b2420;
+  --pf-surface-muted: #151d1a;
+  --pf-surface-soft: #202a26;
+  --pf-surface-overlay: rgb(27 36 32 / 0.94);
+  --pf-border: #34413c;
+  --pf-border-soft: rgb(72 89 82 / 0.6);
+  --pf-border-strong: #4c5c55;
+  --pf-muted: #9aa39b;
+
+  --pf-mint: #70c7a1;
+  --pf-mint-soft: #183b2d;
+  --pf-sky: #79b7dc;
+  --pf-sky-soft: #183343;
+  --pf-lilac-soft: #2d2940;
+
+  --pf-text: #f3f0e8;
+  --pf-text-secondary: #dedad1;
+  --pf-text-tertiary: #bbb6ad;
+  --pf-text-soft: #a8a29a;
+  --pf-text-on-brand: #171a18;
+
+  --pf-glass-border: rgb(91 107 99 / 0.62);
+  --pf-modal-scrim-from: rgb(4 8 6 / 0.82);
+  --pf-modal-scrim-via: rgb(4 8 6 / 0.7);
+  --pf-modal-scrim-to: rgb(4 8 6 / 0.58);
+  --pf-focus-ring: rgb(223 134 101 / 0.42);
+
+  --pf-success: #6ed19f;
+  --pf-success-soft: #183c2d;
+  --pf-warning: #efba60;
+  --pf-warning-soft: #473718;
+  --pf-danger: #f27b70;
+  --pf-danger-soft: #482524;
+  --pf-info: #83c2e7;
+  --pf-info-soft: #183545;
+
+  --pf-shadow-hero: 0 18px 40px -20px rgb(0 0 0 / 0.72);
+  --pf-shadow-card: 0 12px 28px -18px rgb(0 0 0 / 0.66);
+  --pf-shadow-sm: 0 2px 5px rgb(0 0 0 / 0.35);
+  --pf-shadow-lg: 0 24px 48px -20px rgb(0 0 0 / 0.72);
+  --pf-shadow-btn-primary: 0 10px 22px -12px rgb(223 134 101 / 0.55);
+  --pf-shadow-btn-primary-hover: 0 12px 28px -12px rgb(223 134 101 / 0.66);
+  --pf-shadow-btn-soft: 0 8px 16px -12px rgb(0 0 0 / 0.55);
+  --pf-theme-color: #101614;
+
+  --pf-hero-bg-1: #202a26;
+  --pf-hero-bg-2: #1b2420;
+  --pf-hero-bg-3: #17201d;
+  --pf-hero-title-1: #f3f0e8;
+  --pf-hero-title-2: #f3f0e8;
+  --pf-hero-title-3: #dedad1;
+
+  --pf-mesh-1: rgb(93 47 34 / 0.34);
+  --pf-mesh-2: rgb(26 71 56 / 0.28);
+  --pf-mesh-3: rgb(25 61 76 / 0.24);
+  --pf-mesh-4: rgb(49 38 74 / 0.2);
+  --pf-mesh-base-1: #101614;
+  --pf-mesh-base-2: #111916;
+  --pf-mesh-base-3: #0d1311;
+
+  --pf-table-head-1: #202a26;
+  --pf-table-head-2: #202a26;
+  --pf-table-head-3: #202a26;
+  --pf-table-border: rgb(83 100 92 / 0.62);
+  --pf-table-body: #1b2420;
+  --pf-row-hover-from: #25322d;
+  --pf-row-selected-from: #3c2620;
+  --pf-row-selected-to: #2d362f;
+
+  --pf-nav-ink-from: #f3f0e8;
+  --pf-nav-ink-via: #f3f0e8;
+  --pf-nav-ink-to: #dedad1;
+  --pf-nav-shell-bg: #151d1a;
+  --pf-nav-shell-border: #34413c;
+  --pf-nav-shell-shadow: 0 10px 26px -20px rgb(0 0 0 / 0.82);
+  --pf-tab-shell-bg: #151d1a;
+  --pf-tab-shell-border: #34413c;
+  --pf-tab-active-bg: #26332d;
+  --pf-tab-active-ink: #f3f0e8;
+  --pf-tab-idle-ink: #bbb6ad;
+  --pf-tab-hover-bg: #202a26;
+  --pf-tab-active-border: #596b62;
+
+  --pf-ribbon-bg-1: #18211e;
+  --pf-ribbon-bg-2: #151d1a;
+  --pf-ribbon-bg-3: #131a17;
+  --pf-ribbon-divider: #34413c;
+  --pf-ribbon-active-bg: #2a3832;
+  --pf-ribbon-active-border: #557466;
+  --pf-ribbon-hover-bg: #202a26;
+  --pf-ribbon-tile-icon-bg: #26332d;
+  --pf-ribbon-tile-icon-ink: #dedad1;
+  --pf-ribbon-tile-icon-ring: #40554c;
+  --pf-sale-tab-bg: #3c2620;
+  --pf-sale-tab-border: #c9694c;
+  --pf-sale-tab-ink: #f5c1ad;
+
+  --pf-sidebar-bg: #131a17;
+  --pf-sidebar-border: #34413c;
+  --pf-sidebar-ink: #c5c1b8;
+  --pf-sidebar-hover-bg: #202a26;
+  --pf-sidebar-active-bg: #32231e;
+  --pf-sidebar-active-ink: #f3c0ac;
+  --pf-sidebar-rail: #df8665;
+  --pf-sidebar-section-ink: #9aa39b;
+
+  --pf-shadow-warm-sm: 0 10px 18px -14px rgb(0 0 0 / 0.56);
+  --pf-shadow-warm-md: 0 18px 32px -18px rgb(0 0 0 / 0.68);
+  --pf-shadow-warm-xl: 0 30px 58px -24px rgb(0 0 0 / 0.8);
+  --pf-nav-pill-warm-to: #df8665;
+
+  --pf-control-bg: #151e1a;
+  --pf-control-bg-soft: #1c2722;
+  --pf-control-border: #45554d;
+  --pf-control-border-hover: #64786d;
+  --pf-control-placeholder: #929d95;
+  --pf-control-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);
+}
+
+[data-pf-theme="night"] ::selection {
+  background: color-mix(in srgb, var(--pf-primary) 62%, transparent);
+  color: var(--pf-text-on-brand);
+}
+
+/* Superficies heredadas que usaban blanco explícito antes del sistema de tokens. */
+[data-pf-theme="night"] .bg-white,
+[data-pf-theme="night"] .bg-white\/95,
+[data-pf-theme="night"] .bg-white\/85,
+[data-pf-theme="night"] .bg-white\/80,
+[data-pf-theme="night"] .bg-white\/70,
+[data-pf-theme="night"] .bg-white\/60 {
+  background-color: var(--pf-surface-elevated);
+}
+
+[data-pf-theme="night"] .border-white\/60,
+[data-pf-theme="night"] .border-white\/50 {
+  border-color: var(--pf-border-soft);
+}
+
+[data-pf-theme="night"] .pf-settings-tab-idle:hover {
+  background-color: var(--pf-surface-soft);
+}
+
+[data-pf-theme="night"] .pf-dashboard-ambient::before {
+  background: linear-gradient(
+    118deg,
+    transparent 12%,
+    color-mix(in srgb, var(--pf-surface-elevated) 70%, transparent) 44%,
+    transparent 72%
+  );
+  opacity: 0.38;
+}
+
 @theme {
   --font-sans: var(--pf-font-sans);
   --color-pf-primary: var(--pf-primary);
@@ -988,7 +1152,10 @@ body {
 /* Barra lateral: riel estrecho expandible, discreta y constante. */
 @utility pf-sidebar-shell {
   border-right: 1px solid var(--pf-sidebar-border);
-  background: var(--pf-sidebar-bg);
+  background: color-mix(in srgb, var(--pf-sidebar-bg) 42%, transparent);
+  box-shadow: 10px 0 30px -24px rgb(0 0 0 / 0.52), inset -1px 0 rgb(255 255 255 / 0.18);
+  backdrop-filter: blur(18px) saturate(1.24);
+  -webkit-backdrop-filter: blur(18px) saturate(1.24);
 }
 
 @utility pf-sidebar-item-idle {
@@ -1176,6 +1343,115 @@ body {
   opacity: 0.9;
 }
 
+/* Fondo vivo exclusivo de Inicio: las tarjetas siguen siendo superficies de trabajo opacas. */
+.pf-dashboard-ambient {
+  pointer-events: none;
+  position: absolute;
+  inset: -5rem -4rem;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.pf-dashboard-ambient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    118deg,
+    transparent 12%,
+    color-mix(in srgb, white 76%, transparent) 44%,
+    transparent 72%
+  );
+  opacity: 0.78;
+}
+
+.pf-dashboard-ambient-orb {
+  position: absolute;
+  display: block;
+  border-radius: 9999px;
+  filter: blur(42px);
+  opacity: 0.74;
+}
+
+.pf-dashboard-ambient-orb-primary {
+  top: -11rem;
+  right: -11rem;
+  width: 22rem;
+  height: 22rem;
+  background: color-mix(in srgb, var(--pf-primary) 58%, transparent);
+  animation: pf-dashboard-drift-primary 15s linear infinite;
+}
+
+.pf-dashboard-ambient-orb-mint {
+  bottom: -10rem;
+  left: -10rem;
+  width: 20rem;
+  height: 20rem;
+  background: color-mix(in srgb, var(--pf-mint) 58%, transparent);
+  animation: pf-dashboard-drift-mint 18s linear infinite;
+}
+
+.pf-dashboard-ambient-orb-sky {
+  top: 42%;
+  left: 42%;
+  width: 16rem;
+  height: 16rem;
+  background: color-mix(in srgb, var(--pf-sky) 52%, transparent);
+  opacity: 0.62;
+  animation: pf-dashboard-drift-sky 13s linear infinite;
+}
+
+@keyframes pf-dashboard-drift-primary {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  25% { transform: translate3d(-30vw, 12vh, 0) scale(1.08); }
+  50% { transform: translate3d(-57vw, 43vh, 0) scale(1.12); }
+  75% { transform: translate3d(-28vw, 66vh, 0) scale(1.06); }
+}
+
+@keyframes pf-dashboard-drift-mint {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  25% { transform: translate3d(31vw, -16vh, 0) scale(1.05); }
+  50% { transform: translate3d(61vw, -50vh, 0) scale(1.12); }
+  75% { transform: translate3d(38vw, -68vh, 0) scale(1.06); }
+}
+
+@keyframes pf-dashboard-drift-sky {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  25% { transform: translate3d(24vw, -20vh, 0) scale(1.1); }
+  50% { transform: translate3d(39vw, 18vh, 0) scale(1.04); }
+  75% { transform: translate3d(10vw, 41vh, 0) scale(1.12); }
+}
+
+@media (max-width: 640px) {
+  .pf-dashboard-ambient {
+    inset: -3rem -2rem;
+  }
+
+  .pf-dashboard-ambient-orb-primary {
+    width: 13rem;
+    height: 13rem;
+    opacity: 0.7;
+  }
+
+  .pf-dashboard-ambient-orb-mint {
+    top: 31rem;
+    bottom: auto;
+    width: 12rem;
+    height: 12rem;
+  }
+
+  .pf-dashboard-ambient-orb-sky {
+    display: none;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-dashboard-ambient-orb {
+    animation: none;
+  }
+}
+
 @utility pf-logo-fallback-ring {
   border-radius: 1.5rem;
   background: linear-gradient(to bottom right, rgb(255 255 255 / 0.8), color-mix(in srgb, var(--pf-primary-soft) 50%, white));
@@ -1217,4 +1493,134 @@ body {
 .pf-trend #pfTrendStopA,
 .pf-trend #pfTrendStopB {
   stop-color: var(--pf-primary-mid);
+}
+
+/* Guardarraíl: ningún elemento de una ruta puede ensanchar el documento móvil.
+   Las tablas que sí necesitan más ancho conservan su propio contenedor con scroll. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* Cinta de documentos: en escritorio conserva las etiquetas; en teléfono se
+   vuelve una hilera de acciones táctiles con prioridad explícita. */
+.pf-document-toolbar-button {
+  touch-action: manipulation;
+}
+
+@media (max-width: 639px) {
+  .pf-document-toolbar-actions {
+    min-width: 100%;
+    justify-content: flex-start;
+    gap: 0.375rem;
+  }
+
+  .pf-document-toolbar-button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
+    justify-content: center;
+    gap: 0.375rem;
+    padding-inline: 0.625rem;
+  }
+
+  .pf-document-toolbar-button[data-mobile-priority="overflow"],
+  .pf-document-toolbar-separator {
+    display: none;
+  }
+
+  .pf-document-toolbar-button[data-mobile-priority="quick"] .pf-document-toolbar-label,
+  .pf-document-toolbar-menu .pf-document-toolbar-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .pf-table-shell {
+    overflow-x: auto !important;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Datos secundarios de una venta: presentes y accesibles en todo momento en
+   escritorio, plegables en móvil para llegar al buscador de productos antes. */
+.pf-sale-extra-details > summary {
+  display: none;
+}
+
+.pf-sale-extra-details-body {
+  display: flex;
+}
+
+@media (max-width: 639px) {
+  .pf-sale-doc-key-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 0.5rem;
+  }
+
+  .pf-sale-doc-key-fields > :last-child,
+  .pf-sale-customer-contact > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .pf-sale-customer-contact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 0.5rem;
+  }
+
+  .pf-sale-extra-details {
+    border-top: 1px solid var(--pf-border-soft);
+    padding-top: 0.375rem;
+  }
+
+  .pf-sale-extra-details > summary {
+    display: flex;
+    min-height: 2.75rem;
+    cursor: pointer;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: calc(var(--radius-pf) - 0.125rem);
+    padding-inline: 0.5rem;
+    color: var(--pf-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    list-style: none;
+  }
+
+  .pf-sale-extra-details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .pf-sale-extra-details > summary::after {
+    content: "+";
+    color: var(--pf-primary-hover);
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .pf-sale-extra-details[open] > summary::after {
+    content: "−";
+  }
+
+  .pf-sale-extra-details-body {
+    display: none;
+    padding-top: 0.25rem;
+  }
+
+  .pf-sale-extra-details[open] > .pf-sale-extra-details-body {
+    display: flex;
+  }
+}
+
+@media (min-width: 640px) {
+  .pf-sale-extra-details:not([open]) > .pf-sale-extra-details-body {
+    display: flex;
+  }
 }

@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { apiFetch, getApiBase, setApiBase } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { BrandLogo } from "../components/BrandLogo";
+import { AppAmbient } from "../components/AppAmbient";
 import { Button, Card, Field, Input, Modal } from "../components/ui";
 
 type OrgRow = { id: string; slug: string; name: string };
@@ -62,9 +63,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen min-h-dvh flex flex-col items-center justify-center overflow-hidden px-4 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
+    <div className="relative isolate min-h-screen min-h-dvh flex flex-col items-center justify-center overflow-hidden px-4 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
       <div className="pf-auth-backdrop" aria-hidden />
-      <div className="mb-8 text-center">
+      <AppAmbient className="opacity-70" />
+      <div className="relative z-10 mb-8 text-center">
         <div className="mx-auto mb-5 flex justify-center">
           <div className="pf-login-logo-shell">
             <BrandLogo size={76} withShadow className="rounded-2xl" title="MultiPOS" />
@@ -76,7 +78,7 @@ export function LoginPage() {
         </p>
       </div>
 
-      <Card className="pf-login-card p-6 sm:p-8">
+      <Card className="relative z-10 pf-login-card p-6 sm:p-8">
         <form onSubmit={onSubmit} className="space-y-4">
           <Field label="Empresa">
             <select

@@ -338,7 +338,7 @@ export function SalesPage() {
             <Button
               type="button"
               variant="secondary"
-              className="hidden min-h-10 shrink-0 sm:inline-flex"
+              className="!hidden min-h-10 shrink-0 sm:!inline-flex"
               aria-expanded={colsOpen}
               onClick={() => setColsOpen((v) => !v)}
             >

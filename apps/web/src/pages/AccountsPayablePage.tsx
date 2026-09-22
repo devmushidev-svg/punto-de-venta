@@ -170,7 +170,145 @@ export function AccountsPayablePage() {
             />
           </label>
         </div>
-        <div className="pf-admin-table-wrap">
+        <div
+          className="divide-y divide-pf-border sm:hidden"
+          role="list"
+          aria-label="Compras por pagar"
+        >
+          {filteredRows.map((r) => {
+            const reference = r.reference ?? r.purchaseId.slice(0, 8);
+            const supplier = r.supplier?.name ?? "Proveedor sin nombre";
+            return (
+              <article
+                key={r.purchaseId}
+                className="space-y-3 px-3 py-4"
+                role="listitem"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-semibold text-pf-text">
+                      {supplier}
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-pf-text-tertiary">
+                      {reference} · {formatDate(r.purchaseDate)}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-pf-muted">
+                      Saldo
+                    </p>
+                    <p className="mt-0.5 text-base font-bold tabular-nums text-pf-warning">
+                      {formatMoney(sym, r.balance)}
+                    </p>
+                  </div>
+                </div>
+
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-y border-pf-border py-2.5 text-xs">
+                  <div className="min-w-0">
+                    <dt className="text-pf-muted">Total</dt>
+                    <dd className="mt-0.5 break-words font-medium tabular-nums text-pf-text">
+                      {formatMoney(sym, r.total)}
+                    </dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-pf-muted">Pagado</dt>
+                    <dd className="mt-0.5 break-words font-medium tabular-nums text-pf-text">
+                      {formatMoney(sym, r.paid)}
+                    </dd>
+                  </div>
+                  {r.surchargesTotal > 0 ? (
+                    <div className="min-w-0">
+                      <dt className="text-pf-muted">Recargos</dt>
+                      <dd className="mt-0.5 break-words font-medium tabular-nums text-pf-text">
+                        {formatMoney(sym, r.surchargesTotal)}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-pf-text-secondary">
+                    Registrar pago
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      step="any"
+                      inputMode="decimal"
+                      className="min-w-0 flex-1"
+                      aria-label={`Monto del pago para ${supplier}`}
+                      placeholder="Monto"
+                      value={amounts[r.purchaseId] ?? ""}
+                      onChange={(e) =>
+                        setAmounts((a) => ({
+                          ...a,
+                          [r.purchaseId]: e.target.value,
+                        }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="min-h-12 shrink-0 px-4"
+                      disabled={busy === `pay:${r.purchaseId}`}
+                      onClick={() => pay(r.purchaseId)}
+                    >
+                      <Wallet
+                        className="h-4 w-4 shrink-0"
+                        strokeWidth={2}
+                        aria-hidden
+                      />
+                      {busy === `pay:${r.purchaseId}` ? "…" : "Pagar"}
+                    </Button>
+                  </div>
+                </div>
+
+                <details className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-soft">
+                  <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-semibold text-pf-text-secondary">
+                    Agregar recargo
+                  </summary>
+                  <div className="space-y-2 border-t border-pf-border p-3">
+                    <Input
+                      type="number"
+                      step="any"
+                      inputMode="decimal"
+                      aria-label={`Monto del recargo para ${supplier}`}
+                      placeholder="Monto del recargo"
+                      value={surAmounts[r.purchaseId] ?? ""}
+                      onChange={(e) =>
+                        setSurAmounts((a) => ({
+                          ...a,
+                          [r.purchaseId]: e.target.value,
+                        }))
+                      }
+                    />
+                    <Input
+                      aria-label={`Nota del recargo para ${supplier}`}
+                      placeholder="Nota (opcional)"
+                      value={surNotes[r.purchaseId] ?? ""}
+                      onChange={(e) =>
+                        setSurNotes((a) => ({
+                          ...a,
+                          [r.purchaseId]: e.target.value,
+                        }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-11 w-full"
+                      disabled={busy === `sur:${r.purchaseId}`}
+                      onClick={() => surcharge(r.purchaseId)}
+                    >
+                      {busy === `sur:${r.purchaseId}` ? "Guardando…" : "Guardar recargo"}
+                    </Button>
+                  </div>
+                </details>
+              </article>
+            );
+          })}
+        </div>
+        <div className="hidden sm:block pf-admin-table-wrap">
           <table className="w-full min-w-[1020px] text-sm">
             <thead className="sticky top-0 z-10">
               <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-secondary shadow-sm backdrop-blur-md">

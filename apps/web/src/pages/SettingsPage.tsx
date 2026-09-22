@@ -452,11 +452,12 @@ export function SettingsPage() {
               <p className="text-sm font-bold text-pf-text">Tema visual</p>
               <p className="mt-0.5 text-xs text-pf-text-tertiary">Se guarda solo en este navegador.</p>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 { id: "default" as PfThemeId, label: "Cobre", desc: "Cálido y acogedor", color: "bg-[#f4a574]" },
                 { id: "slate" as PfThemeId, label: "Pizarra", desc: "Neutro y sobrio", color: "bg-[#64748b]" },
                 { id: "ocean" as PfThemeId, label: "Océano", desc: "Frío y profesional", color: "bg-[#2494c7]" },
+                { id: "night" as PfThemeId, label: "Nocturno", desc: "Profundo y sereno", color: "bg-[#1c2723]" },
               ].map((t) => (
                 <button
                   key={t.id}

@@ -1,0 +1,368 @@
+{
+  "version": 1,
+  "project": {
+    "name": "@punto-flow/web",
+    "productType": null,
+    "stack": [
+      "react",
+      "tailwind-v4",
+      "vite"
+    ]
+  },
+  "sources": {
+    "tokens": [
+      "src/index.css"
+    ],
+    "components": [],
+    "assets": [],
+    "instructions": []
+  },
+  "design": {
+    "colorMode": "light",
+    "colors": {
+      "--pf-primary": {
+        "value": "#2494c7",
+        "source": "src/index.css"
+      },
+      "--pf-primary-hover": {
+        "value": "#1e7aa8",
+        "source": "src/index.css"
+      },
+      "--pf-primary-mid": {
+        "value": "#208ab8",
+        "source": "src/index.css"
+      },
+      "--pf-primary-soft": {
+        "value": "#d9f1fb",
+        "source": "src/index.css"
+      },
+      "--pf-primary-foreground": {
+        "value": "#ffffff",
+        "source": "src/index.css"
+      },
+      "--pf-surface-muted": {
+        "value": "#e8f4fb",
+        "source": "src/index.css"
+      },
+      "--pf-border": {
+        "value": "#cfe4ef",
+        "source": "src/index.css"
+      },
+      "--pf-border-soft": {
+        "value": "rgb(207 228 239 / 0.72)",
+        "source": "src/index.css"
+      },
+      "--pf-border-strong": {
+        "value": "#a8cfdf",
+        "source": "src/index.css"
+      },
+      "--pf-muted": {
+        "value": "#5d7480",
+        "source": "src/index.css"
+      },
+      "--pf-text-secondary": {
+        "value": "#17384a",
+        "source": "src/index.css"
+      },
+      "--pf-glass-border": {
+        "value": "rgb(207 228 239 / 0.6)",
+        "source": "src/index.css"
+      },
+      "--pf-focus-ring": {
+        "value": "rgb(36 148 199 / 0.24)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-btn-primary": {
+        "value": "0 10px 15px -3px rgb(14 116 144 / 0.24)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-btn-primary-hover": {
+        "value": "0 10px 15px -3px rgb(14 116 144 / 0.32)",
+        "source": "src/index.css"
+      },
+      "--pf-theme-color": {
+        "value": "#eef8ff",
+        "source": "src/index.css"
+      },
+      "--pf-table-border": {
+        "value": "rgb(168 207 223 / 0.4)",
+        "source": "src/index.css"
+      },
+      "--pf-nav-shell-border": {
+        "value": "rgb(207 228 239 / 0.48)",
+        "source": "src/index.css"
+      },
+      "--pf-tab-shell-border": {
+        "value": "rgb(168 207 223 / 0.34)",
+        "source": "src/index.css"
+      },
+      "--pf-tab-active-border": {
+        "value": "rgb(168 207 223 / 0.52)",
+        "source": "src/index.css"
+      },
+      "--pf-ribbon-active-border": {
+        "value": "rgb(36 148 199 / 0.45)",
+        "source": "src/index.css"
+      },
+      "--pf-ribbon-tile-icon-ring": {
+        "value": "color-mix(in srgb, var(--pf-sky) 24%, white)",
+        "source": "src/index.css"
+      },
+      "--pf-sale-tab-border": {
+        "value": "color-mix(in srgb, var(--pf-primary) 36%, white)",
+        "source": "src/index.css"
+      },
+      "--pf-sidebar-border": {
+        "value": "#e0d9cf",
+        "source": "src/index.css"
+      },
+      "--pf-control-border": {
+        "value": "rgb(168 207 223 / 0.56)",
+        "source": "src/index.css"
+      },
+      "--pf-control-border-hover": {
+        "value": "rgb(168 207 223 / 0.82)",
+        "source": "src/index.css"
+      },
+      "--color-pf-primary": {
+        "value": "var(--pf-primary)",
+        "source": "src/index.css"
+      },
+      "--color-pf-primary-hover": {
+        "value": "var(--pf-primary-hover)",
+        "source": "src/index.css"
+      },
+      "--color-pf-primary-mid": {
+        "value": "var(--pf-primary-mid)",
+        "source": "src/index.css"
+      },
+      "--color-pf-primary-soft": {
+        "value": "var(--pf-primary-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-primary-foreground": {
+        "value": "var(--pf-primary-foreground)",
+        "source": "src/index.css"
+      },
+      "--color-pf-surface": {
+        "value": "var(--pf-surface)",
+        "source": "src/index.css"
+      },
+      "--color-pf-surface-elevated": {
+        "value": "var(--pf-surface-elevated)",
+        "source": "src/index.css"
+      },
+      "--color-pf-surface-muted": {
+        "value": "var(--pf-surface-muted)",
+        "source": "src/index.css"
+      },
+      "--color-pf-surface-soft": {
+        "value": "var(--pf-surface-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-border": {
+        "value": "var(--pf-border)",
+        "source": "src/index.css"
+      },
+      "--color-pf-border-soft": {
+        "value": "var(--pf-border-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-border-strong": {
+        "value": "var(--pf-border-strong)",
+        "source": "src/index.css"
+      },
+      "--color-pf-muted": {
+        "value": "var(--pf-muted)",
+        "source": "src/index.css"
+      },
+      "--color-pf-mint": {
+        "value": "var(--pf-mint)",
+        "source": "src/index.css"
+      },
+      "--color-pf-mint-soft": {
+        "value": "var(--pf-mint-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-sky": {
+        "value": "var(--pf-sky)",
+        "source": "src/index.css"
+      },
+      "--color-pf-sky-soft": {
+        "value": "var(--pf-sky-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-lilac-soft": {
+        "value": "var(--pf-lilac-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-text": {
+        "value": "var(--pf-text)",
+        "source": "src/index.css"
+      },
+      "--color-pf-text-secondary": {
+        "value": "var(--pf-text-secondary)",
+        "source": "src/index.css"
+      },
+      "--color-pf-text-tertiary": {
+        "value": "var(--pf-text-tertiary)",
+        "source": "src/index.css"
+      },
+      "--color-pf-text-soft": {
+        "value": "var(--pf-text-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-success": {
+        "value": "var(--pf-success)",
+        "source": "src/index.css"
+      },
+      "--color-pf-success-soft": {
+        "value": "var(--pf-success-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-warning": {
+        "value": "var(--pf-warning)",
+        "source": "src/index.css"
+      },
+      "--color-pf-warning-soft": {
+        "value": "var(--pf-warning-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-danger": {
+        "value": "var(--pf-danger)",
+        "source": "src/index.css"
+      },
+      "--color-pf-danger-soft": {
+        "value": "var(--pf-danger-soft)",
+        "source": "src/index.css"
+      },
+      "--color-pf-info": {
+        "value": "var(--pf-info)",
+        "source": "src/index.css"
+      },
+      "--color-pf-info-soft": {
+        "value": "var(--pf-info-soft)",
+        "source": "src/index.css"
+      }
+    },
+    "typography": {
+      "--pf-font-sans": {
+        "value": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+        "source": "src/index.css"
+      },
+      "--pf-text": {
+        "value": "#0c1f2e",
+        "source": "src/index.css"
+      },
+      "--pf-text-tertiary": {
+        "value": "#3d5d70",
+        "source": "src/index.css"
+      },
+      "--pf-text-soft": {
+        "value": "#5d7f91",
+        "source": "src/index.css"
+      },
+      "--pf-text-on-brand": {
+        "value": "#ffffff",
+        "source": "src/index.css"
+      },
+      "--font-sans": {
+        "value": "var(--pf-font-sans)",
+        "source": "src/index.css"
+      }
+    },
+    "spacing": {},
+    "radius": {
+      "--radius-pf": {
+        "value": "var(--radius-pf)",
+        "source": "src/index.css"
+      }
+    },
+    "shadows": {
+      "--pf-shadow-hero": {
+        "value": "0 10px 15px -3px rgb(15 76 104 / 0.08), 0 4px 6px -4px rgb(15 76 104 / 0.06)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-card": {
+        "value": "0 10px 15px -3px rgb(15 76 104 / 0.05)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-sm": {
+        "value": "0 1px 2px 0 rgb(31 36 33 / 0.05)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-lg": {
+        "value": "0 8px 24px -8px rgb(31 36 33 / 0.12)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-btn-soft": {
+        "value": "0 8px 20px -12px rgb(15 76 104 / 0.18)",
+        "source": "src/index.css"
+      },
+      "--pf-nav-shell-shadow": {
+        "value": "none",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-warm-sm": {
+        "value": "0 10px 15px -3px rgb(15 76 104 / 0.07), 0 4px 6px -4px rgb(15 76 104 / 0.05)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-warm-md": {
+        "value": "0 20px 25px -5px rgb(15 76 104 / 0.09), 0 8px 10px -6px rgb(15 76 104 / 0.06)",
+        "source": "src/index.css"
+      },
+      "--pf-shadow-warm-xl": {
+        "value": "0 25px 50px -12px rgb(15 76 104 / 0.14)",
+        "source": "src/index.css"
+      },
+      "--pf-control-shadow": {
+        "value": "inset 0 1px 2px 0 rgb(15 76 104 / 0.04)",
+        "source": "src/index.css"
+      }
+    },
+    "motion": {},
+    "density": "unknown"
+  },
+  "components": {
+    "installed": [],
+    "preferredPrimitives": [],
+    "patterns": []
+  },
+  "constraints": {
+    "must": [],
+    "avoid": []
+  },
+  "decisions": [
+    {
+      "area": "dashboard",
+      "decision": "El fondo de Inicio usa una capa ambiental CSS con formas cálidas de movimiento lento y brillo sutil, detrás de las superficies operativas; respeta prefers-reduced-motion y no usa librerías ni imágenes."
+    },
+    {
+      "area": "theme",
+      "decision": "Nocturno usa superficies verde-mineral profundas, texto marfil y cobre suave como acento; se implementa como preset de tokens completo, no con clases oscuras aisladas."
+    }
+  ],
+  "evidence": [
+    {
+      "fact": "design.colorMode:light",
+      "source": "src/index.css"
+    },
+    {
+      "fact": "design.tokens",
+      "source": "src/index.css"
+    },
+    {
+      "fact": "project.stack:react",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:tailwind-v4",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:vite",
+      "source": "package.json"
+    }
+  ],
+  "generatedAt": "2026-09-19T16:08:06.642Z"
+}
