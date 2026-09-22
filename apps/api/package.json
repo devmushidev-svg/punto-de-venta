@@ -7,7 +7,7 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "start:cloud": "prisma db push --skip-generate && node dist/index.js",
+    "start:cloud": "prisma db push --skip-generate && if [ \"$SEED_DEMO\" = \"true\" ]; then npm run db:seed; fi && node dist/index.js",
     "postinstall": "prisma generate",
     "db:push": "prisma db push && node scripts/snapshot-schema.mjs",
     "db:seed": "tsx prisma/seed.ts",

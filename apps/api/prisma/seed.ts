@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { resolveSalePaid } from "../src/lib/saleTerms.ts";
+import { demoSeedCredentials } from "../src/lib/demoSeedCredentials.ts";
 import {
   CUSTOMERS,
   DEMO_PURCHASES,
@@ -26,6 +27,7 @@ function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax
 }
 
 async function main() {
+  const credentials = demoSeedCredentials();
   const slug = "demo";
   let org = await prisma.organization.findUnique({ where: { slug } });
   if (!org) {
@@ -125,8 +127,8 @@ async function main() {
     });
   };
 
-  const adminUser = await ensureUser("ADMIN", "Administrador", "admin", "admin");
-  const cajeroUser = await ensureUser("CAJERO", "María Cajero", "cajero", "cajero");
+  const adminUser = await ensureUser("ADMIN", "Administrador", "admin", credentials.adminPassword);
+  const cajeroUser = await ensureUser("CAJERO", "María Cajero", "cajero", credentials.cashierPassword);
 
   const demoEmployee = await prisma.employee.findFirst({
     where: { organizationId: org.id, employeeCode: "E001" },
@@ -575,7 +577,7 @@ async function main() {
   }
 
   console.log(
-    "Seed OK | Org: demo | ADMIN/admin | CAJERO/cajero | P4: empleado E001 + gasto demo | Productos, ventas, compras, caja."
+    "Seed OK | Org: demo | usuarios de demostración creados | Productos, ventas, compras y caja."
   );
 }
 
