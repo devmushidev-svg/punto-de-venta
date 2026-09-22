@@ -7,8 +7,6 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "start:cloud": "prisma db push --skip-generate && if [ \"$SEED_DEMO\" = \"true\" ]; then npm run db:seed; fi && node dist/index.js",
-    "postinstall": "prisma generate",
     "db:push": "prisma db push && node scripts/snapshot-schema.mjs",
     "db:seed": "tsx prisma/seed.ts",
     "db:snapshot-schema": "node scripts/snapshot-schema.mjs",
@@ -19,6 +17,7 @@
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@prisma/client": "^6.3.1",
+    "@vercel/node": "^13.0.1",
     "bcryptjs": "^2.4.3",
     "exceljs": "^4.4.0",
     "hono": "^4.6.16",

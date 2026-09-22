@@ -1,17 +1,10 @@
-import { Pencil, Search, UserPlus } from "lucide-react";
+import { Pencil, UserPlus } from "lucide-react";
 import { useEffect, useState } from "react";
+import { PageHero } from "../components/PageHero";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import {
-  Button,
-  Field,
-  Input,
-  Modal,
-  Select,
-  Textarea,
-} from "../components/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea } from "../components/ui";
 import type { Customer } from "../types";
-import "./admin-workspace.css";
 
 const tierOptions = [
   { value: "", label: "Sin predeterminado (lista de la venta)" },
@@ -36,7 +29,6 @@ export function CustomersPage() {
     defaultPriceTier: "" as "" | "1" | "2" | "3" | "4",
   });
   const [err, setErr] = useState("");
-  const [query, setQuery] = useState("");
 
   function load() {
     if (!token) return;
@@ -46,14 +38,6 @@ export function CustomersPage() {
   useEffect(() => {
     load();
   }, [token]);
-
-  const filteredList = list.filter((c) => {
-    const q = query.trim().toLocaleLowerCase();
-    if (!q) return true;
-    return [c.name, c.code, c.phone, c.taxId, c.address]
-      .filter(Boolean)
-      .some((v) => String(v).toLocaleLowerCase().includes(q));
-  });
 
   function resetForm() {
     setForm({
@@ -83,9 +67,7 @@ export function CustomersPage() {
       address: c.address ?? "",
       notes: c.notes ?? "",
       defaultPriceTier:
-        c.defaultPriceTier != null &&
-        c.defaultPriceTier >= 1 &&
-        c.defaultPriceTier <= 4
+        c.defaultPriceTier != null && c.defaultPriceTier >= 1 && c.defaultPriceTier <= 4
           ? (String(Math.trunc(c.defaultPriceTier)) as "1" | "2" | "3" | "4")
           : "",
     });
@@ -109,8 +91,7 @@ export function CustomersPage() {
           taxId: form.taxId || undefined,
           address: form.address || undefined,
           notes: form.notes || undefined,
-          defaultPriceTier:
-            form.defaultPriceTier === "" ? null : Number(form.defaultPriceTier),
+          defaultPriceTier: form.defaultPriceTier === "" ? null : Number(form.defaultPriceTier),
         }),
         token,
       });
@@ -139,8 +120,7 @@ export function CustomersPage() {
           taxId: form.taxId || null,
           address: form.address || null,
           notes: form.notes || null,
-          defaultPriceTier:
-            form.defaultPriceTier === "" ? null : Number(form.defaultPriceTier),
+          defaultPriceTier: form.defaultPriceTier === "" ? null : Number(form.defaultPriceTier),
         }),
         token,
       });
@@ -153,135 +133,75 @@ export function CustomersPage() {
   }
 
   return (
-    <div className="pf-admin-page space-y-5 pf-safe-page">
-      <div className="pf-admin-heading">
-        <div />
+    <div className="space-y-4 pf-safe-page">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <PageHero title={"Clientes"} constrained>
+          <p className="pf-page-lead max-w-2xl">
+            Qué es: personas o empresas a quien factura; sirven para crédito y datos en el ticket.
+          </p>
+          <p className="pf-page-lead-muted">
+            Puede fijar la lista de precio por defecto (1–4) para aplicarla al elegir el cliente en venta.
+          </p>
+        </PageHero>
         <Button
           type="button"
           onClick={openCreate}
-          className="min-h-11 w-full shrink-0 sm:w-auto"
+          className="min-h-[52px] w-full shrink-0 shadow-lg sm:w-auto sm:min-h-[48px]"
         >
-          <UserPlus
-            className="h-5 w-5 shrink-0 sm:h-4 sm:w-4"
-            strokeWidth={2}
-            aria-hidden
-          />
+          <UserPlus className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2} aria-hidden />
           Nuevo cliente
         </Button>
       </div>
-      <section className="pf-admin-surface">
-        <div className="pf-admin-surface-head">
-          <div>
-            <h2>Directorio</h2>
-            <p>
-              {query.trim()
-                ? `${filteredList.length} de ${list.length} ${list.length === 1 ? "cliente" : "clientes"}`
-                : `${list.length} ${list.length === 1 ? "cliente" : "clientes"}`}
-            </p>
-          </div>
-          <label className="pf-admin-search">
-            <Search size={17} aria-hidden />
-            <Input
-              aria-label="Buscar clientes"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Nombre, teléfono, RTN o código"
-            />
-          </label>
-        </div>
-        {filteredList.map((c) => (
-          <div key={c.id} className="pf-admin-list-row">
-            <div className="pf-admin-list-main">
-              <strong>{c.name}</strong>
-              <span>{[c.phone, c.taxId, c.address].filter(Boolean).join(" · ")}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Solo se marca lo que se aparta del comportamiento normal. */}
+      <Card className="divide-y divide-stone-100/90 border-white/50 shadow-lg shadow-stone-900/[0.04]">
+        {list.map((c) => (
+          <div
+            key={c.id}
+            className="pf-list-row-hover flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="min-w-0">
+              <p className="font-bold text-stone-900">{c.name}</p>
+              <p className="text-sm font-medium text-stone-600">
+                {[c.phone, c.taxId].filter(Boolean).join(" · ") || "Sin teléfono / RTN"}
+              </p>
               {c.defaultPriceTier != null ? (
-                <span className="pf-admin-chip">Precio {c.defaultPriceTier}</span>
+                <p className="text-xs text-pf-muted mt-0.5">Lista por defecto: precio {c.defaultPriceTier}</p>
               ) : null}
-              <Button
-                type="button"
-                variant="secondary"
-                className="min-h-9"
-                onClick={() => openEdit(c)}
-              >
-                <Pencil className="h-4 w-4" aria-hidden />
-                Editar
-              </Button>
             </div>
+            <Button type="button" variant="secondary" className="min-h-10 shrink-0" onClick={() => openEdit(c)}>
+              <Pencil className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              Editar
+            </Button>
           </div>
         ))}
-        {filteredList.length === 0 ? (
-          <div className="pf-admin-empty">
-            <strong>
-              {list.length === 0
-                ? "Todavía no hay clientes"
-                : "No encontramos ese cliente"}
-            </strong>
-            <span>
-              {list.length === 0
-                ? "Agregá el primer cliente para usarlo en ventas y crédito."
-                : "Pruebe con otro nombre, teléfono, RTN o código."}
-            </span>
-          </div>
+        {list.length === 0 ? (
+          <p className="p-6 text-center font-medium text-pf-muted">Sin clientes</p>
         ) : null}
-      </section>
+      </Card>
 
-      <Modal
-        open={openNew}
-        title="Nuevo cliente"
-        onClose={() => setOpenNew(false)}
-      >
+      <Modal open={openNew} title="Nuevo cliente" onClose={() => setOpenNew(false)}>
         <Field label="Nombre *">
-          <Input
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            required
-          />
+          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
         </Field>
         <Field label="Código (opc.)">
-          <Input
-            value={form.code}
-            onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-            placeholder="0"
-          />
+          <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="0" />
         </Field>
         <Field label="Teléfono">
-          <Input
-            value={form.phone}
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-          />
+          <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
         </Field>
         <Field label="RTN / ID fiscal">
-          <Input
-            value={form.taxId}
-            onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))}
-          />
+          <Input value={form.taxId} onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))} />
         </Field>
         <Field label="Dirección">
-          <Input
-            value={form.address}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, address: e.target.value }))
-            }
-          />
+          <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
         </Field>
         <Field label="Notas">
-          <Textarea
-            rows={2}
-            value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-          />
+          <Textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
         </Field>
         <Field label="Lista de precio por defecto">
           <Select
             value={form.defaultPriceTier}
             onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                defaultPriceTier: e.target.value as typeof f.defaultPriceTier,
-              }))
+              setForm((f) => ({ ...f, defaultPriceTier: e.target.value as typeof f.defaultPriceTier }))
             }
           >
             {tierOptions.map((o) => (
@@ -292,81 +212,44 @@ export function CustomersPage() {
           </Select>
         </Field>
         {err ? (
-          <p className="text-sm text-pf-danger mt-2" role="alert">
+          <p className="text-sm text-red-600 mt-2" role="alert">
             {err}
           </p>
         ) : null}
         <div className="mt-4 flex justify-end gap-2">
-          <Button
-            variant="secondary"
-            type="button"
-            onClick={() => setOpenNew(false)}
-          >
+          <Button variant="secondary" type="button" onClick={() => setOpenNew(false)}>
             Cancelar
           </Button>
-          <Button
-            type="button"
-            onClick={() => void saveNew()}
-            disabled={!form.name.trim()}
-          >
+          <Button type="button" onClick={() => void saveNew()} disabled={!form.name.trim()}>
             Guardar
           </Button>
         </div>
       </Modal>
 
-      <Modal
-        open={editing != null}
-        title={editing ? `Editar: ${editing.name}` : "Editar"}
-        onClose={() => setEditing(null)}
-      >
+      <Modal open={editing != null} title={editing ? `Editar: ${editing.name}` : "Editar"} onClose={() => setEditing(null)}>
         <Field label="Nombre *">
-          <Input
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            required
-          />
+          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
         </Field>
         <Field label="Código">
-          <Input
-            value={form.code}
-            onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-          />
+          <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
         </Field>
         <Field label="Teléfono">
-          <Input
-            value={form.phone}
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-          />
+          <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
         </Field>
         <Field label="RTN / ID fiscal">
-          <Input
-            value={form.taxId}
-            onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))}
-          />
+          <Input value={form.taxId} onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))} />
         </Field>
         <Field label="Dirección">
-          <Input
-            value={form.address}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, address: e.target.value }))
-            }
-          />
+          <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
         </Field>
         <Field label="Notas">
-          <Textarea
-            rows={2}
-            value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-          />
+          <Textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
         </Field>
         <Field label="Lista de precio por defecto">
           <Select
             value={form.defaultPriceTier}
             onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                defaultPriceTier: e.target.value as typeof f.defaultPriceTier,
-              }))
+              setForm((f) => ({ ...f, defaultPriceTier: e.target.value as typeof f.defaultPriceTier }))
             }
           >
             {tierOptions.map((o) => (
@@ -377,23 +260,15 @@ export function CustomersPage() {
           </Select>
         </Field>
         {err ? (
-          <p className="text-sm text-pf-danger mt-2" role="alert">
+          <p className="text-sm text-red-600 mt-2" role="alert">
             {err}
           </p>
         ) : null}
         <div className="mt-4 flex justify-end gap-2">
-          <Button
-            variant="secondary"
-            type="button"
-            onClick={() => setEditing(null)}
-          >
+          <Button variant="secondary" type="button" onClick={() => setEditing(null)}>
             Cancelar
           </Button>
-          <Button
-            type="button"
-            onClick={() => void saveEdit()}
-            disabled={!form.name.trim()}
-          >
+          <Button type="button" onClick={() => void saveEdit()} disabled={!form.name.trim()}>
             Guardar
           </Button>
         </div>

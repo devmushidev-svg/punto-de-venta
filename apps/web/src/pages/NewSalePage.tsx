@@ -12,6 +12,7 @@ import {
   UserPlus,
   Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -21,36 +22,23 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
-import { submitSale, isOfflineError } from "../lib/offlineSales";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
 import { CustomerModal } from "../components/CustomerModal";
 import { NewProductModal } from "../components/NewProductModal";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
-import {
-  ToolbarButton,
-  ToolbarMenu,
-  ToolbarSeparator,
-} from "../components/DocumentToolbar";
 import { formatMoney } from "../lib/format";
 import { printSaleTicketInHiddenFrame } from "../lib/ticketPrint";
-import {
-  PF_PRODUCT_PICK_CHANNEL,
-  PF_PRODUCT_PICK_TYPE,
-} from "../lib/saleProductPick";
+import { PF_PRODUCT_PICK_CHANNEL, PF_PRODUCT_PICK_TYPE } from "../lib/saleProductPick";
 import { isCreditSaleTerm, SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 import { defaultQtyForNewLine, tracksStock } from "../lib/saleLineHelpers";
-import {
-  DEFAULT_POS_BEHAVIOR,
-  parsePosBehavior,
-  type PosBehavior,
-} from "../lib/posBehavior";
+import { DEFAULT_POS_BEHAVIOR, parsePosBehavior, type PosBehavior } from "../lib/posBehavior";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
-import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import type { Customer, Product, Sale, Supplier } from "../types";
 
 function roundMoney2(n: number): number {
@@ -66,11 +54,9 @@ type Line = {
   discountPercent: number;
 };
 
-type CatalogModalState =
-  { kind: "closed" } | { kind: "new" } | { kind: "edit"; productId: string };
+type CatalogModalState = { kind: "closed" } | { kind: "new" } | { kind: "edit"; productId: string };
 
-type CustomerCatalogModal =
-  { kind: "closed" } | { kind: "new" } | { kind: "edit" };
+type CustomerCatalogModal = { kind: "closed" } | { kind: "new" } | { kind: "edit" };
 
 const SALE_LINE_FIELDS = ["qty", "price", "disc"] as const;
 type SaleLineField = (typeof SALE_LINE_FIELDS)[number];
@@ -93,8 +79,12 @@ type SaleHeaderArrowDest = SaleHeaderArrowField | "quickAdd";
 type ArrowDir = "up" | "down" | "left" | "right";
 
 /** Cabecera: en estos campos las flechas siempre cambian de celda (texto suele ser corto). */
-const HEADER_ARROW_ALWAYS_LEAVE_FIELD: ReadonlySet<SaleHeaderArrowField> =
-  new Set(["notes", "address", "phone", "taxId"]);
+const HEADER_ARROW_ALWAYS_LEAVE_FIELD: ReadonlySet<SaleHeaderArrowField> = new Set([
+  "notes",
+  "address",
+  "phone",
+  "taxId",
+]);
 
 function arrowKeyToDir(key: string): ArrowDir | null {
   if (key === "ArrowUp") return "up";
@@ -104,10 +94,7 @@ function arrowKeyToDir(key: string): ArrowDir | null {
   return null;
 }
 
-function shouldMoveFromTextInput(
-  el: HTMLInputElement | HTMLTextAreaElement,
-  dir: ArrowDir,
-): boolean {
+function shouldMoveFromTextInput(el: HTMLInputElement | HTMLTextAreaElement, dir: ArrowDir): boolean {
   if (el.readOnly) return true;
   const v = el.value;
   const s = el.selectionStart;
@@ -130,7 +117,7 @@ function shouldMoveFromTextInput(
 function headerArrowNeighbor(
   from: SaleHeaderArrowField,
   dir: ArrowDir,
-  credit: boolean,
+  credit: boolean
 ): SaleHeaderArrowDest | null {
   switch (from) {
     case "invoice":
@@ -196,21 +183,14 @@ function headerArrowNeighbor(
 }
 
 function newLineKey(): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `l-${Date.now()}-${Math.random()}`;
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `l-${Date.now()}-${Math.random()}`;
 }
 
 function computeLineTotal(l: Line): number {
-  // El precio de catálogo ya incluye ISV; el descuento se aplica sobre ese total.
-  return l.unitPrice * l.qty * (1 - l.discountPercent / 100);
+  const base = l.unitPrice * l.qty * (1 - l.discountPercent / 100);
+  return base + base * (l.product.taxPercent / 100);
 }
 
-function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
-  if (!Number.isFinite(taxPercent) || taxPercent <= 0) return { net: gross, tax: 0 };
-  const tax = gross * (taxPercent / (100 + taxPercent));
-  return { net: gross - tax, tax };
-}
 
 function normProductLookup(s: string | null | undefined): string {
   return (s ?? "").trim().toLowerCase();
@@ -227,11 +207,79 @@ function toDatetimeLocalValue(d: Date): string {
   return `${y}-${m}-${day}T${h}:${min}`;
 }
 
+function SaleRibbonTile({
+  icon: Icon,
+  line1,
+  line2,
+  onClick,
+  disabled,
+  title,
+  active,
+  variant = "default",
+}: {
+  icon: LucideIcon;
+  line1: string;
+  line2: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  active?: boolean;
+  variant?: "default" | "primary" | "muted" | "danger";
+}) {
+  const iconBg =
+    variant === "primary"
+      ? "bg-gradient-to-b from-[color:var(--pf-primary-soft)] to-[color:var(--pf-warning-soft)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
+      : variant === "muted"
+        ? "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-muted)] text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
+        : variant === "danger"
+          ? "bg-gradient-to-b from-[color:var(--pf-danger-soft)] to-[color:var(--pf-warning-soft)] text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
+          : "pf-ribbon-icon-shell";
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`group flex w-[6.25rem] shrink-0 flex-col items-stretch rounded-md border border-transparent p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pf-primary disabled:pointer-events-none disabled:opacity-45 sm:w-28 ${
+        active
+          ? "pf-ribbon-tile-active"
+          : "pf-ribbon-tile-idle"
+      }`}
+    >
+      <div className="flex flex-1 flex-col items-center gap-1 pb-1 pt-1.5">
+        <span
+          className={`flex size-10 shrink-0 items-center justify-center rounded-md leading-none shadow-sm ${iconBg} [&>svg]:block [&>svg]:shrink-0`}
+        >
+          <Icon className="!size-5" strokeWidth={2} aria-hidden />
+        </span>
+        <span className="w-full px-0.5 text-center text-[10px] font-semibold leading-tight text-pf-text sm:text-[11px]">
+          {line1}
+        </span>
+        <span className="w-full px-0.5 text-center text-[9px] font-medium leading-tight text-pf-text-soft sm:text-[10px]">
+          {line2}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function SaleRibbonGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="pf-ribbon-group flex min-w-0 flex-col pl-2 first:border-l-0 first:pl-0 sm:pl-3">
+      <div className="flex flex-row flex-wrap items-stretch gap-0.5 sm:gap-0">
+        {children}
+      </div>
+      <p className="pf-ribbon-group-label mt-0.5 pt-0.5 text-center text-[10px] font-medium uppercase tracking-wide sm:text-[11px]">
+        {title}
+      </p>
+    </div>
+  );
+}
+
 export function NewSalePage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
   const admin = user?.role === "admin";
-  const canOverridePrice = hasPermission(user, PERMISSION_KEYS.SALES_PRICE_OVERRIDE);
   const { id: editSaleId } = useParams();
   const isEditMode = Boolean(editSaleId);
   const sym = organization?.currencySymbol ?? "L";
@@ -254,20 +302,14 @@ export function NewSalePage() {
   const [loadingSale, setLoadingSale] = useState(false);
   const [err, setErr] = useState("");
   /** Solo en edición: número de factura para mostrar en cabecera */
-  const [loadedInvoiceNumber, setLoadedInvoiceNumber] = useState<string | null>(
-    null,
-  );
+  const [loadedInvoiceNumber, setLoadedInvoiceNumber] = useState<string | null>(null);
   const [quickAddCode, setQuickAddCode] = useState("");
   const [quickAddErr, setQuickAddErr] = useState("");
   const [quickAddBusy, setQuickAddBusy] = useState(false);
-  const [catalogModal, setCatalogModal] = useState<CatalogModalState>({
-    kind: "closed",
-  });
+  const [catalogModal, setCatalogModal] = useState<CatalogModalState>({ kind: "closed" });
   const [pickLineForEditOpen, setPickLineForEditOpen] = useState(false);
-  const [customerCatalogModal, setCustomerCatalogModal] =
-    useState<CustomerCatalogModal>({ kind: "closed" });
+  const [customerCatalogModal, setCustomerCatalogModal] = useState<CustomerCatalogModal>({ kind: "closed" });
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
-  const [customerSuggestionsOpen, setCustomerSuggestionsOpen] = useState(false);
   const [customerPickList, setCustomerPickList] = useState<Customer[]>([]);
   const [customerSearchQ, setCustomerSearchQ] = useState("");
   const [productSearchOpen, setProductSearchOpen] = useState(false);
@@ -278,44 +320,27 @@ export function NewSalePage() {
   const [productSearchRows, setProductSearchRows] = useState<Product[]>([]);
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [productSearchErr, setProductSearchErr] = useState("");
-  const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(
-    null,
-  );
-  const [toast, setToast] = useState<{
-    message: string;
-    type: "success" | "print";
-  } | null>(null);
+  const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "print" } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = useCallback(
-    (message: string, type: "success" | "print") => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setToast({ message, type });
-      toastTimerRef.current = setTimeout(() => setToast(null), 3500);
-    },
-    [],
-  );
+  const showToast = useCallback((message: string, type: "success" | "print") => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutAmountReceived, setCheckoutAmountReceived] = useState("");
-  const [checkoutOpts, setCheckoutOpts] = useState<{
-    destination: "ticket" | "comprobante";
-    autoPrintTicket?: boolean;
-  }>({ destination: "ticket" });
+  const [checkoutOpts, setCheckoutOpts] = useState<{ destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }>({ destination: "ticket" });
   const checkoutAmountInputRef = useRef<HTMLInputElement | null>(null);
   /** Fecha/hora del documento (nueva venta editable; en editar venta viene del API). */
   const [documentSaleDate, setDocumentSaleDate] = useState(() => new Date());
   const [saleDatePickerOpen, setSaleDatePickerOpen] = useState(false);
   const [saleDateDraft, setSaleDateDraft] = useState("");
-  const [saleExtraOpen, setSaleExtraOpen] = useState(
-    () => typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches,
-  );
   const quickAddInputRef = useRef<HTMLInputElement | null>(null);
   /** Evita un segundo Enter (lector) mientras el primero aún procesa; el estado `quickAddBusy` llega tarde en el mismo tick. */
   const quickAddBusyRef = useRef(false);
   /** Tras agregar línea por código o catálogo: enfocar cantidad cuando el DOM ya tiene la fila (evita que el foco se quede en «código»). */
-  const pendingLineFieldFocusRef = useRef<{
-    lineIndex: number;
-    field: SaleLineField;
-  } | null>(null);
+  const pendingLineFieldFocusRef = useRef<{ lineIndex: number; field: SaleLineField } | null>(null);
   const saleTermsRef = useRef<HTMLSelectElement | null>(null);
   const saleCustomerRef = useRef<HTMLInputElement | null>(null);
   const saleAddressRef = useRef<HTMLInputElement | null>(null);
@@ -330,25 +355,14 @@ export function NewSalePage() {
   const [productSearchHighlight, setProductSearchHighlight] = useState(0);
   const [pickLineHighlight, setPickLineHighlight] = useState(0);
   const pickLinePanelRef = useRef<HTMLDivElement | null>(null);
-  const [posBehavior, setPosBehavior] =
-    useState<PosBehavior>(DEFAULT_POS_BEHAVIOR);
+  const [posBehavior, setPosBehavior] = useState<PosBehavior>(DEFAULT_POS_BEHAVIOR);
 
   useEffect(() => {
     if (!token) return;
-    apiFetch<{ general?: { posBehavior?: unknown } }>("/api/settings", {
-      token,
-    })
+    apiFetch<{ general?: { posBehavior?: unknown } }>("/api/settings", { token })
       .then((s) => setPosBehavior(parsePosBehavior(s.general?.posBehavior)))
       .catch(() => setPosBehavior(DEFAULT_POS_BEHAVIOR));
   }, [token]);
-
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 640px)");
-    const syncDisclosure = () => setSaleExtraOpen(media.matches);
-    syncDisclosure();
-    media.addEventListener("change", syncDisclosure);
-    return () => media.removeEventListener("change", syncDisclosure);
-  }, []);
 
   useEffect(() => {
     if (isEditMode) return;
@@ -361,7 +375,6 @@ export function NewSalePage() {
     if (isEditMode) return;
     setLoadedInvoiceNumber(null);
     apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
-      setCustomerPickList(list);
       const def = list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
       if (def) {
         setCustomerId(def.id);
@@ -406,7 +419,7 @@ export function NewSalePage() {
           (sale.sellerName && String(sale.sellerName).trim()) ||
             user?.displayName?.trim() ||
             user?.username?.trim() ||
-            "",
+            ""
         );
         setDocumentSaleDate(new Date(sale.saleDate));
         setLines(
@@ -417,12 +430,10 @@ export function NewSalePage() {
             qty: l.qty,
             unitPrice: l.unitPrice,
             discountPercent: l.discountPercent ?? 0,
-          })),
+          }))
         );
       })
-      .catch((e) =>
-        setErr(e instanceof Error ? e.message : "No se pudo cargar la venta"),
-      )
+      .catch((e) => setErr(e instanceof Error ? e.message : "No se pudo cargar la venta"))
       .finally(() => setLoadingSale(false));
   }, [token, isEditMode, editSaleId, user?.displayName, user?.username]);
 
@@ -430,9 +441,7 @@ export function NewSalePage() {
     async (productId: string) => {
       if (!token) return;
       try {
-        const p = await apiFetch<Product>(`/api/products/${productId}`, {
-          token,
-        });
+        const p = await apiFetch<Product>(`/api/products/${productId}`, { token });
         if (!p.active || p.productType === "INSUMO") return;
 
         const tier = priceTierRef.current;
@@ -459,27 +468,20 @@ export function NewSalePage() {
           ];
         });
         if (focusLineAfter !== null) {
-          pendingLineFieldFocusRef.current = {
-            lineIndex: focusLineAfter,
-            field: "qty",
-          };
+          pendingLineFieldFocusRef.current = { lineIndex: focusLineAfter, field: "qty" };
           setSelectedLineIndex(focusLineAfter);
         }
       } catch {
         /* ignorar */
       }
     },
-    [token],
+    [token]
   );
 
-  const openProductSearchModal = useCallback(
-    (opts?: { initialQuery?: string }) => {
-      if (opts?.initialQuery !== undefined)
-        setProductSearchQ(opts.initialQuery);
-      setProductSearchOpen(true);
-    },
-    [],
-  );
+  const openProductSearchModal = useCallback((opts?: { initialQuery?: string }) => {
+    if (opts?.initialQuery !== undefined) setProductSearchQ(opts.initialQuery);
+    setProductSearchOpen(true);
+  }, []);
 
   const refreshLinesWithProduct = useCallback((p: Product) => {
     const tier = priceTierRef.current;
@@ -491,17 +493,15 @@ export function NewSalePage() {
               product: p,
               unitPrice: resolveProductUnitPrice(p, l.qty, tier),
             }
-          : l,
-      ),
+          : l
+      )
     );
   }, []);
 
   const startEditProductFlow = useCallback(() => {
     if (!admin || lines.length === 0) return;
     const sel =
-      selectedLineIndex !== null &&
-      selectedLineIndex >= 0 &&
-      selectedLineIndex < lines.length
+      selectedLineIndex !== null && selectedLineIndex >= 0 && selectedLineIndex < lines.length
         ? selectedLineIndex
         : null;
     if (sel !== null) {
@@ -518,8 +518,6 @@ export function NewSalePage() {
   const applyCustomer = useCallback((c: Customer) => {
     setCustomerId(c.id);
     setCustomerName(c.name);
-    setCustomerSearchQ(c.name);
-    setCustomerSuggestionsOpen(false);
     setCustomerAddress(c.address ?? "");
     setCustomerPhone(c.phone ?? "");
     setCustomerTaxId(c.taxId ?? "");
@@ -532,7 +530,7 @@ export function NewSalePage() {
         prev.map((l) => ({
           ...l,
           unitPrice: resolveProductUnitPrice(l.product, l.qty, tier),
-        })),
+        }))
       );
     }
   }, []);
@@ -540,30 +538,12 @@ export function NewSalePage() {
   useEffect(() => {
     if (!customerSearchOpen || !token) return;
     setCustomerSearchQ("");
-    apiFetch<Customer[]>("/api/customers", { token })
-      .then(setCustomerPickList)
-      .catch(() => setCustomerPickList([]));
+    apiFetch<Customer[]>("/api/customers", { token }).then(setCustomerPickList).catch(() => setCustomerPickList([]));
   }, [customerSearchOpen, token]);
 
   useEffect(() => {
-    if (!token || customerPickList.length > 0) return;
-    apiFetch<Customer[]>("/api/customers", { token })
-      .then(setCustomerPickList)
-      .catch(() => setCustomerPickList([]));
-  }, [customerPickList.length, token]);
-
-  useEffect(() => {
-    if (!token || customerPickList.length > 0) return;
-    apiFetch<Customer[]>("/api/customers", { token })
-      .then(setCustomerPickList)
-      .catch(() => setCustomerPickList([]));
-  }, [customerPickList.length, token]);
-
-  useEffect(() => {
     if (!productSearchOpen || !token) return;
-    apiFetch<Supplier[]>("/api/suppliers", { token })
-      .then(setProductSuppliers)
-      .catch(() => setProductSuppliers([]));
+    apiFetch<Supplier[]>("/api/suppliers", { token }).then(setProductSuppliers).catch(() => setProductSuppliers([]));
   }, [productSearchOpen, token]);
 
   useEffect(() => {
@@ -578,32 +558,18 @@ export function NewSalePage() {
         params.set("forPos", "1");
         params.set("limit", "250");
         if (productInStockOnly) params.set("stock", "with");
-        if (productSupplierId.trim())
-          params.set("supplierId", productSupplierId.trim());
-        const data = await apiFetch<Product[]>(
-          `/api/products?${params.toString()}`,
-          { token },
-        );
-        setProductSearchRows(
-          data.filter((p) => p.active && p.productType !== "INSUMO"),
-        );
+        if (productSupplierId.trim()) params.set("supplierId", productSupplierId.trim());
+        const data = await apiFetch<Product[]>(`/api/products?${params.toString()}`, { token });
+        setProductSearchRows(data.filter((p) => p.active && p.productType !== "INSUMO"));
       } catch (e) {
-        setProductSearchErr(
-          e instanceof Error ? e.message : "Error al cargar productos",
-        );
+        setProductSearchErr(e instanceof Error ? e.message : "Error al cargar productos");
         setProductSearchRows([]);
       } finally {
         setProductSearchLoading(false);
       }
     }, 220);
     return () => window.clearTimeout(t);
-  }, [
-    productSearchOpen,
-    token,
-    productSearchQ,
-    productSupplierId,
-    productInStockOnly,
-  ]);
+  }, [productSearchOpen, token, productSearchQ, productSupplierId, productInStockOnly]);
 
   const filteredPickCustomers = useMemo(() => {
     const q = customerSearchQ.trim().toLowerCase();
@@ -613,24 +579,9 @@ export function NewSalePage() {
         c.name.toLowerCase().includes(q) ||
         (c.code && c.code.toLowerCase().includes(q)) ||
         (c.taxId && c.taxId.toLowerCase().includes(q)) ||
-        (c.phone && c.phone.toLowerCase().includes(q)),
+        (c.phone && c.phone.toLowerCase().includes(q))
     );
   }, [customerPickList, customerSearchQ]);
-
-  const customerCreateInitialValues = useMemo(
-    () => ({
-      name: customerName.trim(),
-      address: customerAddress.trim(),
-      phone: customerPhone.trim(),
-      taxId: customerTaxId.trim(),
-    }),
-    [customerAddress, customerName, customerPhone, customerTaxId],
-  );
-
-  const customerSearchHasQuery = customerSearchQ.trim().length >= 2;
-  const customerHasExactMatch = filteredPickCustomers.some(
-    (c) => c.name.trim().toLowerCase() === customerSearchQ.trim().toLowerCase(),
-  );
 
   useEffect(() => {
     if (!customerSearchOpen) return;
@@ -649,21 +600,14 @@ export function NewSalePage() {
   useLayoutEffect(() => {
     if (!customerSearchOpen || filteredPickCustomers.length === 0) return;
     document
-      .querySelector<HTMLElement>(
-        `[data-customer-pick-index="${customerPickHighlight}"]`,
-      )
+      .querySelector<HTMLElement>(`[data-customer-pick-index="${customerPickHighlight}"]`)
       ?.scrollIntoView({ block: "nearest" });
   }, [customerPickHighlight, filteredPickCustomers, customerSearchOpen]);
 
   useEffect(() => {
     if (!productSearchOpen) return;
     setProductSearchHighlight(0);
-  }, [
-    productSearchOpen,
-    productSearchQ,
-    productSupplierId,
-    productInStockOnly,
-  ]);
+  }, [productSearchOpen, productSearchQ, productSupplierId, productInStockOnly]);
 
   useLayoutEffect(() => {
     if (!productSearchOpen) return;
@@ -675,23 +619,11 @@ export function NewSalePage() {
   }, [productSearchOpen, productSearchRows.length]);
 
   useLayoutEffect(() => {
-    if (
-      !productSearchOpen ||
-      productSearchLoading ||
-      productSearchRows.length === 0
-    )
-      return;
+    if (!productSearchOpen || productSearchLoading || productSearchRows.length === 0) return;
     document
-      .querySelector<HTMLElement>(
-        `[data-product-search-row="${productSearchHighlight}"]`,
-      )
+      .querySelector<HTMLElement>(`[data-product-search-row="${productSearchHighlight}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [
-    productSearchHighlight,
-    productSearchRows,
-    productSearchOpen,
-    productSearchLoading,
-  ]);
+  }, [productSearchHighlight, productSearchRows, productSearchOpen, productSearchLoading]);
 
   useEffect(() => {
     if (!pickLineForEditOpen) return;
@@ -712,9 +644,7 @@ export function NewSalePage() {
   useLayoutEffect(() => {
     if (!pickLineForEditOpen || lines.length === 0) return;
     document
-      .querySelector<HTMLElement>(
-        `[data-pick-line-index="${pickLineHighlight}"]`,
-      )
+      .querySelector<HTMLElement>(`[data-pick-line-index="${pickLineHighlight}"]`)
       ?.scrollIntoView({ block: "nearest" });
   }, [pickLineHighlight, lines, pickLineForEditOpen]);
 
@@ -732,16 +662,12 @@ export function NewSalePage() {
   const deleteSelectedOrLastRow = useCallback(() => {
     if (lines.length === 0) return;
     const delIdx =
-      selectedLineIndex !== null &&
-      selectedLineIndex >= 0 &&
-      selectedLineIndex < lines.length
+      selectedLineIndex !== null && selectedLineIndex >= 0 && selectedLineIndex < lines.length
         ? selectedLineIndex
         : lines.length - 1;
     const next = lines.filter((_, j) => j !== delIdx);
     const wasSel =
-      selectedLineIndex !== null &&
-      selectedLineIndex >= 0 &&
-      selectedLineIndex < lines.length
+      selectedLineIndex !== null && selectedLineIndex >= 0 && selectedLineIndex < lines.length
         ? selectedLineIndex
         : lines.length - 1;
     let newSel: number | null;
@@ -753,19 +679,14 @@ export function NewSalePage() {
     setSelectedLineIndex(newSel);
   }, [lines, selectedLineIndex]);
 
-  const focusSaleLineField = useCallback(
-    (lineIndex: number, field: SaleLineField) => {
-      const el = Array.from(
-        document.querySelectorAll<HTMLInputElement>(
-          `[data-sale-form-line="${lineIndex}"][data-sale-form-field="${field}"]`,
-        ),
-      ).find((candidate) => candidate.offsetParent !== null);
-      if (!el) return;
-      el.focus();
-      el.select();
-    },
-    [],
-  );
+  const focusSaleLineField = useCallback((lineIndex: number, field: SaleLineField) => {
+    const el = document.querySelector<HTMLInputElement>(
+      `[data-sale-form-line="${lineIndex}"][data-sale-form-field="${field}"]`
+    );
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, []);
 
   const focusHeaderArrowTarget = useCallback((dest: SaleHeaderArrowDest) => {
     if (dest === "quickAdd") {
@@ -821,10 +742,7 @@ export function NewSalePage() {
           /* siempre navegar */
         } else if (tgt.type === "number") {
           /* abono: flechas solo cambian de campo */
-        } else if (
-          !HEADER_ARROW_ALWAYS_LEAVE_FIELD.has(from) &&
-          !shouldMoveFromTextInput(tgt, dir)
-        ) {
+        } else if (!HEADER_ARROW_ALWAYS_LEAVE_FIELD.has(from) && !shouldMoveFromTextInput(tgt, dir)) {
           return false;
         }
       }
@@ -838,14 +756,11 @@ export function NewSalePage() {
       focusHeaderArrowTarget(next);
       return true;
     },
-    [terms, focusHeaderArrowTarget],
+    [terms, focusHeaderArrowTarget]
   );
 
   const handleSaleHeaderInputKeyDown = useCallback(
-    (
-      e: ReactKeyboardEvent<HTMLInputElement>,
-      field: "customer" | "address" | "phone" | "taxId" | "notes" | "paid",
-    ) => {
+    (e: ReactKeyboardEvent<HTMLInputElement>, field: "customer" | "address" | "phone" | "taxId" | "notes" | "paid") => {
       if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const next: Record<typeof field, () => void> = {
@@ -872,15 +787,11 @@ export function NewSalePage() {
         next[field]();
       }
     },
-    [],
+    []
   );
 
   const handleSaleLineInputKeyDown = useCallback(
-    (
-      e: ReactKeyboardEvent<HTMLInputElement>,
-      lineIndex: number,
-      field: SaleLineField,
-    ) => {
+    (e: ReactKeyboardEvent<HTMLInputElement>, lineIndex: number, field: SaleLineField) => {
       const n = lines.length;
       if (e.nativeEvent.isComposing) return;
 
@@ -917,12 +828,11 @@ export function NewSalePage() {
 
       e.preventDefault();
       e.stopPropagation();
-      if (fi < SALE_LINE_FIELDS.length - 1)
-        focusSaleLineField(lineIndex, SALE_LINE_FIELDS[fi + 1]);
+      if (fi < SALE_LINE_FIELDS.length - 1) focusSaleLineField(lineIndex, SALE_LINE_FIELDS[fi + 1]);
       /* Tras el último campo de la fila ir siempre al código nuevo (no recorrer fila por fila). */
       else queueMicrotask(() => quickAddInputRef.current?.focus());
     },
-    [lines.length, terms, focusSaleLineField],
+    [lines.length, terms, focusSaleLineField]
   );
 
   const handleSaleTermsKeyDown = useCallback(
@@ -933,7 +843,7 @@ export function NewSalePage() {
       e.preventDefault();
       saleCustomerRef.current?.focus();
     },
-    [tryHeaderArrowNav],
+    [tryHeaderArrowNav]
   );
 
   const handleSalePriceTierKeyDown = useCallback(
@@ -951,7 +861,7 @@ export function NewSalePage() {
       else if (lines.length > 0) focusSaleLineField(0, "qty");
       else quickAddInputRef.current?.focus();
     },
-    [tryHeaderArrowNav, terms, lines.length, focusSaleLineField],
+    [tryHeaderArrowNav, terms, lines.length, focusSaleLineField]
   );
 
   const startEditCustomerFlow = useCallback(() => {
@@ -974,28 +884,17 @@ export function NewSalePage() {
     try {
       const list = await apiFetch<Product[]>(
         `/api/products?q=${encodeURIComponent(raw)}&touch=1&forPos=1&limit=120`,
-        { token },
+        { token }
       );
       const key = raw.toLowerCase();
       const exact = list.find(
         (p) =>
           normProductLookup(p.sku) === key ||
           normProductLookup(p.barcode) === key ||
-          normProductLookup(p.quickCode) === key,
+          normProductLookup(p.quickCode) === key
       );
       if (!exact || !exact.active || exact.productType === "INSUMO") {
-        if (list.length > 0) {
-          /* Si el texto coincide por nombre o parcialmente, continúa en el catálogo
-             para que el campo funcione como búsqueda, no solo como lector exacto. */
-          setQuickAddCode("");
-          setQuickAddErr("");
-          quickAddBusyRef.current = false;
-          setQuickAddBusy(false);
-          setProductSearchQ(raw);
-          setProductSearchOpen(true);
-          return;
-        }
-        setQuickAddErr("No encontramos productos con ese texto.");
+        setQuickAddErr("El producto no existe.");
         return;
       }
       if (!posBehavior.barcodeAddsLineDirectly) {
@@ -1058,10 +957,7 @@ export function NewSalePage() {
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.origin !== window.location.origin) return;
-      if (
-        e.data?.type === PF_PRODUCT_PICK_TYPE &&
-        typeof e.data?.productId === "string"
-      ) {
+      if (e.data?.type === PF_PRODUCT_PICK_TYPE && typeof e.data?.productId === "string") {
         void addProductById(e.data.productId);
       }
     }
@@ -1093,9 +989,7 @@ export function NewSalePage() {
   function removeLine(i: number) {
     const next = lines.filter((_, j) => j !== i);
     const wasSel =
-      selectedLineIndex !== null &&
-      selectedLineIndex >= 0 &&
-      selectedLineIndex < lines.length
+      selectedLineIndex !== null && selectedLineIndex >= 0 && selectedLineIndex < lines.length
         ? selectedLineIndex
         : lines.length - 1;
     let newSel: number | null;
@@ -1119,14 +1013,13 @@ export function NewSalePage() {
     let sub = 0;
     let tax = 0;
     for (const l of lines) {
-      const gross = computeLineTotal(l);
-      const split = splitTaxIncluded(gross, l.product.taxPercent);
-      sub += split.net;
-      tax += split.tax;
+      const base = l.unitPrice * l.qty * (1 - l.discountPercent / 100);
+      const t = base * (l.product.taxPercent / 100);
+      sub += base;
+      tax += t;
     }
     const rawTotal = sub + tax;
-    if (!posBehavior.roundTotals)
-      return { subtotal: sub, tax, total: rawTotal };
+    if (!posBehavior.roundTotals) return { subtotal: sub, tax, total: rawTotal };
     return {
       subtotal: roundMoney2(sub),
       tax: roundMoney2(tax),
@@ -1137,38 +1030,29 @@ export function NewSalePage() {
   const hasBillableLines = useMemo(() => lines.some((l) => l.qty > 0), [lines]);
 
   const stockIssueCount = useMemo(
-    () =>
-      lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock)
-        .length,
-    [lines],
+    () => lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock).length,
+    [lines]
   );
 
   const saveSale = useCallback(
-    async (opts?: {
-      destination?: "ticket" | "comprobante";
-      autoPrintTicket?: boolean;
-    }) => {
+    async (opts?: { destination?: "ticket" | "comprobante"; autoPrintTicket?: boolean }) => {
       if (!token || lines.length === 0) return;
       setErr("");
       if (!lines.some((l) => l.qty > 0)) {
-        setErr(
-          "Indique una cantidad mayor que cero en al menos una línea antes de guardar.",
-        );
+        setErr("Indique una cantidad mayor que cero en al menos una línea antes de guardar.");
         return;
       }
       if (isCreditSaleTerm(terms) && !customerId.trim()) {
         setErr("Las ventas a crédito requieren un cliente registrado.");
         return;
       }
-      const stockProblems = lines.filter(
-        (l) => tracksStock(l.product) && l.qty > l.product.stock,
-      );
+      const stockProblems = lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock);
       if (stockProblems.length > 0 && !posBehavior.warnOutOfStock) {
         const detail = stockProblems
           .map((l) =>
             l.product.stock <= 0
               ? `«${l.product.name}» sin existencia`
-              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`,
+              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`
           )
           .join("; ");
         setErr(`No se puede guardar: existencia insuficiente — ${detail}.`);
@@ -1178,20 +1062,16 @@ export function NewSalePage() {
       try {
         if (customerId.trim()) {
           const name = customerName.trim() || "Cliente";
-          try {
-            await apiFetch(`/api/customers/${customerId}`, {
-              method: "PATCH",
-              body: JSON.stringify({
-                name,
-                address: customerAddress.trim() || null,
-                phone: customerPhone.trim() || null,
-                taxId: customerTaxId.trim() || null,
-              }),
-              token,
-            });
-          } catch (e) {
-            if (!isOfflineError(e)) throw e; // sin red: la venta sigue; el cambio de cliente se omite
-          }
+          await apiFetch(`/api/customers/${customerId}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              name,
+              address: customerAddress.trim() || null,
+              phone: customerPhone.trim() || null,
+              taxId: customerTaxId.trim() || null,
+            }),
+            token,
+          });
         }
         const body = {
           customerId: customerId || null,
@@ -1206,44 +1086,24 @@ export function NewSalePage() {
             .map((l) => ({
               productId: l.productId,
               qty: l.qty,
-              ...(canOverridePrice
-                ? {
-                    unitPrice: l.unitPrice,
-                    discountPercent: l.discountPercent,
-                  }
-                : {}),
+              unitPrice: l.unitPrice,
+              discountPercent: l.discountPercent,
             })),
         };
-        let sale: Sale = { id: "" } as Sale;
-        let offline = false;
-        if (isEditMode) {
-          sale = await apiFetch<Sale>(`/api/sales/${editSaleId}`, {
-            method: "PATCH",
-            body: JSON.stringify(body),
-            token,
-          });
-        } else {
-          const res = await submitSale<Sale>(body, token);
-          offline = res.offline;
-          if (!res.offline) sale = res.sale;
-        }
+        const sale = await apiFetch<Sale>(isEditMode ? `/api/sales/${editSaleId}` : "/api/sales", {
+          method: isEditMode ? "PATCH" : "POST",
+          body: JSON.stringify(body),
+          token,
+        });
 
         if (isEditMode) {
           showToast("Factura actualizada correctamente", "success");
           navigate("/ventas");
-        } else if (offline) {
-          showToast(
-            "Sin conexión: venta guardada y se enviará al reconectar.",
-            "success",
-          );
         } else if (opts?.destination === "comprobante") {
           showToast("Factura guardada correctamente", "success");
           navigate(`/ventas/${sale.id}/comprobante`);
         } else if (opts?.autoPrintTicket) {
-          showToast(
-            "Factura guardada. Aparecerá el cuadro de impresión (siga en esta pantalla).",
-            "print",
-          );
+          showToast("Factura guardada. Aparecerá el cuadro de impresión (siga en esta pantalla).", "print");
           printSaleTicketInHiddenFrame(sale.id);
         } else {
           showToast("Factura guardada correctamente", "success");
@@ -1253,9 +1113,7 @@ export function NewSalePage() {
           setLines([]);
           setSelectedLineIndex(null);
           setNotes("");
-          setSellerName(
-            user?.displayName?.trim() || user?.username?.trim() || "",
-          );
+          setSellerName(user?.displayName?.trim() || user?.username?.trim() || "");
           setPaid("");
           setTerms("CONTADO");
           setQuickAddCode("");
@@ -1265,19 +1123,16 @@ export function NewSalePage() {
           setDocumentSaleDate(new Date());
 
           if (token) {
-            apiFetch<Customer[]>("/api/customers", { token })
-              .then((list) => {
-                const def =
-                  list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
-                if (def) {
-                  setCustomerId(def.id);
-                  setCustomerName(def.name);
-                  setCustomerAddress(def.address ?? "");
-                  setCustomerPhone(def.phone ?? "");
-                  setCustomerTaxId(def.taxId ?? "");
-                }
-              })
-              .catch(() => {}); // sin red: se conserva el cliente actual
+            apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
+              const def = list.find((x) => /consumidor/i.test(x.name)) ?? list[0];
+              if (def) {
+                setCustomerId(def.id);
+                setCustomerName(def.name);
+                setCustomerAddress(def.address ?? "");
+                setCustomerPhone(def.phone ?? "");
+                setCustomerTaxId(def.taxId ?? "");
+              }
+            });
           }
         }
       } catch (e) {
@@ -1307,36 +1162,28 @@ export function NewSalePage() {
       user?.displayName,
       user?.username,
       posBehavior.warnOutOfStock,
-      canOverridePrice,
-    ],
+    ]
   );
 
   const openCheckout = useCallback(
-    (opts: {
-      destination: "ticket" | "comprobante";
-      autoPrintTicket?: boolean;
-    }) => {
+    (opts: { destination: "ticket" | "comprobante"; autoPrintTicket?: boolean }) => {
       if (!token || lines.length === 0) return;
       setErr("");
       if (!lines.some((l) => l.qty > 0)) {
-        setErr(
-          "Indique una cantidad mayor que cero en al menos una línea antes de cobrar.",
-        );
+        setErr("Indique una cantidad mayor que cero en al menos una línea antes de cobrar.");
         return;
       }
       if (isCreditSaleTerm(terms) && !customerId.trim()) {
         setErr("Las ventas a crédito requieren un cliente registrado.");
         return;
       }
-      const stockProblems = lines.filter(
-        (l) => tracksStock(l.product) && l.qty > l.product.stock,
-      );
+      const stockProblems = lines.filter((l) => tracksStock(l.product) && l.qty > l.product.stock);
       if (stockProblems.length > 0 && !posBehavior.warnOutOfStock) {
         const detail = stockProblems
           .map((l) =>
             l.product.stock <= 0
               ? `«${l.product.name}» sin existencia`
-              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`,
+              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`
           )
           .join("; ");
         setErr(`No se puede guardar: existencia insuficiente — ${detail}.`);
@@ -1347,74 +1194,53 @@ export function NewSalePage() {
       setCheckoutOpen(true);
       setTimeout(() => checkoutAmountInputRef.current?.focus(), 80);
     },
-    [token, lines, terms, customerId, posBehavior.warnOutOfStock],
+    [token, lines, terms, customerId, posBehavior.warnOutOfStock]
   );
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const commandKey = e.ctrlKey || e.metaKey;
-      const isSaleFunctionKey = /^F(?:2|3|4|5|6|8|9|10|11)$/.test(e.key);
-      const isSaleCommand =
-        (commandKey && (e.key.toLowerCase() === "k" || e.key === "Enter")) || isSaleFunctionKey;
-
-      // Los F-keys no escriben dentro de un campo: deben seguir funcionando
-      // mientras el cajero escanea o edita una línea. También bloqueamos la
-      // acción nativa del navegador cuando el evento todavía es cancelable.
-      if (isSaleCommand) e.preventDefault();
-
-      // Atajos alternativos para Chrome/Edge, que pueden reservar F4/F5.
-      if (commandKey && e.key.toLowerCase() === "k") {
-        if (e.shiftKey) setCustomerSearchOpen(true);
-        else openProductSearchModal();
-        return;
-      }
-      if (commandKey && e.key === "Enter") {
-        if (busy || loadingSale || lines.length === 0) return;
-        if (isCreditSaleTerm(terms) && !customerId.trim()) return;
-        openCheckout({ destination: "ticket", autoPrintTicket: e.shiftKey });
-        return;
-      }
-
       const t = e.target;
-      if (
-        !isSaleFunctionKey &&
-        t instanceof HTMLElement &&
-        t.closest("input, textarea, select, [contenteditable=true]")
-      )
-        return;
+      if (t instanceof HTMLElement && t.closest("input, textarea, select, [contenteditable=true]")) return;
       if (e.key === "F2") {
+        e.preventDefault();
         setCustomerSearchOpen(true);
         return;
       }
       if (e.key === "F3") {
+        e.preventDefault();
         if (admin) setCatalogModal({ kind: "new" });
         return;
       }
       if (e.key === "F4") {
+        e.preventDefault();
         openProductSearchModal();
         return;
       }
       if (e.key === "F6") {
+        e.preventDefault();
         setCustomerCatalogModal({ kind: "new" });
         return;
       }
       if (e.key === "F9") {
+        e.preventDefault();
         insertRowAfterSelection();
         return;
       }
       if (e.key === "F10") {
+        e.preventDefault();
         deleteSelectedOrLastRow();
         return;
       }
       if (e.key === "F11") {
+        e.preventDefault();
         clearLines();
         return;
       }
       if (e.key !== "F5" && e.key !== "F8") return;
+      e.preventDefault();
       if (busy || loadingSale || lines.length === 0) return;
       if (isCreditSaleTerm(terms) && !customerId.trim()) return;
-      if (e.key === "F8")
-        openCheckout({ destination: "ticket", autoPrintTicket: true });
+      if (e.key === "F8") openCheckout({ destination: "ticket", autoPrintTicket: true });
       else openCheckout({ destination: "ticket" });
     }
     window.addEventListener("keydown", onKey);
@@ -1441,131 +1267,134 @@ export function NewSalePage() {
         hour: "2-digit",
         minute: "2-digit",
       }),
-    [documentSaleDate],
+    [documentSaleDate]
   );
 
   const saleRibbonBar = useMemo(
     () => (
       <>
-        <ToolbarButton
-          tone="primary"
-          mobilePriority="primary"
-          icon={Save}
-          label={isEditMode ? "Guardar cambios" : "Guardar venta"}
-          shortcut="F5 / Ctrl+Enter"
-          title={isEditMode ? "Guardar cambios (F5 o Ctrl+Enter)" : "Guardar venta (F5 o Ctrl+Enter)"}
-          onClick={() => openCheckout({ destination: "ticket" })}
-          disabled={busy || !hasBillableLines || loadingSale}
-        />
-        <ToolbarButton
-          icon={Printer}
-          label="Imprimir"
-          shortcut="F8 / Ctrl+Shift+Enter"
-          title="Guardar e imprimir ticket térmico (F8 o Ctrl+Shift+Enter)"
-          onClick={() =>
-            openCheckout({ destination: "ticket", autoPrintTicket: true })
-          }
-          disabled={busy || !hasBillableLines || loadingSale}
-        />
-        <ToolbarSeparator />
-        <ToolbarButton
-          icon={Users}
-          label="Cliente"
-          shortcut="F2"
-          title="Buscar y elegir cliente (F2)"
-          onClick={() => setCustomerSearchOpen(true)}
-        />
-        <ToolbarButton
-          mobilePriority="overflow"
-          icon={Search}
-          label="Productos"
-          shortcut="F4 / Ctrl+K"
-          title="Buscar productos (F4 o Ctrl+K)"
-          onClick={openProductSearchModal}
-        />
-        <ToolbarSeparator />
-        <ToolbarButton
-          mobilePriority="overflow"
-          icon={Plus}
-          label="Insertar fila"
-          shortcut="F9"
-          title="Enfocar el campo Código / barras / rápido para agregar un producto (no copia la fila seleccionada)"
-          onClick={insertRowAfterSelection}
-        />
-        <ToolbarButton
-          tone="danger"
-          mobilePriority="overflow"
-          icon={X}
-          label="Eliminar fila"
-          shortcut="F10"
-          title="Eliminar la fila seleccionada o la última (F10)"
-          onClick={deleteSelectedOrLastRow}
-          disabled={lines.length === 0}
-        />
-        <ToolbarSeparator />
-        <ToolbarMenu
-          items={[
-            {
-              icon: FileText,
-              label: "Guardar y abrir factura carta",
-              onClick: () => openCheckout({ destination: "comprobante" }),
-              disabled: busy || !hasBillableLines || loadingSale,
-            },
-            {
-              icon: Search,
-              label: "Buscar productos",
-              shortcut: "F4 / Ctrl+K",
-              onClick: openProductSearchModal,
-            },
-            {
-              icon: Plus,
-              label: "Agregar producto por código",
-              shortcut: "F9",
-              onClick: insertRowAfterSelection,
-            },
-            {
-              icon: X,
-              label: "Eliminar fila seleccionada",
-              shortcut: "F10",
-              onClick: deleteSelectedOrLastRow,
-              disabled: lines.length === 0,
-              danger: true,
-            },
-            {
-              icon: UserPlus,
-              label: "Nuevo cliente",
-              shortcut: "F6",
-              onClick: () => setCustomerCatalogModal({ kind: "new" }),
-            },
-            {
-              icon: Pencil,
-              label: "Editar cliente",
-              onClick: startEditCustomerFlow,
-              disabled: !customerId.trim(),
-            },
-            {
-              icon: Plus,
-              label: "Nuevo producto",
-              shortcut: "F3",
-              onClick: () => admin && setCatalogModal({ kind: "new" }),
-              disabled: !admin,
-            },
-            {
-              icon: Pencil,
-              label: "Editar producto",
-              onClick: startEditProductFlow,
-              disabled: !admin || lines.length === 0,
-            },
-            {
-              icon: Eraser,
-              label: "Vaciar líneas",
-              shortcut: "F11",
-              onClick: clearLines,
-              disabled: lines.length === 0,
-              danger: true,
-            },
-          ]}
-        />
+        <SaleRibbonGroup title={isEditMode ? "Guardar venta" : "Guardar venta final"}>
+          <SaleRibbonTile
+            variant="primary"
+            icon={Save}
+            line1="F5 Guardar"
+            line2={isEditMode ? "cambios" : "venta"}
+            title={isEditMode ? "Guardar cambios (F5)" : "Guardar venta (F5)"}
+            onClick={() => openCheckout({ destination: "ticket" })}
+            disabled={busy || !hasBillableLines || loadingSale}
+          />
+          <SaleRibbonTile
+            variant="muted"
+            icon={Printer}
+            line1="F8 Imprimir"
+            line2="ticket"
+            title="Guardar e imprimir ticket térmico (F8)"
+            onClick={() => openCheckout({ destination: "ticket", autoPrintTicket: true })}
+            disabled={busy || !hasBillableLines || loadingSale}
+          />
+          <SaleRibbonTile
+            variant="default"
+            icon={FileText}
+            line1="Factura"
+            line2="carta"
+            title="Guardar y abrir comprobante en carta"
+            onClick={() => openCheckout({ destination: "comprobante" })}
+            disabled={busy || !hasBillableLines || loadingSale}
+          />
+        </SaleRibbonGroup>
+        <SaleRibbonGroup title="Clientes">
+          <SaleRibbonTile
+            variant="default"
+            icon={Users}
+            line1="F2 Buscar"
+            line2="clientes"
+            title="Buscar y elegir cliente (F2)"
+            onClick={() => setCustomerSearchOpen(true)}
+          />
+          <SaleRibbonTile
+            variant="default"
+            icon={UserPlus}
+            line1="F6 Nuevo"
+            line2="cliente"
+            title="Registrar cliente (F6). En el formulario: Enter siguiente campo, Shift+Enter anterior."
+            onClick={() => setCustomerCatalogModal({ kind: "new" })}
+          />
+          <SaleRibbonTile
+            variant="default"
+            icon={Pencil}
+            line1="Editar"
+            line2="cliente"
+            title="Editar el cliente seleccionado (debe estar en catálogo)"
+            onClick={startEditCustomerFlow}
+            disabled={!customerId.trim()}
+          />
+        </SaleRibbonGroup>
+        <SaleRibbonGroup title="Productos">
+          <SaleRibbonTile
+            variant="default"
+            icon={Plus}
+            line1="F3 Nuevo"
+            line2="producto"
+            title={
+              admin
+                ? "Crear producto (F3). En el formulario: Enter siguiente campo, Shift+Enter anterior."
+                : "Solo el administrador puede crear productos nuevos"
+            }
+            onClick={() => admin && setCatalogModal({ kind: "new" })}
+            disabled={!admin}
+          />
+          <SaleRibbonTile
+            variant="default"
+            icon={Pencil}
+            line1="Editar"
+            line2="producto"
+            title={
+              admin
+                ? "Editar producto de la fila seleccionada"
+                : "Solo el administrador puede editar el catálogo"
+            }
+            onClick={startEditProductFlow}
+            disabled={!admin || lines.length === 0}
+          />
+          <SaleRibbonTile
+            variant="default"
+            icon={Search}
+            line1="F4 Buscar"
+            line2="productos"
+            title="Buscar productos (F4)"
+            onClick={openProductSearchModal}
+          />
+        </SaleRibbonGroup>
+        <SaleRibbonGroup title="Filas">
+          <SaleRibbonTile
+            variant="default"
+            icon={Plus}
+            line1="F9 Insertar"
+            line2="fila"
+            title="Enfocar el campo Código / barras / rápido para agregar un producto (no copia la fila seleccionada)"
+            onClick={insertRowAfterSelection}
+          />
+          <SaleRibbonTile
+            variant="danger"
+            icon={X}
+            line1="F10 Eliminar"
+            line2="fila"
+            title="Eliminar la fila seleccionada o la última (F10)"
+            onClick={deleteSelectedOrLastRow}
+            disabled={lines.length === 0}
+          />
+        </SaleRibbonGroup>
+        <SaleRibbonGroup title="Limpiar">
+          <SaleRibbonTile
+            variant="default"
+            icon={Eraser}
+            line1="F11 Limpiar"
+            line2="líneas"
+            title="Vaciar todas las líneas del documento (F11)"
+            onClick={clearLines}
+            disabled={lines.length === 0}
+          />
+        </SaleRibbonGroup>
       </>
     ),
     [
@@ -1583,7 +1412,7 @@ export function NewSalePage() {
       openProductSearchModal,
       startEditCustomerFlow,
       startEditProductFlow,
-    ],
+    ]
   );
 
   useLayoutEffect(() => {
@@ -1591,11 +1420,9 @@ export function NewSalePage() {
     if (!p) return;
     pendingLineFieldFocusRef.current = null;
     const focusLineField = (): boolean => {
-      const el = Array.from(
-        document.querySelectorAll<HTMLInputElement>(
-          `[data-sale-form-line="${p.lineIndex}"][data-sale-form-field="${p.field}"]`,
-        ),
-      ).find((candidate) => candidate.offsetParent !== null);
+      const el = document.querySelector<HTMLInputElement>(
+        `[data-sale-form-line="${p.lineIndex}"][data-sale-form-field="${p.field}"]`
+      );
       if (!el) return false;
       quickAddInputRef.current?.blur();
       el.focus({ preventScroll: true });
@@ -1630,8 +1457,8 @@ export function NewSalePage() {
         <div
           className={`fixed left-1/2 top-6 z-[9999] -translate-x-1/2 animate-[toast-in_0.35s_ease-out] rounded-2xl border px-6 py-4 shadow-2xl ${
             toast.type === "print"
-              ? "border-pf-info-soft bg-pf-info-soft text-pf-info"
-              : "border-pf-success-soft bg-pf-success-soft text-pf-success"
+              ? "border-sky-300 bg-sky-50 text-sky-800"
+              : "border-emerald-300 bg-emerald-50 text-emerald-800"
           }`}
         >
           <div className="flex items-center gap-3">
@@ -1645,680 +1472,230 @@ export function NewSalePage() {
         </div>
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
-        <div className="pf-sale-grid-shell">
-          <div className="pf-sale-doc-header">
-            <h1 className="pf-doc-section-title pf-doc-section-title-compact px-2 sm:px-2.5">
-              {isEditMode ? "Editar venta" : "Nueva venta"}
-            </h1>
+      <div className="pf-sale-doc-header">
+        <h1 className="pf-doc-section-title pf-doc-section-title-compact px-2 sm:px-2.5">
+          {isEditMode ? "Editar venta" : "Nueva venta"}
+        </h1>
 
-            <div className="w-full min-w-0 rounded-lg border border-pf-border bg-white p-1.5 shadow-sm ring-1 ring-pf-border/70 sm:p-2">
-              <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
-                {/* Columna documento: Nº factura, términos, fecha */}
-                <div className="pf-sale-doc-key-fields flex min-w-0 flex-col gap-0.5 xl:col-span-2">
-                  <Field label="Nº factura" className="min-w-0" compact>
-                    <Input
-                      readOnly
-                      ref={saleInvoiceRef}
-                      tabIndex={-1}
-                      value={
-                        loadedInvoiceNumber &&
-                        String(loadedInvoiceNumber).trim()
-                          ? loadedInvoiceNumber
-                          : "—"
-                      }
-                      className="!h-7 !min-h-[28px] cursor-default bg-pf-primary-soft/25 px-1.5 py-0 text-xs tabular-nums text-pf-text"
-                      title={
-                        isEditMode
-                          ? "Número de factura"
-                          : "Se asignará al guardar"
-                      }
-                      onKeyDown={(e) => {
-                        tryHeaderArrowNav(e, "invoice");
-                      }}
-                    />
-                  </Field>
-                  <Field label="Términos" className="min-w-0" compact>
-                    <Select
-                      ref={saleTermsRef}
-                      value={terms}
-                      onChange={(e) => setTerms(e.target.value)}
-                      onKeyDown={handleSaleTermsKeyDown}
-                      className="w-full min-w-0 shrink-0 !h-auto !max-h-none !min-h-[2.375rem]"
-                    >
-                      {SALE_TERMS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <div>
-                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0">
-                      <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-pf-text-tertiary">
-                        Fecha
-                      </span>
-                      {!isEditMode ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="h-6 min-h-0 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-semibold text-pf-primary"
-                          title="Cambiar fecha y hora del documento (se guardará al facturar)"
-                          onClick={() => {
-                            setSaleDateDraft(
-                              toDatetimeLocalValue(documentSaleDate),
-                            );
-                            setSaleDatePickerOpen(true);
-                          }}
-                        >
-                          <CalendarClock
-                            className="h-3 w-3 shrink-0"
-                            strokeWidth={2}
-                            aria-hidden
-                          />
-                          Editar fecha
-                        </Button>
-                      ) : null}
-                    </div>
-                    <div
-                      ref={saleFechaRef}
-                      tabIndex={0}
-                      role="textbox"
-                      aria-readonly="true"
-                      aria-label={`Fecha de la venta, ${saleDateDisplayStr}`}
-                      className="mt-0 flex !h-7 min-h-[28px] cursor-default items-center rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-1.5 text-[11px] font-bold tabular-nums text-pf-text shadow-[var(--pf-control-shadow)] outline-none focus-visible:ring-2 focus-visible:ring-pf-primary focus-visible:ring-offset-1"
-                      onKeyDown={(e) => {
-                        tryHeaderArrowNav(e, "fecha");
-                      }}
-                    >
-                      {saleDateDisplayStr}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cliente + DIR / TEL / RTN — en xl una sola fila para no alargar la cabecera */}
-                <div className="min-w-0 space-y-0.5 xl:col-span-4">
-                  <Field label="Cliente" className="min-w-0" compact>
-                    <div className="relative">
-                      <Input
-                        ref={saleCustomerRef}
-                        value={customerName}
-                        onFocus={() => {
-                          setCustomerSearchQ(customerName);
-                          setCustomerSuggestionsOpen(
-                            customerName.trim().length >= 2,
-                          );
-                        }}
-                        onBlur={() =>
-                          window.setTimeout(
-                            () => setCustomerSuggestionsOpen(false),
-                            140,
-                          )
-                        }
-                        onChange={(e) => {
-                          const nextName = e.target.value;
-                          setCustomerName(nextName);
-                          setCustomerSearchQ(nextName);
-                          setCustomerSuggestionsOpen(
-                            nextName.trim().length >= 2,
-                          );
-                          if (
-                            customerId &&
-                            nextName.trim() !== customerName.trim()
-                          ) {
-                            setCustomerId("");
-                            setCustomerAddress("");
-                            setCustomerPhone("");
-                            setCustomerTaxId("");
-                          }
-                        }}
-                        placeholder="Buscar cliente o escribir uno nuevo"
-                        autoComplete="off"
-                        className={`!h-7 !min-h-[28px] px-1.5 py-0 text-xs ${customerId ? "border-pf-success/60 bg-pf-success-soft/30" : ""}`}
-                        onKeyDown={(e) => {
-                          if (
-                            customerSuggestionsOpen &&
-                            customerSearchHasQuery &&
-                            filteredPickCustomers.length > 0
-                          ) {
-                            if (e.key === "ArrowDown") {
-                              e.preventDefault();
-                              setCustomerPickHighlight((h) =>
-                                Math.min(
-                                  h + 1,
-                                  filteredPickCustomers.length - 1,
-                                ),
-                              );
-                              return;
-                            }
-                            if (e.key === "ArrowUp") {
-                              e.preventDefault();
-                              setCustomerPickHighlight((h) =>
-                                Math.max(h - 1, 0),
-                              );
-                              return;
-                            }
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              const selected =
-                                filteredPickCustomers[customerPickHighlight];
-                              if (selected) applyCustomer(selected);
-                              return;
-                            }
-                          }
-                          if (tryHeaderArrowNav(e, "customer")) return;
-                          handleSaleHeaderInputKeyDown(e, "customer");
-                        }}
-                      />
-                      {customerSuggestionsOpen && customerSearchHasQuery ? (
-                        <div
-                          className="absolute left-0 right-0 top-[calc(100%+0.3rem)] z-40 overflow-hidden rounded-xl border border-pf-border bg-pf-surface-elevated shadow-[var(--pf-shadow-lg)]"
-                          role="listbox"
-                          aria-label="Clientes coincidentes"
-                        >
-                          {filteredPickCustomers.slice(0, 6).map((c, index) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              role="option"
-                              aria-selected={index === customerPickHighlight}
-                              className={`flex w-full items-center justify-between gap-3 border-b border-pf-border-soft px-3 py-2 text-left text-xs last:border-b-0 ${
-                                index === customerPickHighlight
-                                  ? "bg-pf-primary-soft/60"
-                                  : "hover:bg-pf-surface-muted"
-                              }`}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => applyCustomer(c)}
-                            >
-                              <span className="min-w-0">
-                                <span className="block truncate font-semibold text-pf-text">
-                                  {c.name}
-                                </span>
-                                <span className="block truncate text-[11px] text-pf-text-tertiary">
-                                  {[c.taxId, c.phone]
-                                    .filter(Boolean)
-                                    .join(" · ") || "Sin datos adicionales"}
-                                </span>
-                              </span>
-                              {c.defaultPriceTier ? (
-                                <span className="shrink-0 rounded-md bg-pf-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-pf-text-secondary">
-                                  Precio {c.defaultPriceTier}
-                                </span>
-                              ) : null}
-                            </button>
-                          ))}
-                          {filteredPickCustomers.length === 0 &&
-                          !customerHasExactMatch ? (
-                            <div className="flex items-center justify-between gap-3 px-3 py-3">
-                              <div className="min-w-0">
-                                <p className="text-xs font-semibold text-pf-text">
-                                  Cliente nuevo
-                                </p>
-                                <p className="mt-0.5 text-[11px] text-pf-text-tertiary">
-                                  No encontramos “{customerSearchQ.trim()}”.
-                                  ¿Desea guardar sus datos?
-                                </p>
-                                {customerTaxId.trim() ? (
-                                  <p className="mt-1 text-[10px] font-semibold text-pf-success">
-                                    RTN incluido en el formulario
-                                  </p>
-                                ) : null}
-                              </div>
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                className="min-h-8 shrink-0 gap-1.5 px-2.5 py-1 text-xs"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setCustomerSuggestionsOpen(false);
-                                  setCustomerCatalogModal({ kind: "new" });
-                                }}
-                              >
-                                <UserPlus
-                                  className="h-3.5 w-3.5"
-                                  strokeWidth={2}
-                                  aria-hidden
-                                />
-                                Guardar cliente
-                              </Button>
-                            </div>
-                          ) : null}
-                          {filteredPickCustomers.length > 6 ? (
-                            <button
-                              type="button"
-                              className="w-full border-t border-pf-border-soft px-3 py-2 text-left text-[11px] font-semibold text-pf-primary-hover hover:bg-pf-primary-soft/40"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setCustomerSuggestionsOpen(false);
-                                setCustomerSearchOpen(true);
-                              }}
-                            >
-                              Ver todos los clientes (
-                              {filteredPickCustomers.length}) · F2
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  </Field>
-                  <div className="pf-sale-customer-contact grid grid-cols-1 gap-0.5 sm:grid-cols-3 xl:grid-cols-3 sm:gap-1">
-                    <Field label="DIR" className="min-w-0" compact>
-                      <Input
-                        ref={saleAddressRef}
-                        value={customerAddress}
-                        onChange={(e) => setCustomerAddress(e.target.value)}
-                        placeholder="Dirección"
-                        autoComplete="street-address"
-                        className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                        onKeyDown={(e) => {
-                          if (tryHeaderArrowNav(e, "address")) return;
-                          handleSaleHeaderInputKeyDown(e, "address");
-                        }}
-                      />
-                    </Field>
-                    <Field label="TEL" className="min-w-0" compact>
-                      <Input
-                        ref={salePhoneRef}
-                        value={customerPhone}
-                        onChange={(e) => setCustomerPhone(e.target.value)}
-                        placeholder="Teléfono"
-                        autoComplete="tel"
-                        className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                        onKeyDown={(e) => {
-                          if (tryHeaderArrowNav(e, "phone")) return;
-                          handleSaleHeaderInputKeyDown(e, "phone");
-                        }}
-                      />
-                    </Field>
-                    <Field label="RTN" className="min-w-0" compact>
-                      <Input
-                        ref={saleTaxIdRef}
-                        value={customerTaxId}
-                        onChange={(e) => setCustomerTaxId(e.target.value)}
-                        placeholder="RTN"
-                        className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                        onKeyDown={(e) => {
-                          if (tryHeaderArrowNav(e, "taxId")) return;
-                          handleSaleHeaderInputKeyDown(e, "taxId");
-                        }}
-                      />
-                    </Field>
-                  </div>
-                </div>
-
-                {/* Los datos secundarios se pliegan en teléfono: cliente y productos
-                    siguen siendo el primer tramo visible del flujo de cobro. */}
-                <details
-                  className="pf-sale-extra-details min-h-0 min-w-0 xl:col-span-6"
-                  open={saleExtraOpen}
-                  onToggle={(e) => setSaleExtraOpen(e.currentTarget.open)}
+        <div className="w-full min-w-0 rounded-lg border border-slate-300 bg-white p-1.5 shadow-sm ring-1 ring-slate-200/70 sm:p-2">
+          <div className="grid grid-cols-1 gap-1 min-[900px]:grid-cols-2 xl:grid-cols-12 xl:items-start xl:gap-x-1.5 xl:gap-y-0.5">
+            {/* Columna documento: Nº factura, términos, fecha */}
+            <div className="min-w-0 space-y-0.5 xl:col-span-2">
+              <Field label="Nº factura" className="min-w-0" compact>
+                <Input
+                  readOnly
+                  ref={saleInvoiceRef}
+                  tabIndex={-1}
+                  value={loadedInvoiceNumber && String(loadedInvoiceNumber).trim() ? loadedInvoiceNumber : "—"}
+                  className="!h-7 !min-h-[28px] cursor-default bg-pf-primary-soft/25 px-1.5 py-0 text-xs tabular-nums text-pf-text"
+                  title={isEditMode ? "Número de factura" : "Se asignará al guardar"}
+                  onKeyDown={(e) => {
+                    tryHeaderArrowNav(e, "invoice");
+                  }}
+                />
+              </Field>
+              <Field label="Términos" className="min-w-0" compact>
+                <Select
+                  ref={saleTermsRef}
+                  value={terms}
+                  onChange={(e) => setTerms(e.target.value)}
+                  onKeyDown={handleSaleTermsKeyDown}
+                  className="w-full min-w-0 shrink-0 !h-auto !max-h-none !min-h-[2.375rem]"
                 >
-                  <summary>Datos de venta y lista de precios</summary>
-                  <div className="pf-sale-extra-details-body min-h-0 min-w-0 flex-col gap-0.5">
-                  <Field
-                    label="Vendedor (opc.)"
-                    className="min-w-0 shrink-0"
-                    compact
-                  >
-                    <Input
-                      value={sellerName}
-                      onChange={(e) => setSellerName(e.target.value)}
-                      placeholder="Nombre en ticket / reportes"
-                      className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                    />
-                  </Field>
-                  <Field
-                    label="Notas (opc.)"
-                    className="min-w-0 shrink-0"
-                    compact
-                  >
-                    <Input
-                      ref={saleNotesRef}
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Opcional"
-                      className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                      onKeyDown={(e) => {
-                        if (tryHeaderArrowNav(e, "notes")) return;
-                        handleSaleHeaderInputKeyDown(e, "notes");
-                      }}
-                      title="Cabecera: flechas · Enter pasa a lista de precios. Líneas: Alt+flecha. F2…F11."
-                    />
-                  </Field>
-                  <Field
-                    label="Lista de precios"
-                    className="min-w-0 shrink-0"
-                    compact
-                  >
-                    <Select
-                      ref={salePriceTierRef}
-                      value={priceTier}
-                      onChange={(e) => setPriceTier(Number(e.target.value))}
-                      onKeyDown={handleSalePriceTierKeyDown}
-                      className="w-full min-w-0 shrink-0 !h-auto !max-h-none !min-h-[2.375rem]"
-                      title="↑↓←→ cabecera · Alt+↑↓ líneas · F2…F11"
-                    >
-                      <option value={1}>Precio 1</option>
-                      <option value={2}>Precio 2</option>
-                      <option value={3}>Precio 3</option>
-                      <option value={4}>Precio 4</option>
-                    </Select>
-                  </Field>
-                  </div>
-                </details>
-              </div>
-
-              {isCreditSaleTerm(terms) ? (
-                <div className="mt-1.5 grid gap-1 border-t border-pf-border/60 pt-1.5 sm:grid-cols-2 sm:items-end lg:grid-cols-3">
-                  <p className="text-[10px] text-pf-muted sm:col-span-2 lg:col-span-1">
-                    Cliente obligatorio para crédito.
-                  </p>
-                  <Field
-                    label="Abono inicial (opcional)"
-                    className="sm:max-w-xs lg:max-w-none"
-                    compact
-                  >
-                    <Input
-                      ref={salePaidRef}
-                      type="number"
-                      step="any"
-                      value={paid}
-                      onChange={(e) => setPaid(e.target.value)}
-                      className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                      onKeyDown={(e) => {
-                        if (tryHeaderArrowNav(e, "paid")) return;
-                        handleSaleHeaderInputKeyDown(e, "paid");
-                      }}
-                    />
-                  </Field>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="pf-sale-product-row flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-pf-primary-soft text-pf-primary-hover">
-                <Search className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-pf-text">
-                  Agregar productos
-                </p>
-                <p className="truncate text-[11px] text-pf-text-tertiary">
-                  Escanee un código o busque en el catálogo
-                </p>
-              </div>
-            </div>
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:max-w-xl sm:justify-end">
-              <Input
-                ref={quickAddInputRef}
-                value={quickAddCode}
-                onChange={(e) => {
-                  setQuickAddCode(e.target.value);
-                  setQuickAddErr("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    if (lines.length > 0)
-                      focusSaleLineField(lines.length - 1, "qty");
-                    else if (isCreditSaleTerm(terms))
-                      salePaidRef.current?.focus();
-                    else salePriceTierRef.current?.focus();
-                    return;
-                  }
-                  if (e.key === "Enter") {
-                    if (e.nativeEvent.isComposing) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (quickAddBusyRef.current) return;
-                    void submitQuickAddByCode();
-                  }
-                }}
-                placeholder="Código, barras o código rápido"
-                readOnly={quickAddBusy}
-                disabled={loadingSale || !token}
-                autoComplete="off"
-                className="min-h-10 min-w-0 flex-1 font-mono text-sm read-only:bg-pf-surface-muted"
-                aria-label="Agregar producto por código"
-              />
-              {quickAddErr ? (
-                <p className="basis-full text-xs font-semibold text-pf-danger">
-                  {quickAddErr}
-                </p>
-              ) : null}
-              <Button
-                type="button"
-                variant="secondary"
-                className="min-h-10 shrink-0 gap-1.5 px-3"
-                onClick={() => openProductSearchModal()}
-                title="Buscar productos (F4)"
-              >
-                <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
-                <span className="hidden sm:inline">Catálogo</span>
-                <span className="text-[10px] text-pf-text-tertiary">F4</span>
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* En móvil las líneas son tarjetas editables: cantidad, precio y total
-            caben en el ancho útil sin esconder el botón de quitar. */}
-        <div className="overflow-hidden rounded-b-2xl border border-t-0 border-pf-border bg-pf-surface-elevated shadow-[var(--pf-shadow-sm)] sm:hidden">
-          {lines.length === 0 ? (
-            <div className="px-4 py-12 text-center">
-              <p className="text-sm font-semibold text-pf-text">
-                Todavía no hay productos en la venta
-              </p>
-              <p className="mt-1 text-xs text-pf-text-tertiary">
-                Escanee un código arriba o abra el catálogo para empezar.
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-pf-border-soft">
-              {lines.map((l, i) => (
-                <article
-                  key={l.lineKey}
-                  onClick={() => setSelectedLineIndex(i)}
-                  className={`p-3 transition-colors ${
-                    selectedLineIndex === i
-                      ? "bg-pf-primary-soft/45 shadow-[inset_3px_0_0_0_var(--pf-primary-mid)]"
-                      : posBehavior.showStockWhileSelling &&
-                          tracksStock(l.product) &&
-                          l.qty > l.product.stock
-                        ? "bg-pf-danger-soft/30"
-                        : ""
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="line-clamp-2 text-sm font-bold leading-snug text-pf-text">
-                        {l.product.name}
-                      </p>
-                      <p className="mt-0.5 font-mono text-[11px] text-pf-text-tertiary">
-                        {l.product.sku} · {l.product.unit}
-                      </p>
-                      {posBehavior.showStockWhileSelling ? (
-                        <p
-                          className={`mt-1 text-[11px] font-medium ${
-                            tracksStock(l.product) && l.qty > l.product.stock
-                              ? "text-pf-danger"
-                              : "text-pf-muted"
-                          }`}
-                        >
-                          {l.product.productType === "KIT"
-                            ? "Combo (exist. por componentes)"
-                            : `Exist. ${l.product.stock}`}
-                        </p>
-                      ) : null}
-                    </div>
-                    <button
+                  {SALE_TERMS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0">
+                  <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-pf-text-tertiary">
+                    Fecha
+                  </span>
+                  {!isEditMode ? (
+                    <Button
                       type="button"
-                      aria-label={`Quitar ${l.product.name}`}
-                      title={`Quitar ${l.product.name}`}
-                      className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-pf-danger transition hover:bg-pf-danger-soft active:scale-95 touch-manipulation"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeLine(i);
+                      variant="ghost"
+                      className="h-6 min-h-0 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-semibold text-pf-primary"
+                      title="Cambiar fecha y hora del documento (se guardará al facturar)"
+                      onClick={() => {
+                        setSaleDateDraft(toDatetimeLocalValue(documentSaleDate));
+                        setSaleDatePickerOpen(true);
                       }}
                     >
-                      <X className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-                    </button>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
-                    <label className="min-w-0">
-                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
-                        Cant.
-                      </span>
-                      <Input
-                        type="number"
-                        step="any"
-                        data-sale-form-line={i}
-                        data-sale-form-field="qty"
-                        className="!min-h-11 w-full px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        value={l.qty}
-                        onFocus={() => setSelectedLineIndex(i)}
-                        onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "qty")}
-                        onChange={(e) => {
-                          const parsed = Number(e.target.value);
-                          let qty = Number.isFinite(parsed)
-                            ? Math.max(0, parsed)
-                            : l.qty;
-
-                          if (
-                            tracksStock(l.product) &&
-                            !posBehavior.warnOutOfStock
-                          ) {
-                            const cap = l.product.stock;
-                            if (!l.product.esGranel) qty = Math.round(qty);
-                            if (qty > cap) {
-                              setErr(
-                                `«${l.product.name}»: no puede vender más de ${cap} (existencia). Aumente el stock en Productos antes de continuar.`,
-                              );
-                              qty = cap;
-                            }
-                            if (qty > 0) {
-                              const floor = l.product.esGranel ? 0.0001 : 1;
-                              if (qty < floor) {
-                                qty = floor;
-                                if (qty > cap) qty = cap;
-                              }
-                            }
-                          } else {
-                            qty = Number.isFinite(parsed)
-                              ? Math.max(0, parsed)
-                              : l.qty;
-                            if (qty > 0 && qty < 0.0001) qty = 0.0001;
-                          }
-
-                          updateLine(i, {
-                            qty,
-                            unitPrice: resolveProductUnitPrice(
-                              l.product,
-                              qty,
-                              priceTier,
-                            ),
-                          });
-                        }}
-                      />
-                    </label>
-                    <label className="min-w-0">
-                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
-                        Precio final
-                      </span>
-                      <Input
-                        type="number"
-                        step="any"
-                        data-sale-form-line={i}
-                        data-sale-form-field="price"
-                        className="!min-h-11 w-full px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        value={l.unitPrice}
-                        readOnly={!canOverridePrice}
-                        aria-readonly={!canOverridePrice}
-                        title={
-                          canOverridePrice
-                            ? "Puede ajustar el precio con el permiso sales.price_override"
-                            : "El precio se toma del catálogo"
-                        }
-                        onFocus={() => setSelectedLineIndex(i)}
-                        onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "price")}
-                        onChange={(e) =>
-                          updateLine(i, {
-                            unitPrice: Number(e.target.value) || 0,
-                          })
-                        }
-                      />
-                    </label>
-                    <div className="min-w-[4.75rem] rounded-lg bg-pf-surface px-2 py-2 text-right">
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
-                        Total
-                      </p>
-                      <p className="mt-0.5 text-sm font-black tabular-nums text-pf-text">
-                        {formatMoney(sym, computeLineTotal(l))}
-                      </p>
-                    </div>
-                  </div>
-
-                  {canOverridePrice ? (
-                    <label className="mt-2 block max-w-[10rem]">
-                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-pf-text-tertiary">
-                        Descuento %
-                      </span>
-                      <Input
-                        type="number"
-                        step="any"
-                        data-sale-form-line={i}
-                        data-sale-form-field="disc"
-                        className="!min-h-11 w-full px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        value={l.discountPercent}
-                        onFocus={() => setSelectedLineIndex(i)}
-                        onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "disc")}
-                        onChange={(e) =>
-                          updateLine(i, {
-                            discountPercent: Number(e.target.value) || 0,
-                          })
-                        }
-                      />
-                    </label>
-                  ) : l.discountPercent > 0 ? (
-                    <p className="mt-2 text-xs font-medium text-pf-text-tertiary">
-                      Descuento aplicado: {l.discountPercent}%
-                    </p>
+                      <CalendarClock className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+                      Editar fecha
+                    </Button>
                   ) : null}
-                </article>
-              ))}
+                </div>
+                <div
+                  ref={saleFechaRef}
+                  tabIndex={0}
+                  role="textbox"
+                  aria-readonly="true"
+                  aria-label={`Fecha de la venta, ${saleDateDisplayStr}`}
+                  className="mt-0 flex !h-7 min-h-[28px] cursor-default items-center rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated px-1.5 text-[11px] font-bold tabular-nums text-pf-text shadow-[var(--pf-control-shadow)] outline-none focus-visible:ring-2 focus-visible:ring-pf-primary focus-visible:ring-offset-1"
+                  onKeyDown={(e) => {
+                    tryHeaderArrowNav(e, "fecha");
+                  }}
+                >
+                  {saleDateDisplayStr}
+                </div>
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Cuadrícula completa para teclado y escritorio. */}
-        <div className="hidden flex-1 overflow-x-auto rounded-b-2xl border border-t-0 border-pf-border bg-pf-surface-elevated shadow-[var(--pf-shadow-sm)] sm:block">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="pf-table-thead text-left uppercase tracking-wide">
-                <th className="px-2 py-2 w-24">Código</th>
-                <th className="px-2 py-2">Descripción</th>
-                <th className="px-2 py-2 w-[6rem] text-right">Cant.</th>
-                <th className="px-2 py-2 w-14">Und.</th>
-                <th className="px-2 py-2 w-32 text-right">Precio final</th>
-                <th className="px-2 py-2 w-28 text-right">Desc. %</th>
-                <th className="px-2 py-2 w-20 text-right">ISV %</th>
-                <th className="px-2 py-2 min-w-[5.5rem] text-right">Total</th>
-                <th className="px-1 py-2 w-16" />
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l, i) => (
+            {/* Cliente + DIR / TEL / RTN — en xl una sola fila para no alargar la cabecera */}
+            <div className="min-w-0 space-y-0.5 xl:col-span-4">
+              <Field label="Cliente" className="min-w-0" compact>
+                <Input
+                  ref={saleCustomerRef}
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Nombre o razón social"
+                  autoComplete="name"
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                  onKeyDown={(e) => {
+                    if (tryHeaderArrowNav(e, "customer")) return;
+                    handleSaleHeaderInputKeyDown(e, "customer");
+                  }}
+                />
+              </Field>
+              <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-3 xl:grid-cols-3 sm:gap-1">
+                <Field label="DIR" className="min-w-0" compact>
+                  <Input
+                    ref={saleAddressRef}
+                    value={customerAddress}
+                    onChange={(e) => setCustomerAddress(e.target.value)}
+                    placeholder="Dirección"
+                    autoComplete="street-address"
+                    className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                    onKeyDown={(e) => {
+                      if (tryHeaderArrowNav(e, "address")) return;
+                      handleSaleHeaderInputKeyDown(e, "address");
+                    }}
+                  />
+                </Field>
+                <Field label="TEL" className="min-w-0" compact>
+                  <Input
+                    ref={salePhoneRef}
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="Teléfono"
+                    autoComplete="tel"
+                    className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                    onKeyDown={(e) => {
+                      if (tryHeaderArrowNav(e, "phone")) return;
+                      handleSaleHeaderInputKeyDown(e, "phone");
+                    }}
+                  />
+                </Field>
+                <Field label="RTN" className="min-w-0" compact>
+                  <Input
+                    ref={saleTaxIdRef}
+                    value={customerTaxId}
+                    onChange={(e) => setCustomerTaxId(e.target.value)}
+                    placeholder="RTN"
+                    className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                    onKeyDown={(e) => {
+                      if (tryHeaderArrowNav(e, "taxId")) return;
+                      handleSaleHeaderInputKeyDown(e, "taxId");
+                    }}
+                  />
+                </Field>
+              </div>
+            </div>
+
+            {/* Notas y lista de precios (el total va en subtotal/impuesto y en la cinta) */}
+            <div className="flex min-h-0 min-w-0 flex-col gap-0.5 xl:col-span-6">
+              <Field label="Vendedor (opc.)" className="min-w-0 shrink-0" compact>
+                <Input
+                  value={sellerName}
+                  onChange={(e) => setSellerName(e.target.value)}
+                  placeholder="Nombre en ticket / reportes"
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                />
+              </Field>
+              <Field label="Notas (opc.)" className="min-w-0 shrink-0" compact>
+                <Input
+                  ref={saleNotesRef}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Opcional"
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                  onKeyDown={(e) => {
+                    if (tryHeaderArrowNav(e, "notes")) return;
+                    handleSaleHeaderInputKeyDown(e, "notes");
+                  }}
+                  title="Cabecera: flechas · Enter pasa a lista de precios. Líneas: Alt+flecha. F2…F11."
+                />
+              </Field>
+              <Field label="Lista de precios" className="min-w-0 shrink-0" compact>
+                <Select
+                  ref={salePriceTierRef}
+                  value={priceTier}
+                  onChange={(e) => setPriceTier(Number(e.target.value))}
+                  onKeyDown={handleSalePriceTierKeyDown}
+                  className="w-full min-w-0 shrink-0 !h-auto !max-h-none !min-h-[2.375rem]"
+                  title="↑↓←→ cabecera · Alt+↑↓ líneas · F2…F11"
+                >
+                  <option value={1}>Precio 1</option>
+                  <option value={2}>Precio 2</option>
+                  <option value={3}>Precio 3</option>
+                  <option value={4}>Precio 4</option>
+                </Select>
+              </Field>
+            </div>
+          </div>
+
+          {isCreditSaleTerm(terms) ? (
+            <div className="mt-1.5 grid gap-1 border-t border-pf-border/60 pt-1.5 sm:grid-cols-2 sm:items-end lg:grid-cols-3">
+              <p className="text-[10px] text-pf-muted sm:col-span-2 lg:col-span-1">Cliente obligatorio para crédito.</p>
+              <Field label="Abono inicial (opcional)" className="sm:max-w-xs lg:max-w-none" compact>
+                <Input
+                  ref={salePaidRef}
+                  type="number"
+                  step="any"
+                  value={paid}
+                  onChange={(e) => setPaid(e.target.value)}
+                  className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
+                  onKeyDown={(e) => {
+                    if (tryHeaderArrowNav(e, "paid")) return;
+                    handleSaleHeaderInputKeyDown(e, "paid");
+                  }}
+                />
+              </Field>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Cuadrícula principal */}
+      <div className="flex-1 overflow-x-auto rounded-b-2xl border border-t-0 border-slate-300 bg-white shadow-lg shadow-slate-900/5">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead>
+            <tr className="pf-table-thead text-left uppercase tracking-wide">
+              <th className="px-2 py-2 w-24">Código</th>
+              <th className="px-2 py-2">Descripción</th>
+              <th className="px-2 py-2 w-[6rem] text-right">Cant.</th>
+              <th className="px-2 py-2 w-14">Und.</th>
+              <th className="px-2 py-2 w-32 text-right">Precio</th>
+              <th className="px-2 py-2 w-28 text-right">Desc. %</th>
+              <th className="px-2 py-2 w-20 text-right">ISV %</th>
+              <th className="px-2 py-2 min-w-[5.5rem] text-right">Total</th>
+              <th className="px-1 py-2 w-16" />
+            </tr>
+          </thead>
+          <tbody>
+                       {lines.map((l, i) => (
                 <tr
                   key={l.lineKey}
                   onClick={() => setSelectedLineIndex(i)}
-                  className={`pf-table-row cursor-pointer transition hover:bg-pf-surface ${
+                  className={`pf-table-row cursor-pointer transition hover:bg-sky-50 ${
                     selectedLineIndex === i
                       ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
-                      : posBehavior.showStockWhileSelling &&
-                          tracksStock(l.product) &&
-                          l.qty > l.product.stock
+                      : posBehavior.showStockWhileSelling && tracksStock(l.product) && l.qty > l.product.stock
                         ? "bg-pf-danger-soft/30"
                         : ""
                   }`}
@@ -2327,9 +1704,7 @@ export function NewSalePage() {
                     {l.product.sku}
                   </td>
                   <td className="px-3 py-2">
-                    <span className="font-medium text-pf-text">
-                      {l.product.name}
-                    </span>
+                    <span className="font-medium text-pf-text">{l.product.name}</span>
                     {posBehavior.showStockWhileSelling ? (
                       <>
                         <span className="block text-[11px] text-pf-muted">
@@ -2343,24 +1718,16 @@ export function NewSalePage() {
                             Sin existencia
                           </span>
                         )}
-                        {tracksStock(l.product) &&
-                          l.product.stock > 0 &&
-                          l.qty > l.product.stock && (
-                            <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
-                              <AlertTriangle className="h-3 w-3 shrink-0" />
-                              Excede existencia por{" "}
-                              {(l.qty - l.product.stock).toFixed(
-                                l.product.esGranel ? 2 : 0,
-                              )}
-                            </span>
-                          )}
+                        {tracksStock(l.product) && l.product.stock > 0 && l.qty > l.product.stock && (
+                          <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-pf-danger">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            Excede existencia por {(l.qty - l.product.stock).toFixed(l.product.esGranel ? 2 : 0)}
+                          </span>
+                        )}
                       </>
                     ) : null}
                   </td>
-                  <td
-                    className="px-3 py-2 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                     <Input
                       type="number"
                       step="any"
@@ -2372,19 +1739,14 @@ export function NewSalePage() {
                       onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "qty")}
                       onChange={(e) => {
                         const parsed = Number(e.target.value);
-                        let qty = Number.isFinite(parsed)
-                          ? Math.max(0, parsed)
-                          : l.qty;
+                        let qty = Number.isFinite(parsed) ? Math.max(0, parsed) : l.qty;
 
-                        if (
-                          tracksStock(l.product) &&
-                          !posBehavior.warnOutOfStock
-                        ) {
+                        if (tracksStock(l.product) && !posBehavior.warnOutOfStock) {
                           const cap = l.product.stock;
                           if (!l.product.esGranel) qty = Math.round(qty);
                           if (qty > cap) {
                             setErr(
-                              `«${l.product.name}»: no puede vender más de ${cap} (existencia). Aumente el stock en Productos antes de continuar.`,
+                              `«${l.product.name}»: no puede vender más de ${cap} (existencia). Aumente el stock en Productos antes de continuar.`
                             );
                             qty = cap;
                           }
@@ -2396,30 +1758,19 @@ export function NewSalePage() {
                             }
                           }
                         } else {
-                          qty = Number.isFinite(parsed)
-                            ? Math.max(0, parsed)
-                            : l.qty;
+                          qty = Number.isFinite(parsed) ? Math.max(0, parsed) : l.qty;
                           if (qty > 0 && qty < 0.0001) qty = 0.0001;
                         }
 
                         updateLine(i, {
                           qty,
-                          unitPrice: resolveProductUnitPrice(
-                            l.product,
-                            qty,
-                            priceTier,
-                          ),
+                          unitPrice: resolveProductUnitPrice(l.product, qty, priceTier),
                         });
                       }}
                     />
                   </td>
-                  <td className="px-3 py-2 text-xs text-pf-text-tertiary">
-                    {l.product.unit}
-                  </td>
-                  <td
-                    className="px-3 py-2 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-3 py-2 text-xs text-pf-text-tertiary">{l.product.unit}</td>
+                  <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                     <Input
                       type="number"
                       step="any"
@@ -2427,28 +1778,12 @@ export function NewSalePage() {
                       data-sale-form-field="price"
                       className="!min-h-[44px] w-full min-w-[5.5rem] px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={l.unitPrice}
-                      readOnly={!canOverridePrice}
-                      aria-readonly={!canOverridePrice}
-                      title={
-                        canOverridePrice
-                          ? "Puede ajustar el precio con el permiso sales.price_override"
-                          : "El precio se toma del catálogo"
-                      }
                       onFocus={() => setSelectedLineIndex(i)}
-                      onKeyDown={(e) =>
-                        handleSaleLineInputKeyDown(e, i, "price")
-                      }
-                      onChange={(e) =>
-                        updateLine(i, {
-                          unitPrice: Number(e.target.value) || 0,
-                        })
-                      }
+                      onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "price")}
+                      onChange={(e) => updateLine(i, { unitPrice: Number(e.target.value) || 0 })}
                     />
                   </td>
-                  <td
-                    className="px-3 py-2 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                     <Input
                       type="number"
                       step="any"
@@ -2456,22 +1791,9 @@ export function NewSalePage() {
                       data-sale-form-field="disc"
                       className="!min-h-[44px] w-full min-w-[4.5rem] px-2 py-2 text-right text-sm tabular-nums [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={l.discountPercent}
-                      readOnly={!canOverridePrice}
-                      aria-readonly={!canOverridePrice}
-                      title={
-                        canOverridePrice
-                          ? "Puede aplicar descuentos con el permiso sales.price_override"
-                          : "Los descuentos requieren autorización"
-                      }
                       onFocus={() => setSelectedLineIndex(i)}
-                      onKeyDown={(e) =>
-                        handleSaleLineInputKeyDown(e, i, "disc")
-                      }
-                      onChange={(e) =>
-                        updateLine(i, {
-                          discountPercent: Number(e.target.value) || 0,
-                        })
-                      }
+                      onKeyDown={(e) => handleSaleLineInputKeyDown(e, i, "disc")}
+                      onChange={(e) => updateLine(i, { discountPercent: Number(e.target.value) || 0 })}
                     />
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-pf-text-tertiary">
@@ -2480,10 +1802,7 @@ export function NewSalePage() {
                   <td className="px-3 py-2 text-right font-medium tabular-nums">
                     {formatMoney(sym, computeLineTotal(l))}
                   </td>
-                  <td
-                    className="px-2 py-2"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       className="min-h-[44px] min-w-[44px] rounded-xl px-2 text-xs font-semibold text-pf-danger transition hover:bg-pf-danger-soft active:scale-95 touch-manipulation"
@@ -2497,586 +1816,532 @@ export function NewSalePage() {
                   </td>
                 </tr>
               ))}
-              {lines.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-14 text-center">
-                    <p className="text-sm font-semibold text-pf-text">
-                      Todavía no hay productos en la venta
-                    </p>
-                    <p className="mt-1 text-xs text-pf-text-tertiary">
-                      Escanee un código arriba o abra el catálogo para empezar.
-                    </p>
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Resumen monetario (antes estaba duplicado en la cabecera) */}
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 rounded-xl border border-pf-border bg-white px-4 py-3 text-sm shadow-sm sm:gap-x-8">
-          <div className="rounded-lg bg-pf-surface px-3 py-2 text-right">
-            <span className="font-medium text-pf-muted">Subtotal</span>
-            <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
-              {formatMoney(sym, totals.subtotal)}
-            </span>
-          </div>
-          <div className="rounded-lg bg-pf-surface px-3 py-2 text-right">
-            <span className="font-medium text-pf-muted">ISV incluido</span>
-            <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
-              {formatMoney(sym, totals.tax)}
-            </span>
-          </div>
-          <div className="rounded-lg bg-[color:var(--pf-text)] px-4 py-2 text-right text-white shadow-md">
-            <span className="font-bold text-pf-surface-muted">Total</span>
-            <span className="ml-2 text-base font-black tabular-nums text-white sm:text-xl">
-              {formatMoney(sym, totals.total)}
-            </span>
-          </div>
-        </div>
-
-        {stockIssueCount > 0 && (
-          <div
-            className={`mt-2 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${
-              posBehavior.warnOutOfStock
-                ? "border-pf-warning-soft/80 bg-pf-warning-soft/90"
-                : "border-pf-danger/40 bg-pf-danger-soft/30"
-            }`}
-          >
-            <AlertTriangle
-              className={`mt-0.5 h-4 w-4 shrink-0 ${posBehavior.warnOutOfStock ? "text-pf-warning" : "text-pf-danger"}`}
-            />
-            <p
-              className={`font-medium ${posBehavior.warnOutOfStock ? "text-pf-warning" : "text-pf-danger"}`}
-            >
-              {posBehavior.warnOutOfStock
-                ? stockIssueCount === 1
-                  ? "1 producto excede la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo)."
-                  : `${stockIssueCount} productos exceden la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo).`
-                : stockIssueCount === 1
-                  ? "1 producto excede la existencia disponible. Ajuste la cantidad para poder guardar."
-                  : `${stockIssueCount} productos exceden la existencia disponible. Ajuste las cantidades para poder guardar.`}
-            </p>
-          </div>
-        )}
-        {err ? <p className="mt-2 text-sm text-pf-danger">{err}</p> : null}
-        <Modal
-          open={customerSearchOpen}
-          title="Buscar cliente"
-          onClose={() => setCustomerSearchOpen(false)}
-          wide
-          maxWidthClass="sm:max-w-2xl"
-        >
-          <Field label="Código, nombre, teléfono o RTN">
-            <Input
-              value={customerSearchQ}
-              onChange={(e) => setCustomerSearchQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
-                const n = filteredPickCustomers.length;
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  if (n === 0) return;
-                  setCustomerPickHighlight((h) => Math.min(h + 1, n - 1));
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setCustomerPickHighlight((h) => Math.max(h - 1, 0));
-                  return;
-                }
-                if (e.key === "Enter" && n > 0) {
-                  e.preventDefault();
-                  applyCustomer(filteredPickCustomers[customerPickHighlight]!);
-                  setCustomerSearchOpen(false);
-                }
-              }}
-              placeholder="Filtrar la lista…"
-              autoComplete="off"
-              autoFocus
-            />
-          </Field>
-          <ul className="mt-3 max-h-[min(400px,55vh)] divide-y divide-pf-border/70 overflow-y-auto rounded-lg border border-pf-border">
-            {filteredPickCustomers.map((c, idx) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  data-customer-pick-index={idx}
-                  className={`flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition hover:bg-pf-primary-soft/40 ${
-                    idx === customerPickHighlight
-                      ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary"
-                      : ""
-                  }`}
-                  onClick={() => {
-                    setCustomerPickHighlight(idx);
-                    applyCustomer(c);
-                    setCustomerSearchOpen(false);
+            {/* Fila “vacía” del grid: código aquí y Enter agrega el producto */}
+            <tr className="border-t-2 border-dashed border-pf-border bg-pf-primary-soft/20">
+              <td className="px-3 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
+                <Input
+                  ref={quickAddInputRef}
+                  value={quickAddCode}
+                  onChange={(e) => {
+                    setQuickAddCode(e.target.value);
+                    setQuickAddErr("");
                   }}
-                >
-                  <span className="font-medium text-pf-text">{c.name}</span>
-                  <span className="text-xs text-pf-muted">
-                    {[
-                      c.code && c.code !== "0" ? `Cód. ${c.code}` : null,
-                      c.phone,
-                      c.taxId,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "—"}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {filteredPickCustomers.length === 0 ? (
-            <p className="mt-3 text-center text-sm text-pf-muted">
-              Sin resultados
-            </p>
-          ) : null}
-        </Modal>
-
-        <Modal
-          open={saleDatePickerOpen}
-          title="Fecha y hora del documento"
-          onClose={() => setSaleDatePickerOpen(false)}
-        >
-          <p className="mb-3 text-sm text-pf-muted">
-            Esta fecha se guardará en la factura al pulsar Guardar o Cobrar
-            (informes y caja la usan como fecha de venta).
-          </p>
-          <Input
-            type="datetime-local"
-            value={saleDateDraft}
-            onChange={(e) => setSaleDateDraft(e.target.value)}
-            className="w-full min-h-[44px] max-w-md"
-          />
-          <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setSaleDatePickerOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                const d = new Date(saleDateDraft);
-                if (Number.isNaN(d.getTime())) {
-                  setErr("Fecha u hora no válida.");
-                  return;
-                }
-                setDocumentSaleDate(d);
-                setSaleDatePickerOpen(false);
-                setErr("");
-              }}
-            >
-              Aplicar
-            </Button>
-          </div>
-        </Modal>
-
-        <CustomerModal
-          open={customerCatalogModal.kind !== "closed"}
-          existingCustomerId={
-            customerCatalogModal.kind === "edit" ? customerId : null
-          }
-          initialValues={
-            customerCatalogModal.kind === "new"
-              ? customerCreateInitialValues
-              : undefined
-          }
-          onClose={() => setCustomerCatalogModal({ kind: "closed" })}
-          onSaved={applyCustomer}
-        />
-
-        <Modal
-          open={productSearchOpen}
-          title="Buscar producto"
-          onClose={() => setProductSearchOpen(false)}
-          wide
-          maxWidthClass="sm:max-w-5xl"
-        >
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-end">
-            <Field
-              label="Buscar por nombre, código, código de barras o código rápido"
-              className="lg:col-span-5 min-w-0"
-            >
-              <Input
-                value={productSearchQ}
-                onChange={(e) => setProductSearchQ(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.nativeEvent.isComposing) return;
-                  if (productSearchLoading || productSearchRows.length === 0)
-                    return;
-                  const n = productSearchRows.length;
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setProductSearchHighlight((h) => Math.min(h + 1, n - 1));
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setProductSearchHighlight((h) => Math.max(h - 1, 0));
-                    return;
-                  }
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const p = productSearchRows[productSearchHighlight];
-                    if (!p) return;
-                    void addProductById(p.id);
-                    setProductSearchOpen(false);
-                  }
-                }}
-                placeholder="Escriba para filtrar…"
-                autoFocus
-              />
-            </Field>
-            <Field label="Proveedor" className="lg:col-span-4 min-w-0">
-              <Select
-                value={productSupplierId}
-                onChange={(e) => setProductSupplierId(e.target.value)}
-              >
-                <option value="">Todos los proveedores</option>
-                {productSuppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div className="flex flex-wrap items-center gap-3 lg:col-span-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-pf-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={productInStockOnly}
-                  onChange={(e) => setProductInStockOnly(e.target.checked)}
-                  className="h-4 w-4 rounded border-pf-border text-pf-primary"
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      if (lines.length > 0) focusSaleLineField(lines.length - 1, "qty");
+                      else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
+                      else salePriceTierRef.current?.focus();
+                      return;
+                    }
+                    if (e.key === "Enter") {
+                      if (e.nativeEvent.isComposing) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      /* Segundo Enter del lector en el mismo tick: ignorar hasta terminar el primero. */
+                      if (quickAddBusyRef.current) return;
+                      void submitQuickAddByCode();
+                    }
+                  }}
+                  placeholder="Código / barras / rápido"
+                  readOnly={quickAddBusy}
+                  disabled={loadingSale || !token}
+                  autoComplete="off"
+                  className="!min-h-[44px] w-full min-w-[10.5rem] px-2 py-2 font-mono text-sm read-only:bg-pf-surface-elevated/80"
                 />
-                Solo con existencia
-              </label>
-              <button
-                type="button"
-                className="text-sm font-semibold text-pf-primary-hover underline-offset-2 hover:underline"
-                onClick={() => {
-                  setProductSearchQ("");
-                  setProductSupplierId("");
-                  setProductInStockOnly(false);
-                }}
-              >
-                Limpiar búsqueda
-              </button>
-            </div>
-          </div>
-
-          {productSearchErr ? (
-            <p className="mt-3 text-sm text-pf-danger">{productSearchErr}</p>
-          ) : null}
-
-          <div className="mt-3 max-h-[min(65vh,560px)] overflow-auto rounded-xl border border-pf-border bg-pf-surface-elevated shadow-sm">
-            <table className="w-full min-w-[900px] text-sm">
-              <thead className="sticky top-0 z-10">
-                <tr className="pf-table-thead text-left text-xs font-bold uppercase tracking-wide">
-                  <th className="px-3 py-2.5">Código</th>
-                  <th className="px-3 py-2.5">Descripción</th>
-                  <th className="px-3 py-2.5">Und.</th>
-                  {posBehavior.showStockWhileSelling ? (
-                    <th className="px-3 py-2.5 text-right">Exist.</th>
-                  ) : null}
-                  <th className="px-3 py-2.5 text-right">Precio</th>
-                  <th className="px-3 py-2.5">Categoría</th>
-                  <th className="px-3 py-2.5">Ubicación</th>
-                  <th className="px-3 py-2.5">Cód. rápido</th>
-                  <th className="px-3 py-2.5 text-right">ISV %</th>
-                </tr>
-              </thead>
-              <tbody className="pf-table-body">
-                {productSearchLoading ? (
-                  <tr>
-                    <td
-                      colSpan={posBehavior.showStockWhileSelling ? 9 : 8}
-                      className="px-4 py-12 text-center text-pf-muted"
-                    >
-                      Cargando…
-                    </td>
-                  </tr>
-                ) : productSearchRows.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={posBehavior.showStockWhileSelling ? 9 : 8}
-                      className="px-4 py-12 text-center text-pf-muted"
-                    >
-                      No hay productos para mostrar. Ajuste filtros o la
-                      búsqueda.
-                    </td>
-                  </tr>
+              </td>
+              <td className="px-3 py-2 align-middle text-xs font-medium leading-snug" onClick={(e) => e.stopPropagation()}>
+                {quickAddErr ? (
+                  <span className="font-medium text-red-600">{quickAddErr}</span>
+                ) : quickAddBusy ? (
+                  <span className="text-pf-muted">Buscando…</span>
                 ) : (
-                  productSearchRows.map((p, idx) => {
-                    const outOfStock =
-                      posBehavior.showStockWhileSelling &&
-                      tracksStock(p) &&
-                      p.stock <= 0;
-                    const isHi = idx === productSearchHighlight;
-                    return (
-                      <tr
-                        key={p.id}
-                        data-product-search-row={idx}
-                        tabIndex={-1}
-                        className={`pf-table-row cursor-pointer transition hover:bg-pf-primary-soft/40 ${outOfStock ? "bg-pf-danger-soft/20 opacity-70" : ""} ${
-                          isHi
-                            ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary"
-                            : ""
-                        }`}
-                        onClick={() => {
-                          setProductSearchHighlight(idx);
-                          void addProductById(p.id);
-                          setProductSearchOpen(false);
-                        }}
-                      >
-                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-pf-text-tertiary">
-                          {p.sku}
-                        </td>
-                        <td className="max-w-[280px] px-3 py-2">
-                          <span className="font-medium text-pf-text">
-                            {p.name}
-                          </span>
-                          {outOfStock && (
-                            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-pf-danger-soft/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pf-danger">
-                              <AlertTriangle className="h-3 w-3" />
-                              Sin stock
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-pf-text-secondary">
-                          {p.unit}
-                        </td>
-                        {posBehavior.showStockWhileSelling ? (
-                          <td
-                            className={`px-3 py-2 text-right tabular-nums ${outOfStock ? "font-semibold text-pf-danger" : ""}`}
-                          >
-                            {p.stock}
-                          </td>
-                        ) : null}
-                        <td className="px-3 py-2 text-right tabular-nums font-medium">
-                          {formatMoney(sym, p.price)}
-                        </td>
-                        <td className="px-3 py-2 text-pf-text-tertiary">
-                          {p.category ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 text-pf-text-tertiary">
-                          {p.location ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs text-pf-text-tertiary">
-                          {p.quickCode ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {p.taxPercent}
-                        </td>
-                      </tr>
-                    );
-                  })
+                  <span className="text-slate-600">
+                    {lines.length === 0
+                      ? "Código o barras y Enter → cantidad; Enter sigue a precio y descuento, luego nuevo código."
+                      : "Siguiente: código y Enter → cantidad del producto."}
+                  </span>
                 )}
-              </tbody>
-            </table>
-          </div>
-        </Modal>
+              </td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-xs text-pf-text-tertiary">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-3 py-2 text-right text-pf-text-tertiary tabular-nums">—</td>
+              <td className="px-2 py-2" onClick={(e) => e.stopPropagation()} />
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-        <Modal
-          open={pickLineForEditOpen}
-          title="¿Qué producto editar?"
-          onClose={() => setPickLineForEditOpen(false)}
+      {/* Resumen monetario (antes estaba duplicado en la cabecera) */}
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm shadow-sm sm:gap-x-8">
+        <div className="rounded-lg bg-slate-100 px-3 py-2 text-right">
+          <span className="font-medium text-pf-muted">Subtotal</span>
+          <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
+            {formatMoney(sym, totals.subtotal)}
+          </span>
+        </div>
+        <div className="rounded-lg bg-slate-100 px-3 py-2 text-right">
+          <span className="font-medium text-pf-muted">Impuesto</span>
+          <span className="ml-2 font-semibold tabular-nums text-pf-text-secondary">
+            {formatMoney(sym, totals.tax)}
+          </span>
+        </div>
+        <div className="rounded-lg bg-slate-900 px-4 py-2 text-right text-white shadow-md">
+          <span className="font-bold text-slate-300">Total</span>
+          <span className="ml-2 text-base font-black tabular-nums text-white sm:text-xl">
+            {formatMoney(sym, totals.total)}
+          </span>
+        </div>
+      </div>
+
+      {stockIssueCount > 0 && (
+        <div
+          className={`mt-2 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${
+            posBehavior.warnOutOfStock
+              ? "border-amber-300/80 bg-amber-50/90"
+              : "border-pf-danger/40 bg-pf-danger-soft/30"
+          }`}
         >
-          <p className="mb-3 text-sm text-pf-muted">
-            Hay varias líneas en la venta. Elija cuál desea abrir en el
-            catálogo.
+          <AlertTriangle
+            className={`mt-0.5 h-4 w-4 shrink-0 ${posBehavior.warnOutOfStock ? "text-amber-700" : "text-pf-danger"}`}
+          />
+          <p className={`font-medium ${posBehavior.warnOutOfStock ? "text-amber-950" : "text-pf-danger"}`}>
+            {posBehavior.warnOutOfStock
+              ? stockIssueCount === 1
+                ? "1 producto excede la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo)."
+                : `${stockIssueCount} productos exceden la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo).`
+              : stockIssueCount === 1
+                ? "1 producto excede la existencia disponible. Ajuste la cantidad para poder guardar."
+                : `${stockIssueCount} productos exceden la existencia disponible. Ajuste las cantidades para poder guardar.`}
           </p>
-          <div
-            ref={pickLinePanelRef}
-            tabIndex={-1}
-            className="outline-none focus-visible:ring-2 focus-visible:ring-pf-primary focus-visible:ring-offset-2"
+        </div>
+      )}
+      {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
+      <Modal
+        open={customerSearchOpen}
+        title="Buscar cliente"
+        onClose={() => setCustomerSearchOpen(false)}
+        wide
+        maxWidthClass="sm:max-w-2xl"
+      >
+        <Field label="Código, nombre, teléfono o RTN">
+          <Input
+            value={customerSearchQ}
+            onChange={(e) => setCustomerSearchQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return;
-              const n = lines.length;
-              if (n === 0) return;
+              const n = filteredPickCustomers.length;
               if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setPickLineHighlight((h) => Math.min(h + 1, n - 1));
+                if (n === 0) return;
+                setCustomerPickHighlight((h) => Math.min(h + 1, n - 1));
                 return;
               }
               if (e.key === "ArrowUp") {
                 e.preventDefault();
-                setPickLineHighlight((h) => Math.max(h - 1, 0));
+                setCustomerPickHighlight((h) => Math.max(h - 1, 0));
                 return;
               }
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && n > 0) {
                 e.preventDefault();
-                const l = lines[pickLineHighlight];
-                if (!l) return;
-                setPickLineForEditOpen(false);
-                setCatalogModal({ kind: "edit", productId: l.productId });
+                applyCustomer(filteredPickCustomers[customerPickHighlight]!);
+                setCustomerSearchOpen(false);
               }
             }}
-          >
-            <ul className="max-h-[min(360px,50vh)] space-y-2 overflow-y-auto">
-              {lines.map((l, idx) => (
-                <li key={l.productId}>
-                  <button
-                    type="button"
-                    data-pick-line-index={idx}
-                    className={`w-full rounded-lg border border-pf-border bg-pf-surface-elevated px-3 py-2.5 text-left text-sm transition hover:bg-pf-primary-soft/40 ${
-                      idx === pickLineHighlight
-                        ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary"
-                        : ""
-                    }`}
-                    onClick={() => {
-                      setPickLineHighlight(idx);
-                      setPickLineForEditOpen(false);
-                      setCatalogModal({ kind: "edit", productId: l.productId });
-                    }}
-                  >
-                    <span className="font-mono text-xs text-pf-muted">
-                      {l.product.sku}
-                    </span>
-                    <span className="ml-2 font-medium text-pf-text">
-                      {l.product.name}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Modal>
+            placeholder="Filtrar la lista…"
+            autoComplete="off"
+            autoFocus
+          />
+        </Field>
+        <ul className="mt-3 max-h-[min(400px,55vh)] divide-y divide-pf-border/70 overflow-y-auto rounded-lg border border-pf-border">
+          {filteredPickCustomers.map((c, idx) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                data-customer-pick-index={idx}
+                className={`flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition hover:bg-pf-primary-soft/40 ${
+                  idx === customerPickHighlight ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary" : ""
+                }`}
+                onClick={() => {
+                  setCustomerPickHighlight(idx);
+                  applyCustomer(c);
+                  setCustomerSearchOpen(false);
+                }}
+              >
+                <span className="font-medium text-pf-text">{c.name}</span>
+                <span className="text-xs text-pf-muted">
+                  {[c.code && c.code !== "0" ? `Cód. ${c.code}` : null, c.phone, c.taxId].filter(Boolean).join(" · ") ||
+                    "—"}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {filteredPickCustomers.length === 0 ? (
+          <p className="mt-3 text-center text-sm text-pf-muted">Sin resultados</p>
+        ) : null}
+      </Modal>
 
-        <NewProductModal
-          open={catalogModal.kind !== "closed"}
-          existingProductId={
-            catalogModal.kind === "edit" ? catalogModal.productId : null
-          }
-          onClose={() => setCatalogModal({ kind: "closed" })}
-          onSaved={(p) => void addProductById(p.id)}
-          onUpdated={refreshLinesWithProduct}
+      <Modal
+        open={saleDatePickerOpen}
+        title="Fecha y hora del documento"
+        onClose={() => setSaleDatePickerOpen(false)}
+      >
+        <p className="mb-3 text-sm text-pf-muted">
+          Esta fecha se guardará en la factura al pulsar Guardar o Cobrar (informes y caja la usan como fecha de
+          venta).
+        </p>
+        <Input
+          type="datetime-local"
+          value={saleDateDraft}
+          onChange={(e) => setSaleDateDraft(e.target.value)}
+          className="w-full min-h-[44px] max-w-md"
         />
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => setSaleDatePickerOpen(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              const d = new Date(saleDateDraft);
+              if (Number.isNaN(d.getTime())) {
+                setErr("Fecha u hora no válida.");
+                return;
+              }
+              setDocumentSaleDate(d);
+              setSaleDatePickerOpen(false);
+              setErr("");
+            }}
+          >
+            Aplicar
+          </Button>
+        </div>
+      </Modal>
 
-        <Modal
-          open={checkoutOpen}
-          title="Cobrar Factura"
-          onClose={() => setCheckoutOpen(false)}
-          maxWidthClass="sm:max-w-md"
-        >
-          {(() => {
-            const total = totals.total;
-            const received = Number(checkoutAmountReceived) || 0;
-            const cambio = Math.max(0, received - total);
-            const saldo = Math.max(0, total - received);
-            return (
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-4 rounded-xl border border-pf-border bg-pf-primary-soft/25 px-4 py-3">
-                    <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">
-                      Total
-                    </span>
-                    <span className="text-2xl font-black tabular-nums tracking-tight text-pf-text">
-                      {formatMoney(sym, total)}
-                    </span>
-                  </div>
+      <CustomerModal
+        open={customerCatalogModal.kind !== "closed"}
+        existingCustomerId={customerCatalogModal.kind === "edit" ? customerId : null}
+        onClose={() => setCustomerCatalogModal({ kind: "closed" })}
+        onSaved={applyCustomer}
+      />
 
-                  <div className="flex items-center justify-between gap-4 rounded-xl border-2 border-pf-primary/40 bg-white px-4 py-3">
-                    <label
-                      htmlFor="checkout-amount"
-                      className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary"
-                    >
-                      Cantidad
-                    </label>
-                    <Input
-                      ref={checkoutAmountInputRef}
-                      id="checkout-amount"
-                      type="number"
-                      step="any"
-                      min={0}
-                      className="max-w-[180px] text-right text-xl font-bold"
-                      value={checkoutAmountReceived}
-                      onChange={(e) =>
-                        setCheckoutAmountReceived(e.target.value)
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          if (!busy) {
-                            setCheckoutOpen(false);
-                            void saveSale(checkoutOpts);
-                          }
-                        }
+      <Modal
+        open={productSearchOpen}
+        title="Buscar producto"
+        onClose={() => setProductSearchOpen(false)}
+        wide
+        maxWidthClass="sm:max-w-5xl"
+      >
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-end">
+          <Field label="Buscar por nombre, código, código de barras o código rápido" className="lg:col-span-5 min-w-0">
+            <Input
+              value={productSearchQ}
+              onChange={(e) => setProductSearchQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (productSearchLoading || productSearchRows.length === 0) return;
+                const n = productSearchRows.length;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setProductSearchHighlight((h) => Math.min(h + 1, n - 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setProductSearchHighlight((h) => Math.max(h - 1, 0));
+                  return;
+                }
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const p = productSearchRows[productSearchHighlight];
+                  if (!p) return;
+                  void addProductById(p.id);
+                  setProductSearchOpen(false);
+                }
+              }}
+              placeholder="Escriba para filtrar…"
+              autoFocus
+            />
+          </Field>
+          <Field label="Proveedor" className="lg:col-span-4 min-w-0">
+            <Select value={productSupplierId} onChange={(e) => setProductSupplierId(e.target.value)}>
+              <option value="">Todos los proveedores</option>
+              {productSuppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="flex flex-wrap items-center gap-3 lg:col-span-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-pf-text-secondary">
+              <input
+                type="checkbox"
+                checked={productInStockOnly}
+                onChange={(e) => setProductInStockOnly(e.target.checked)}
+                className="h-4 w-4 rounded border-pf-border text-pf-primary"
+              />
+              Solo con existencia
+            </label>
+            <button
+              type="button"
+              className="text-sm font-semibold text-pf-primary-hover underline-offset-2 hover:underline"
+              onClick={() => {
+                setProductSearchQ("");
+                setProductSupplierId("");
+                setProductInStockOnly(false);
+              }}
+            >
+              Limpiar búsqueda
+            </button>
+          </div>
+        </div>
+
+        {productSearchErr ? <p className="mt-3 text-sm text-red-600">{productSearchErr}</p> : null}
+
+        <div className="mt-3 max-h-[min(65vh,560px)] overflow-auto rounded-xl border border-pf-border bg-pf-surface-elevated shadow-sm">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr className="pf-table-thead text-left text-xs font-bold uppercase tracking-wide">
+                <th className="px-3 py-2.5">Código</th>
+                <th className="px-3 py-2.5">Descripción</th>
+                <th className="px-3 py-2.5">Und.</th>
+                {posBehavior.showStockWhileSelling ? <th className="px-3 py-2.5 text-right">Exist.</th> : null}
+                <th className="px-3 py-2.5 text-right">Precio</th>
+                <th className="px-3 py-2.5">Categoría</th>
+                <th className="px-3 py-2.5">Ubicación</th>
+                <th className="px-3 py-2.5">Cód. rápido</th>
+                <th className="px-3 py-2.5 text-right">ISV %</th>
+              </tr>
+            </thead>
+            <tbody className="pf-table-body">
+              {productSearchLoading ? (
+                <tr>
+                  <td colSpan={posBehavior.showStockWhileSelling ? 9 : 8} className="px-4 py-12 text-center text-pf-muted">
+                    Cargando…
+                  </td>
+                </tr>
+              ) : productSearchRows.length === 0 ? (
+                <tr>
+                  <td colSpan={posBehavior.showStockWhileSelling ? 9 : 8} className="px-4 py-12 text-center text-pf-muted">
+                    No hay productos para mostrar. Ajuste filtros o la búsqueda.
+                  </td>
+                </tr>
+              ) : (
+                productSearchRows.map((p, idx) => {
+                  const outOfStock = posBehavior.showStockWhileSelling && tracksStock(p) && p.stock <= 0;
+                  const isHi = idx === productSearchHighlight;
+                  return (
+                    <tr
+                      key={p.id}
+                      data-product-search-row={idx}
+                      tabIndex={-1}
+                      className={`pf-table-row cursor-pointer transition hover:bg-pf-primary-soft/40 ${outOfStock ? "bg-pf-danger-soft/20 opacity-70" : ""} ${
+                        isHi ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary" : ""
+                      }`}
+                      onClick={() => {
+                        setProductSearchHighlight(idx);
+                        void addProductById(p.id);
+                        setProductSearchOpen(false);
                       }}
-                      placeholder="0.00"
-                      autoComplete="off"
-                    />
-                  </div>
-
-                  <div
-                    className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
-                      cambio > 0
-                        ? "border-pf-success-soft bg-pf-success-soft"
-                        : "border-pf-border bg-pf-surface-elevated"
-                    }`}
-                  >
-                    <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">
-                      Cambio
-                    </span>
-                    <span
-                      className={`text-xl font-black tabular-nums ${cambio > 0 ? "text-pf-success" : "text-pf-text-tertiary"}`}
                     >
-                      {formatMoney(sym, cambio)}
-                    </span>
-                  </div>
+                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-pf-text-tertiary">{p.sku}</td>
+                      <td className="max-w-[280px] px-3 py-2">
+                        <span className="font-medium text-pf-text">{p.name}</span>
+                        {outOfStock && (
+                          <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-pf-danger-soft/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pf-danger">
+                            <AlertTriangle className="h-3 w-3" />
+                            Sin stock
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-pf-text-secondary">{p.unit}</td>
+                      {posBehavior.showStockWhileSelling ? (
+                        <td className={`px-3 py-2 text-right tabular-nums ${outOfStock ? "font-semibold text-pf-danger" : ""}`}>
+                          {p.stock}
+                        </td>
+                      ) : null}
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">{formatMoney(sym, p.price)}</td>
+                      <td className="px-3 py-2 text-pf-text-tertiary">{p.category ?? "—"}</td>
+                      <td className="px-3 py-2 text-pf-text-tertiary">{p.location ?? "—"}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-pf-text-tertiary">{p.quickCode ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{p.taxPercent}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
-                  <div
-                    className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
-                      saldo > 0
-                        ? "border-pf-warning-soft bg-pf-warning-soft"
-                        : "border-pf-border bg-pf-surface-elevated"
-                    }`}
-                  >
-                    <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">
-                      Saldo
-                    </span>
-                    <span
-                      className={`text-xl font-black tabular-nums ${saldo > 0 ? "text-pf-warning" : "text-pf-text-tertiary"}`}
-                    >
-                      {formatMoney(sym, saldo)}
-                    </span>
-                  </div>
+      <Modal
+        open={pickLineForEditOpen}
+        title="¿Qué producto editar?"
+        onClose={() => setPickLineForEditOpen(false)}
+      >
+        <p className="mb-3 text-sm text-pf-muted">
+          Hay varias líneas en la venta. Elija cuál desea abrir en el catálogo.
+        </p>
+        <div
+          ref={pickLinePanelRef}
+          tabIndex={-1}
+          className="outline-none focus-visible:ring-2 focus-visible:ring-pf-primary focus-visible:ring-offset-2"
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            const n = lines.length;
+            if (n === 0) return;
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setPickLineHighlight((h) => Math.min(h + 1, n - 1));
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setPickLineHighlight((h) => Math.max(h - 1, 0));
+              return;
+            }
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const l = lines[pickLineHighlight];
+              if (!l) return;
+              setPickLineForEditOpen(false);
+              setCatalogModal({ kind: "edit", productId: l.productId });
+            }
+          }}
+        >
+        <ul className="max-h-[min(360px,50vh)] space-y-2 overflow-y-auto">
+          {lines.map((l, idx) => (
+            <li key={l.productId}>
+              <button
+                type="button"
+                data-pick-line-index={idx}
+                className={`w-full rounded-lg border border-pf-border bg-pf-surface-elevated px-3 py-2.5 text-left text-sm transition hover:bg-pf-primary-soft/40 ${
+                  idx === pickLineHighlight ? "bg-pf-primary-soft/50 ring-2 ring-inset ring-pf-primary" : ""
+                }`}
+                onClick={() => {
+                  setPickLineHighlight(idx);
+                  setPickLineForEditOpen(false);
+                  setCatalogModal({ kind: "edit", productId: l.productId });
+                }}
+              >
+                <span className="font-mono text-xs text-pf-muted">{l.product.sku}</span>
+                <span className="ml-2 font-medium text-pf-text">{l.product.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        </div>
+      </Modal>
+
+      <NewProductModal
+        open={catalogModal.kind !== "closed"}
+        existingProductId={catalogModal.kind === "edit" ? catalogModal.productId : null}
+        onClose={() => setCatalogModal({ kind: "closed" })}
+        onSaved={(p) => void addProductById(p.id)}
+        onUpdated={refreshLinesWithProduct}
+      />
+
+      <Modal
+        open={checkoutOpen}
+        title="Cobrar Factura"
+        onClose={() => setCheckoutOpen(false)}
+        maxWidthClass="sm:max-w-md"
+      >
+        {(() => {
+          const total = totals.total;
+          const received = Number(checkoutAmountReceived) || 0;
+          const cambio = Math.max(0, received - total);
+          const saldo = Math.max(0, total - received);
+          return (
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-pf-border bg-pf-primary-soft/25 px-4 py-3">
+                  <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">Total</span>
+                  <span className="text-2xl font-black tabular-nums tracking-tight text-pf-text">
+                    {formatMoney(sym, total)}
+                  </span>
                 </div>
 
-                {err ? (
-                  <p className="text-sm font-medium text-pf-danger">{err}</p>
-                ) : null}
-
-                <Button
-                  type="button"
-                  className="w-full min-h-12 gap-3 text-base"
-                  onClick={() => {
-                    setCheckoutOpen(false);
-                    void saveSale(checkoutOpts);
-                  }}
-                  disabled={busy}
-                >
-                  <CheckCircle2
-                    className="h-5 w-5 shrink-0"
-                    strokeWidth={2.5}
+                <div className="flex items-center justify-between gap-4 rounded-xl border-2 border-pf-primary/40 bg-white px-4 py-3">
+                  <label htmlFor="checkout-amount" className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">
+                    Cantidad
+                  </label>
+                  <Input
+                    ref={checkoutAmountInputRef}
+                    id="checkout-amount"
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="max-w-[180px] text-right text-xl font-bold"
+                    value={checkoutAmountReceived}
+                    onChange={(e) => setCheckoutAmountReceived(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!busy) {
+                          setCheckoutOpen(false);
+                          void saveSale(checkoutOpts);
+                        }
+                      }
+                    }}
+                    placeholder="0.00"
+                    autoComplete="off"
                   />
-                  {busy ? "Guardando…" : "Cobrar Factura"}
-                </Button>
+                </div>
 
-                {checkoutOpts.autoPrintTicket && (
-                  <p className="flex items-center justify-center gap-1.5 text-center text-xs text-pf-muted">
-                    <Printer className="h-3.5 w-3.5 shrink-0" />
-                    Tras cobrar verá solo el diálogo de impresión; no se abre
-                    otra pestaña ni la página del comprobante.
-                  </p>
-                )}
+                <div className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
+                  cambio > 0
+                    ? "border-emerald-300 bg-emerald-50"
+                    : "border-pf-border bg-pf-surface-elevated"
+                }`}>
+                  <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">Cambio</span>
+                  <span className={`text-xl font-black tabular-nums ${cambio > 0 ? "text-emerald-600" : "text-pf-text-tertiary"}`}>
+                    {formatMoney(sym, cambio)}
+                  </span>
+                </div>
+
+                <div className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
+                  saldo > 0
+                    ? "border-amber-300 bg-amber-50"
+                    : "border-pf-border bg-pf-surface-elevated"
+                }`}>
+                  <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">Saldo</span>
+                  <span className={`text-xl font-black tabular-nums ${saldo > 0 ? "text-amber-600" : "text-pf-text-tertiary"}`}>
+                    {formatMoney(sym, saldo)}
+                  </span>
+                </div>
               </div>
-            );
-          })()}
-        </Modal>
+
+              {err ? <p className="text-sm font-medium text-red-600">{err}</p> : null}
+
+              <Button
+                type="button"
+                className="w-full min-h-12 gap-3 text-base"
+                onClick={() => {
+                  setCheckoutOpen(false);
+                  void saveSale(checkoutOpts);
+                }}
+                disabled={busy}
+              >
+                <CheckCircle2 className="h-5 w-5 shrink-0" strokeWidth={2.5} />
+                {busy ? "Guardando…" : "Cobrar Factura"}
+              </Button>
+
+              {checkoutOpts.autoPrintTicket && (
+                <p className="flex items-center justify-center gap-1.5 text-center text-xs text-pf-muted">
+                  <Printer className="h-3.5 w-3.5 shrink-0" />
+                  Tras cobrar verá solo el diálogo de impresión; no se abre otra pestaña ni la página del comprobante.
+                </p>
+              )}
+            </div>
+          );
+        })()}
+      </Modal>
       </div>
     </div>
   );

@@ -1,9 +1,0 @@
-[build]
-builder = "RAILPACK"
-buildCommand = "npm ci && npm run build -w apps/api"
-
-[deploy]
-startCommand = "npm run start:cloud -w apps/api"
-healthcheckPath = "/health"
-healthcheckTimeout = 100
-restartPolicyType = "ON_FAILURE"

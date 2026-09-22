@@ -1,5 +1,6 @@
 import { FilterX, History, PackagePlus, PackageSearch, Pencil, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PageHero } from "../components/PageHero";
 import { apiFetch, apiUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, EmptyState, Field, Input, Modal, PaginationBar, Select, Textarea } from "../components/ui";
@@ -20,31 +21,6 @@ type StockLocRow = {
   qty: number;
   location: { code: string; name: string };
 };
-
-function productAvailability(product: Product) {
-  if (!product.active) {
-    return { label: "Inactivo", className: "border-pf-border bg-pf-surface-muted text-pf-muted" };
-  }
-  if (product.productType === "SERVICIO") {
-    return { label: "Servicio", className: "border-pf-primary/25 bg-pf-primary-soft/60 text-pf-primary-hover" };
-  }
-  if (product.productType === "KIT") {
-    return { label: "Combo", className: "border-pf-primary/25 bg-pf-primary-soft/60 text-pf-primary-hover" };
-  }
-  if (product.stock <= 0) {
-    return { label: "Agotado", className: "border-pf-danger-soft bg-pf-danger-soft/70 text-pf-danger" };
-  }
-  if (product.stock <= product.minStock) {
-    return { label: "Bajo mínimo", className: "border-pf-warning-soft bg-pf-warning-soft/70 text-pf-warning" };
-  }
-  return { label: "Disponible", className: "border-pf-success-soft bg-pf-success-soft/70 text-pf-success" };
-}
-
-function productStockValue(product: Product) {
-  if (product.productType === "SERVICIO") return "No aplica";
-  if (product.productType === "KIT") return "Por componentes";
-  return `${product.stock} ${product.unit}`;
-}
 
 const emptyForm = {
   sku: "",
@@ -455,137 +431,129 @@ export function ProductsPage() {
 
   return (
     <div className="flex min-h-0 flex-col space-y-3 pf-safe-page sm:space-y-4">
-      <Card className="space-y-3 p-3">
-        <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
-          <div className="col-span-2 min-w-0 sm:min-w-[200px] sm:flex-1">
-            <label
-              htmlFor="products-search"
-              className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-pf-muted"
-            >
-              Buscar
-            </label>
-            <Input
-              id="products-search"
-              placeholder="Nombre, SKU o código…"
-              title="Separe con coma para buscar cualquiera de los términos (ej. café, 200g)"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="min-w-0"
-            />
-          </div>
-          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:min-w-[150px] sm:shrink-0">
-            Existencia
-            <Select
-              className="mt-1 min-h-10"
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value as "" | "with" | "without" | "low")}
-            >
-              <option value="">Todas</option>
-              <option value="with">Con existencia</option>
-              <option value="without">Sin existencia</option>
-              <option value="low">Bajo mínimo</option>
-            </Select>
-          </label>
-          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:min-w-[150px] sm:shrink-0">
-            Proveedor
-            <Select className="mt-1 min-h-10" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-              <option value="">Todos</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:shrink-0">
-            Vence desde
-            <Input
-              type="date"
-              value={expiresAfter}
-              onChange={(e) => setExpiresAfter(e.target.value)}
-              className="mt-1 min-h-10 w-full sm:w-[140px]"
-            />
-          </label>
-          <label className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted sm:shrink-0">
-            Vence hasta
-            <Input
-              type="date"
-              value={expiresBefore}
-              onChange={(e) => setExpiresBefore(e.target.value)}
-              className="mt-1 min-h-10 w-full sm:w-[140px]"
-            />
-          </label>
-
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0"
-            title="Recargar la lista"
-            aria-label="Recargar la lista"
-            onClick={() => load()}
-          >
-            <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <PageHero title="Productos" constrained>
+          <p className="pf-page-lead">
+            Qué es: catálogo de artículos y servicios con existencias, precios (hasta cuatro listas), tipo (producto,
+            servicio, insumo, combo) y datos para venta y compras.
+          </p>
+          <p className="pf-page-lead-muted">
+            Use filtros y la tabla para localizar ítems; el administrador crea y edita desde el modal. Los movimientos de
+            stock se consultan en Historial.
+            {!admin ? " Usted puede buscar y consultar; alta y edición son del administrador." : null}
+          </p>
+        </PageHero>
+        {admin ? (
+          <Button type="button" onClick={openNew} className="min-h-[52px] w-full shrink-0 shadow-lg sm:w-auto sm:min-h-[48px]">
+            <PackagePlus className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2} aria-hidden />
+            Nuevo producto
           </Button>
-          {hasFilters ? (
-            <Button type="button" variant="ghost" className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0" onClick={clearFilters}>
+        ) : null}
+      </div>
+
+      <Card className="space-y-2.5 p-3 sm:p-3.5">
+        <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <Input
+            placeholder="Buscar nombre, SKU, código de barras o rápido…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Buscar productos"
+            className="min-w-0 xl:col-span-2"
+          />
+          <Select
+            value={stockFilter}
+            onChange={(e) => setStockFilter(e.target.value as "" | "with" | "without" | "low")}
+            aria-label="Filtrar por existencia"
+          >
+            <option value="">Todas las existencias</option>
+            <option value="with">Con existencia</option>
+            <option value="without">Sin existencia</option>
+            <option value="low">Bajo mínimo (sugeridos)</option>
+          </Select>
+          <Select
+            value={supplierId}
+            onChange={(e) => setSupplierId(e.target.value)}
+            aria-label="Proveedor"
+          >
+            <option value="">Todos los proveedores</option>
+            {suppliers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+          <Field label="Vence desde" className="min-w-0">
+            <Input type="date" value={expiresAfter} onChange={(e) => setExpiresAfter(e.target.value)} className="min-h-10" />
+          </Field>
+          <Field label="Vence hasta" className="min-w-0">
+            <Input type="date" value={expiresBefore} onChange={(e) => setExpiresBefore(e.target.value)} className="min-h-10" />
+          </Field>
+          <div className="flex flex-wrap items-center gap-2 xl:col-span-6">
+            <Button type="button" variant="secondary" className="min-h-[48px] sm:min-h-10" onClick={clearFilters}>
               <FilterX className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               Limpiar
             </Button>
-          ) : null}
-          {admin ? (
-            <Button
-              type="button"
-              variant="secondary"
-              className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0"
-              onClick={() => void openLabelsPreview()}
-            >
-              <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              Etiquetas{labelSelectedCount ? ` (${labelSelectedCount})` : ""}
+            <Button type="button" variant="secondary" className="min-h-[48px] sm:min-h-10" onClick={() => load()}>
+              <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              Actualizar
             </Button>
-          ) : null}
-          {admin ? (
-            <Button type="button" onClick={openNew} className="min-h-10 w-full justify-self-stretch sm:w-auto sm:shrink-0">
-              <PackagePlus className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              Nuevo producto
-            </Button>
-          ) : null}
-        </div>
-
-        {/* Ayudas de seleccion: solo pesan cuando se van a imprimir etiquetas. */}
-        {admin ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            <button
-              type="button"
-              className="min-h-8 font-semibold text-pf-primary-hover hover:underline underline-offset-2"
-              onClick={() =>
-                setLabelPick((m) => ({
-                  ...m,
-                  ...Object.fromEntries(list.map((p) => [p.id, true])),
-                }))
-              }
-            >
-              Marcar los visibles
-            </button>
-            {labelSelectedCount ? (
-              <button
-                type="button"
-                className="min-h-8 font-semibold text-pf-text-tertiary hover:underline underline-offset-2"
-                onClick={() => {
-                  setLabelPick((m) => {
-                    const n = { ...m };
-                    for (const p of list) delete n[p.id];
-                    return n;
-                  });
-                  setLabelsErr("");
-                }}
-              >
-                Quitar marcas
-              </button>
+            {admin ? (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-[48px] sm:min-h-10"
+                  onClick={() =>
+                    setLabelPick((m) => ({
+                      ...m,
+                      ...Object.fromEntries(list.map((p) => [p.id, true])),
+                    }))
+                  }
+                >
+                  Marcar lista
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-[48px] sm:min-h-10"
+                  onClick={() => {
+                    setLabelPick((m) => {
+                      const n = { ...m };
+                      for (const p of list) delete n[p.id];
+                      return n;
+                    });
+                    setLabelsErr("");
+                  }}
+                >
+                  Quitar marcas
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-[48px] sm:min-h-10"
+                  onClick={() => void openLabelsPreview()}
+                >
+                  <Printer className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                  Etiquetas{labelSelectedCount ? ` (${labelSelectedCount})` : ""}
+                </Button>
+              </>
             ) : null}
           </div>
-        ) : null}
-
-        {labelsErr ? <p className="text-xs font-medium text-pf-danger">{labelsErr}</p> : null}
+        </div>
+        <p className="text-xs text-pf-muted">
+          Búsqueda multi-término: separar con coma (ej. <span className="font-mono">café, 200g</span>) para buscar
+          cualquiera de los términos.
+        </p>
+        {labelsErr ? <p className="text-xs font-medium text-red-600">{labelsErr}</p> : null}
+        <div className="pf-table-toolbar">
+          <div className="flex flex-wrap gap-1.5">
+            <span className="pf-filter-chip">{total} producto(s)</span>
+            {q.trim() ? <span className="pf-filter-chip">Busqueda: {q.trim()}</span> : null}
+            {stockFilter ? <span className="pf-filter-chip">Existencia: {stockFilter}</span> : null}
+            {supplierId ? <span className="pf-filter-chip">Proveedor filtrado</span> : null}
+          </div>
+          <p className="text-xs font-medium text-pf-text-soft">{list.length} visibles en esta pagina</p>
+        </div>
       </Card>
 
       <Card className="pf-table-shell min-h-0 flex-1 overflow-hidden p-0">
@@ -616,95 +584,7 @@ export function ProductsPage() {
           />
         ) : (
           <>
-          <div className="space-y-2 p-2 sm:hidden" role="list" aria-label="Productos">
-            {list.map((p) => {
-              const availability = productAvailability(p);
-              return (
-                <article
-                  key={p.id}
-                  role="listitem"
-                  className="rounded-xl border border-pf-border bg-pf-surface-elevated p-3 shadow-[var(--pf-shadow-sm)]"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className={`truncate text-sm font-bold ${p.active ? "text-pf-text" : "text-pf-muted line-through"}`}>
-                        {p.name}
-                      </p>
-                      <p className="mt-0.5 truncate font-mono text-[11px] text-pf-muted">{p.sku}</p>
-                    </div>
-                    {admin ? (
-                      <label className="flex min-h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-1 text-xs font-medium text-pf-text-secondary">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(labelPick[p.id])}
-                          onChange={(e) => {
-                            const on = e.target.checked;
-                            setLabelPick((m) => {
-                              const next = { ...m };
-                              if (on) next[p.id] = true;
-                              else delete next[p.id];
-                              return next;
-                            });
-                            setLabelsErr("");
-                          }}
-                          aria-label={`Incluir ${p.name} en etiquetas`}
-                          className="h-4 w-4 rounded border-pf-border"
-                        />
-                        <span>Etiqueta</span>
-                      </label>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-pf-surface-soft px-2.5 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pf-muted">Precio</p>
-                      <p className="mt-0.5 text-sm font-bold tabular-nums text-pf-text">{formatMoney(sym, p.price)}</p>
-                    </div>
-                    <div className="rounded-lg bg-pf-surface-soft px-2.5 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pf-muted">Existencia</p>
-                      <p className="mt-0.5 truncate text-sm font-bold tabular-nums text-pf-text" title={productStockValue(p)}>
-                        {productStockValue(p)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-1 font-semibold ${availability.className}`}>
-                      {availability.label}
-                    </span>
-                    {p.category ? <span className="truncate text-pf-text-tertiary">{p.category}</span> : null}
-                    {p.location ? <span className="truncate text-pf-muted">· {p.location}</span> : null}
-                  </div>
-
-                  <div className="mt-3 flex gap-2 border-t border-pf-border/70 pt-3">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="min-h-10 flex-1 px-3 text-xs"
-                      onClick={() => setMovementsFor(p)}
-                      aria-label={`Movimientos de ${p.name}`}
-                    >
-                      <History className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                      Movimientos
-                    </Button>
-                    {admin ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="min-h-10 flex-1 px-3 text-xs"
-                        onClick={() => openEdit(p)}
-                      >
-                        <Pencil className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                        Editar
-                      </Button>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-
-          <div className="hidden max-h-[min(520px,calc(100vh-15rem))] overflow-auto overscroll-contain rounded-2xl sm:block md:rounded-none">
+          <div className="max-h-[min(520px,calc(100vh-15rem))] overflow-auto overscroll-contain rounded-2xl md:rounded-none">
             <table className="w-full min-w-[1120px] border-collapse text-sm">
             <thead className="sticky top-0 z-[1]">
               <tr className="pf-table-thead text-left">
@@ -853,7 +733,7 @@ export function ProductsPage() {
         {movementsLoading ? (
           <p className="text-sm text-pf-muted py-6 text-center">Cargando historial…</p>
         ) : movementsErr ? (
-          <p className="text-sm text-pf-danger">{movementsErr}</p>
+          <p className="text-sm text-red-600">{movementsErr}</p>
         ) : movements.length === 0 ? (
           <p className="text-sm text-pf-muted py-4">No hay movimientos registrados para este producto.</p>
         ) : (
@@ -1293,7 +1173,7 @@ export function ProductsPage() {
                     <Button
                       type="button"
                       variant="ghost"
-                      className="min-h-10 text-pf-danger shrink-0"
+                      className="min-h-10 text-red-600 shrink-0"
                       aria-label="Quitar componente"
                       onClick={() => setKitRows((rows) => rows.filter((_, j) => j !== idx))}
                     >
@@ -1316,7 +1196,7 @@ export function ProductsPage() {
           </Field>
         ) : null}
 
-        {err ? <p className="mt-3 text-sm text-pf-danger">{err}</p> : null}
+        {err ? <p className="mt-3 text-sm text-red-600">{err}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="secondary" type="button" onClick={closeModal}>
             Cancelar

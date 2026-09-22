@@ -3,51 +3,19 @@ import bcrypt from "bcryptjs";
 
 const DEV_FALLBACK = "dev-secret-change-me";
 
-/**
- * Secretos que alguna vez estuvieron en este repositorio (`.env.example` y un
- * `.env` versionado hasta abril 2026). Estan publicados en GitHub: quien los
- * lea puede firmar tokens validos. Comprobar solo que JWT_SECRET "existe" no
- * alcanza, porque copiar el ejemplo deja un secreto conocido.
- */
-const SECRETOS_PUBLICADOS = new Set([
-  DEV_FALLBACK,
-  "dev-secret-local-change-me",
-  "cambiar-en-produccion-usa-openssl-rand-hex-32",
-  "change-me",
-  "changeme",
-  "secret",
-]);
-
-const LARGO_MINIMO = 32;
-
-/** Pura y exportada para poder probar el rechazo sin levantar el proceso. */
-export function validateJwtSecret(raw: string | undefined, nodeEnv: string | undefined): string {
-  const s = raw?.trim();
-  const produccion = nodeEnv === "production";
-  if (!s) {
-    if (produccion) {
-      throw new Error(
-        "JWT_SECRET is required in production. Set a long random value (e.g. openssl rand -base64 48)."
-      );
-    }
-    console.warn("[auth] JWT_SECRET not set; using development default. Never deploy with the dev default.");
-    return DEV_FALLBACK;
-  }
-  if (produccion && SECRETOS_PUBLICADOS.has(s.toLowerCase())) {
+function loadJwtSecret(): string {
+  const s = process.env.JWT_SECRET?.trim();
+  if (s) return s;
+  if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "JWT_SECRET is a placeholder published in this repository. Anyone could forge tokens. " +
-        "Generate a new one: openssl rand -base64 48"
+      "JWT_SECRET is required in production. Set a long random value (e.g. openssl rand -base64 48)."
     );
   }
-  if (produccion && s.length < LARGO_MINIMO) {
-    throw new Error(
-      `JWT_SECRET must be at least ${LARGO_MINIMO} characters in production. Generate one: openssl rand -base64 48`
-    );
-  }
-  return s;
+  console.warn("[auth] JWT_SECRET not set; using development default. Never deploy with the dev default.");
+  return DEV_FALLBACK;
 }
 
-const SECRET = validateJwtSecret(process.env.JWT_SECRET, process.env.NODE_ENV);
+const SECRET = loadJwtSecret();
 
 export type JwtPayload = {
   sub: string;

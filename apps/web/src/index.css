@@ -11,163 +11,147 @@
  * Componente PageHero + utilidades .pf-* usan los mismos tokens.
  */
 
-/*
- * Preset base "Mostrador cálido".
- * Fondo marfil, superficies de trabajo blancas, tinta carbón, acento terracota.
- * Contraste verificado sobre marfil #f7f4ef y blanco: todo texto >= 4.5:1 (AA).
- * Nota: la terracota de identidad #c35d3b da 4.27:1 sobre blanco, por lo que se
- * reserva para bordes, rieles activos e iconos; los rellenos con texto blanco
- * usan --pf-primary (#b4502f, 5.08:1).
- */
 :root {
   --pf-font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
 
   /* Marca */
-  --pf-primary: #b4502f;
-  --pf-primary-hover: #993f24;
-  --pf-primary-mid: #c35d3b;
-  --pf-primary-soft: #f6e7e0;
+  --pf-primary: #f97316;
+  --pf-primary-hover: #c2410c;
+  --pf-primary-mid: #ea580c;
+  --pf-primary-soft: #ffedd5;
   --pf-primary-foreground: #ffffff;
 
   /* Superficies */
-  --pf-surface: #f7f4ef;
+  --pf-surface: #f3f6f8;
   --pf-surface-elevated: #ffffff;
-  --pf-surface-muted: #ede8e0;
-  --pf-surface-soft: #fbf9f6;
-  --pf-surface-overlay: rgb(255 255 255 / 0.94);
-  --pf-border: #e0d9cf;
-  --pf-border-soft: rgb(196 184 168 / 0.42);
-  --pf-border-strong: #c9bfb1;
-  --pf-muted: #726b62;
+  --pf-surface-muted: #e5e7eb;
+  --pf-surface-soft: #f8fafc;
+  --pf-surface-overlay: rgb(255 255 255 / 0.92);
+  --pf-border: #cbd5e1;
+  --pf-border-soft: rgb(148 163 184 / 0.45);
+  --pf-border-strong: #94a3b8;
+  --pf-muted: #64748b;
 
-  /* Acentos de apoyo (usar con moderación; el protagonismo es de la terracota) */
-  --pf-mint: #6faa8b;
-  --pf-mint-soft: #e3f0e7;
-  --pf-sky: #7fa8bd;
-  --pf-sky-soft: #e4eef3;
-  --pf-lilac-soft: #ece8f0;
+  /* Acentos fríos (malla, héroes, tablas) */
+  --pf-mint: #5eead4;
+  --pf-mint-soft: #ccfbf1;
+  --pf-sky: #7dd3fc;
+  --pf-sky-soft: #e0f2fe;
+  --pf-lilac-soft: #ede9fe;
 
   /* Texto */
-  --pf-text: #1f2421;
-  --pf-text-secondary: #2e3531;
-  --pf-text-tertiary: #55605a;
-  --pf-text-soft: #6b756e;
+  --pf-text: #111827;
+  --pf-text-secondary: #1f2937;
+  --pf-text-tertiary: #475569;
+  --pf-text-soft: #64748b;
   --pf-text-on-brand: #ffffff;
 
   /* Glass / modales */
-  --pf-glass-border: rgb(224 217 207 / 0.7);
-  --pf-modal-scrim-from: rgb(31 36 33 / 0.5);
-  --pf-modal-scrim-via: rgb(31 36 33 / 0.38);
-  --pf-modal-scrim-to: rgb(31 36 33 / 0.28);
-  --pf-focus-ring: rgb(195 93 59 / 0.32);
+  --pf-glass-border: rgb(255 255 255 / 0.5);
+  --pf-modal-scrim-from: rgb(28 25 23 / 0.5);
+  --pf-modal-scrim-via: rgb(28 25 23 / 0.35);
+  --pf-modal-scrim-to: rgb(28 25 23 / 0.25);
+  --pf-focus-ring: rgb(14 165 233 / 0.26);
 
-  /* Estados (verde reservado a lo positivo) */
-  --pf-success: #2f6f4e;
-  --pf-success-soft: #e3f0e7;
-  --pf-warning: #9a6516;
-  --pf-warning-soft: #f8edda;
-  --pf-danger: #b3261e;
-  --pf-danger-soft: #f9e4e2;
-  --pf-info: #2b5f7e;
-  --pf-info-soft: #e4eef3;
+  /* Estados */
+  --pf-success: #15803d;
+  --pf-success-soft: #dcfce7;
+  --pf-warning: #b45309;
+  --pf-warning-soft: #ffedd5;
+  --pf-danger: #dc2626;
+  --pf-danger-soft: #fee2e2;
+  --pf-info: #0369a1;
+  --pf-info-soft: #e0f2fe;
 
-  /* Sombras: solo para separar capas, nunca decorativas */
-  --pf-shadow-hero: 0 1px 2px 0 rgb(31 36 33 / 0.04);
-  --pf-shadow-card: 0 1px 2px 0 rgb(31 36 33 / 0.05);
-  /* Alias corto: varias hojas ya lo usaban sin que existiera, y la sombra no se pintaba. */
-  --pf-shadow-sm: 0 1px 2px 0 rgb(31 36 33 / 0.05);
-  --pf-shadow-lg: 0 8px 24px -8px rgb(31 36 33 / 0.12);
-  --pf-shadow-btn-primary: 0 1px 2px 0 rgb(31 36 33 / 0.1);
-  --pf-shadow-btn-primary-hover: 0 2px 6px -1px rgb(153 63 36 / 0.22);
-  --pf-shadow-btn-soft: 0 1px 2px 0 rgb(31 36 33 / 0.06);
-  --pf-theme-color: #f7f4ef;
+  /* Sombras (tintadas; ajuste para otro color de marca) */
+  --pf-shadow-hero: 0 10px 15px -3px rgb(67 20 7 / 0.07), 0 4px 6px -4px rgb(67 20 7 / 0.06);
+  --pf-shadow-card: 0 10px 15px -3px rgb(28 25 23 / 0.04);
+  --pf-shadow-btn-primary: 0 10px 15px -3px rgb(234 88 12 / 0.18);
+  --pf-shadow-btn-primary-hover: 0 10px 15px -3px rgb(234 88 12 / 0.25);
+  --pf-shadow-btn-soft: 0 8px 20px -12px rgb(28 25 23 / 0.18);
+  --pf-theme-color: #111827;
 
-  /* Panel hero (bloque bajo título de página) — plano, sin degradado decorativo */
-  --pf-hero-bg-1: #ffffff;
-  --pf-hero-bg-2: #ffffff;
-  --pf-hero-bg-3: #ffffff;
+  /* Panel hero (bloque bajo título de página) */
+  --pf-hero-bg-1: rgb(255 255 255 / 0.98);
+  --pf-hero-bg-2: color-mix(in srgb, var(--pf-sky-soft) 38%, white);
+  --pf-hero-bg-3: color-mix(in srgb, var(--pf-primary-soft) 32%, white);
 
-  /* Título h1: tinta plana, sin degradado */
-  --pf-hero-title-1: #1f2421;
-  --pf-hero-title-2: #1f2421;
-  --pf-hero-title-3: #1f2421;
+  /* Título gradiente h1 */
+  --pf-hero-title-1: #1c1917;
+  --pf-hero-title-2: #075985;
+  --pf-hero-title-3: #c2410c;
 
-  /* Fondo del body: marfil plano (la malla queda neutralizada a propósito) */
-  --pf-mesh-1: transparent;
-  --pf-mesh-2: transparent;
-  --pf-mesh-3: transparent;
-  --pf-mesh-4: transparent;
-  --pf-mesh-base-1: #f7f4ef;
-  --pf-mesh-base-2: #f7f4ef;
-  --pf-mesh-base-3: #f7f4ef;
+  /* Fondo malla (body) */
+  --pf-mesh-1: rgb(219 234 254 / 0.55);
+  --pf-mesh-2: rgb(204 251 241 / 0.34);
+  --pf-mesh-3: rgb(255 237 213 / 0.38);
+  --pf-mesh-4: rgb(226 232 240 / 0.5);
+  --pf-mesh-base-1: #f8fafc;
+  --pf-mesh-base-2: #eef2f7;
+  --pf-mesh-base-3: #f7fafc;
 
   /* Cabeceras de tabla / listados */
-  --pf-table-head-1: #f2eee7;
-  --pf-table-head-2: #f2eee7;
-  --pf-table-head-3: #f2eee7;
-  --pf-table-border: rgb(196 184 168 / 0.45);
+  --pf-table-head-1: #e2e8f0;
+  --pf-table-head-2: #dbeafe;
+  --pf-table-head-3: #e0f2fe;
+  --pf-table-border: rgb(148 163 184 / 0.5);
   --pf-table-body: #ffffff;
 
-  /* Hover / selección de filas */
-  --pf-row-hover-from: rgb(247 244 239 / 0.9);
-  --pf-row-selected-from: color-mix(in srgb, var(--pf-primary-soft) 78%, transparent);
-  --pf-row-selected-to: color-mix(in srgb, var(--pf-primary-soft) 78%, transparent);
+  /* Hover filas tipo lista */
+  --pf-row-hover-from: color-mix(in srgb, var(--pf-sky-soft) 48%, transparent);
+  --pf-row-selected-from: color-mix(in srgb, var(--pf-primary-soft) 66%, transparent);
+  --pf-row-selected-to: color-mix(in srgb, var(--pf-sky-soft) 35%, transparent);
 
-  /* Chrome de navegación: claro y discreto (antes era oscuro) */
-  --pf-nav-ink-from: #ffffff;
-  --pf-nav-ink-via: #ffffff;
-  --pf-nav-ink-to: #ffffff;
-  --pf-nav-shell-bg: #ffffff;
-  --pf-nav-shell-border: #e0d9cf;
-  --pf-nav-shell-shadow: none;
-  --pf-tab-shell-bg: transparent;
-  --pf-tab-shell-border: transparent;
-  --pf-tab-active-bg: var(--pf-primary-soft);
-  --pf-tab-active-ink: #993f24;
-  --pf-tab-idle-ink: #55605a;
-  --pf-tab-hover-bg: #f2eee7;
-  --pf-tab-active-border: transparent;
-  --pf-ribbon-bg-1: #ffffff;
-  --pf-ribbon-bg-2: #ffffff;
-  --pf-ribbon-bg-3: #ffffff;
-  --pf-ribbon-divider: #e0d9cf;
-  --pf-ribbon-active-bg: var(--pf-primary-soft);
-  --pf-ribbon-active-border: var(--pf-primary-mid);
-  --pf-ribbon-hover-bg: #f2eee7;
-  --pf-ribbon-tile-icon-bg: #f2eee7;
-  --pf-ribbon-tile-icon-ink: #55605a;
-  --pf-ribbon-tile-icon-ring: transparent;
-  --pf-sale-tab-bg: var(--pf-primary-soft);
-  --pf-sale-tab-border: var(--pf-primary-mid);
-  --pf-sale-tab-ink: #993f24;
+  /* Navegación ribbon / menús (desktop) */
+  --pf-nav-ink-from: #111827;
+  --pf-nav-ink-via: #1e293b;
+  --pf-nav-ink-to: #0f172a;
+  --pf-nav-shell-bg: linear-gradient(
+    to right,
+    #111827,
+    #1e293b,
+    #0f172a
+  );
+  --pf-nav-shell-border: rgb(255 255 255 / 0.08);
+  --pf-nav-shell-shadow: var(--pf-shadow-warm-sm);
+  --pf-tab-shell-bg: rgb(15 23 42 / 0.92);
+  --pf-tab-shell-border: rgb(255 255 255 / 0.12);
+  --pf-tab-active-bg: #ffffff;
+  --pf-tab-active-ink: #111827;
+  --pf-tab-idle-ink: #cbd5e1;
+  --pf-tab-hover-bg: rgb(255 255 255 / 0.12);
+  --pf-tab-active-border: rgb(255 255 255 / 0.22);
+  --pf-ribbon-bg-1: #f8fafc;
+  --pf-ribbon-bg-2: #edf2f7;
+  --pf-ribbon-bg-3: #e2e8f0;
+  --pf-ribbon-divider: rgb(148 163 184 / 0.55);
+  --pf-ribbon-active-bg: #ffffff;
+  --pf-ribbon-active-border: rgb(14 165 233 / 0.5);
+  --pf-ribbon-hover-bg: #ffffff;
+  --pf-ribbon-tile-icon-bg: linear-gradient(to bottom, #e0f2fe, #bae6fd);
+  --pf-ribbon-tile-icon-ink: #075985;
+  --pf-ribbon-tile-icon-ring: #7dd3fc;
+  --pf-sale-tab-bg: #f97316;
+  --pf-sale-tab-border: #fed7aa;
+  --pf-sale-tab-ink: #ffffff;
 
-  /* Barra lateral (navegación global) */
-  --pf-sidebar-bg: #ffffff;
-  --pf-sidebar-border: #e0d9cf;
-  --pf-sidebar-ink: #55605a;
-  --pf-sidebar-hover-bg: #f7f4ef;
-  --pf-sidebar-active-bg: var(--pf-primary-soft);
-  --pf-sidebar-active-ink: #993f24;
-  --pf-sidebar-rail: var(--pf-primary-mid);
-  --pf-sidebar-section-ink: #726b62;
+  /* Sombras con tinte cálido (cards flotantes) */
+  --pf-shadow-warm-sm: 0 10px 15px -3px rgb(67 20 7 / 0.06), 0 4px 6px -4px rgb(67 20 7 / 0.05);
+  --pf-shadow-warm-md: 0 20px 25px -5px rgb(28 25 23 / 0.08), 0 8px 10px -6px rgb(67 20 7 / 0.06);
+  --pf-shadow-warm-xl: 0 25px 50px -12px rgb(28 25 23 / 0.1);
 
-  /* Sombras suaves (cards) */
-  --pf-shadow-warm-sm: 0 1px 2px 0 rgb(31 36 33 / 0.05);
-  --pf-shadow-warm-md: 0 2px 8px -2px rgb(31 36 33 / 0.08);
-  --pf-shadow-warm-xl: 0 8px 24px -8px rgb(31 36 33 / 0.12);
-
-  /* Extremo del degradado en pills de hub (móvil) */
-  --pf-nav-pill-warm-to: var(--pf-primary-mid);
+  /* Degradado “cálido” en pills de hub (móvil) */
+  --pf-nav-pill-warm-to: #f59e0b;
 
   /* Controles */
   --pf-control-bg: #ffffff;
-  --pf-control-bg-soft: #fbf9f6;
-  --pf-control-border: #d9d1c6;
-  --pf-control-border-hover: #b8ad9e;
-  --pf-control-placeholder: #8c847a;
-  --pf-control-shadow: none;
+  --pf-control-bg-soft: #f8fafc;
+  --pf-control-border: #cbd5e1;
+  --pf-control-border-hover: #64748b;
+  --pf-control-placeholder: #94a3b8;
+  --pf-control-shadow: inset 0 1px 2px 0 rgb(15 23 42 / 0.06);
 
-  --radius-pf: 0.625rem;
+  --radius-pf: 1rem;
 }
 
 /* Preset alterno: sobrio y neutro. */
@@ -335,170 +319,6 @@
   --pf-control-shadow: inset 0 1px 2px 0 rgb(15 76 104 / 0.04);
 }
 
-/* Preset oscuro: tinta mineral, cobre suave y superficies estratificadas para uso prolongado. */
-[data-pf-theme="night"] {
-  color-scheme: dark;
-
-  --pf-primary: #df8665;
-  --pf-primary-hover: #ee9b79;
-  --pf-primary-mid: #c9694c;
-  --pf-primary-soft: #3c2620;
-  --pf-primary-foreground: #171a18;
-
-  --pf-surface: #101614;
-  --pf-surface-elevated: #1b2420;
-  --pf-surface-muted: #151d1a;
-  --pf-surface-soft: #202a26;
-  --pf-surface-overlay: rgb(27 36 32 / 0.94);
-  --pf-border: #34413c;
-  --pf-border-soft: rgb(72 89 82 / 0.6);
-  --pf-border-strong: #4c5c55;
-  --pf-muted: #9aa39b;
-
-  --pf-mint: #70c7a1;
-  --pf-mint-soft: #183b2d;
-  --pf-sky: #79b7dc;
-  --pf-sky-soft: #183343;
-  --pf-lilac-soft: #2d2940;
-
-  --pf-text: #f3f0e8;
-  --pf-text-secondary: #dedad1;
-  --pf-text-tertiary: #bbb6ad;
-  --pf-text-soft: #a8a29a;
-  --pf-text-on-brand: #171a18;
-
-  --pf-glass-border: rgb(91 107 99 / 0.62);
-  --pf-modal-scrim-from: rgb(4 8 6 / 0.82);
-  --pf-modal-scrim-via: rgb(4 8 6 / 0.7);
-  --pf-modal-scrim-to: rgb(4 8 6 / 0.58);
-  --pf-focus-ring: rgb(223 134 101 / 0.42);
-
-  --pf-success: #6ed19f;
-  --pf-success-soft: #183c2d;
-  --pf-warning: #efba60;
-  --pf-warning-soft: #473718;
-  --pf-danger: #f27b70;
-  --pf-danger-soft: #482524;
-  --pf-info: #83c2e7;
-  --pf-info-soft: #183545;
-
-  --pf-shadow-hero: 0 18px 40px -20px rgb(0 0 0 / 0.72);
-  --pf-shadow-card: 0 12px 28px -18px rgb(0 0 0 / 0.66);
-  --pf-shadow-sm: 0 2px 5px rgb(0 0 0 / 0.35);
-  --pf-shadow-lg: 0 24px 48px -20px rgb(0 0 0 / 0.72);
-  --pf-shadow-btn-primary: 0 10px 22px -12px rgb(223 134 101 / 0.55);
-  --pf-shadow-btn-primary-hover: 0 12px 28px -12px rgb(223 134 101 / 0.66);
-  --pf-shadow-btn-soft: 0 8px 16px -12px rgb(0 0 0 / 0.55);
-  --pf-theme-color: #101614;
-
-  --pf-hero-bg-1: #202a26;
-  --pf-hero-bg-2: #1b2420;
-  --pf-hero-bg-3: #17201d;
-  --pf-hero-title-1: #f3f0e8;
-  --pf-hero-title-2: #f3f0e8;
-  --pf-hero-title-3: #dedad1;
-
-  --pf-mesh-1: rgb(93 47 34 / 0.34);
-  --pf-mesh-2: rgb(26 71 56 / 0.28);
-  --pf-mesh-3: rgb(25 61 76 / 0.24);
-  --pf-mesh-4: rgb(49 38 74 / 0.2);
-  --pf-mesh-base-1: #101614;
-  --pf-mesh-base-2: #111916;
-  --pf-mesh-base-3: #0d1311;
-
-  --pf-table-head-1: #202a26;
-  --pf-table-head-2: #202a26;
-  --pf-table-head-3: #202a26;
-  --pf-table-border: rgb(83 100 92 / 0.62);
-  --pf-table-body: #1b2420;
-  --pf-row-hover-from: #25322d;
-  --pf-row-selected-from: #3c2620;
-  --pf-row-selected-to: #2d362f;
-
-  --pf-nav-ink-from: #f3f0e8;
-  --pf-nav-ink-via: #f3f0e8;
-  --pf-nav-ink-to: #dedad1;
-  --pf-nav-shell-bg: #151d1a;
-  --pf-nav-shell-border: #34413c;
-  --pf-nav-shell-shadow: 0 10px 26px -20px rgb(0 0 0 / 0.82);
-  --pf-tab-shell-bg: #151d1a;
-  --pf-tab-shell-border: #34413c;
-  --pf-tab-active-bg: #26332d;
-  --pf-tab-active-ink: #f3f0e8;
-  --pf-tab-idle-ink: #bbb6ad;
-  --pf-tab-hover-bg: #202a26;
-  --pf-tab-active-border: #596b62;
-
-  --pf-ribbon-bg-1: #18211e;
-  --pf-ribbon-bg-2: #151d1a;
-  --pf-ribbon-bg-3: #131a17;
-  --pf-ribbon-divider: #34413c;
-  --pf-ribbon-active-bg: #2a3832;
-  --pf-ribbon-active-border: #557466;
-  --pf-ribbon-hover-bg: #202a26;
-  --pf-ribbon-tile-icon-bg: #26332d;
-  --pf-ribbon-tile-icon-ink: #dedad1;
-  --pf-ribbon-tile-icon-ring: #40554c;
-  --pf-sale-tab-bg: #3c2620;
-  --pf-sale-tab-border: #c9694c;
-  --pf-sale-tab-ink: #f5c1ad;
-
-  --pf-sidebar-bg: #131a17;
-  --pf-sidebar-border: #34413c;
-  --pf-sidebar-ink: #c5c1b8;
-  --pf-sidebar-hover-bg: #202a26;
-  --pf-sidebar-active-bg: #32231e;
-  --pf-sidebar-active-ink: #f3c0ac;
-  --pf-sidebar-rail: #df8665;
-  --pf-sidebar-section-ink: #9aa39b;
-
-  --pf-shadow-warm-sm: 0 10px 18px -14px rgb(0 0 0 / 0.56);
-  --pf-shadow-warm-md: 0 18px 32px -18px rgb(0 0 0 / 0.68);
-  --pf-shadow-warm-xl: 0 30px 58px -24px rgb(0 0 0 / 0.8);
-  --pf-nav-pill-warm-to: #df8665;
-
-  --pf-control-bg: #151e1a;
-  --pf-control-bg-soft: #1c2722;
-  --pf-control-border: #45554d;
-  --pf-control-border-hover: #64786d;
-  --pf-control-placeholder: #929d95;
-  --pf-control-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);
-}
-
-[data-pf-theme="night"] ::selection {
-  background: color-mix(in srgb, var(--pf-primary) 62%, transparent);
-  color: var(--pf-text-on-brand);
-}
-
-/* Superficies heredadas que usaban blanco explícito antes del sistema de tokens. */
-[data-pf-theme="night"] .bg-white,
-[data-pf-theme="night"] .bg-white\/95,
-[data-pf-theme="night"] .bg-white\/85,
-[data-pf-theme="night"] .bg-white\/80,
-[data-pf-theme="night"] .bg-white\/70,
-[data-pf-theme="night"] .bg-white\/60 {
-  background-color: var(--pf-surface-elevated);
-}
-
-[data-pf-theme="night"] .border-white\/60,
-[data-pf-theme="night"] .border-white\/50 {
-  border-color: var(--pf-border-soft);
-}
-
-[data-pf-theme="night"] .pf-settings-tab-idle:hover {
-  background-color: var(--pf-surface-soft);
-}
-
-[data-pf-theme="night"] .pf-dashboard-ambient::before {
-  background: linear-gradient(
-    118deg,
-    transparent 12%,
-    color-mix(in srgb, var(--pf-surface-elevated) 70%, transparent) 44%,
-    transparent 72%
-  );
-  opacity: 0.38;
-}
-
 @theme {
   --font-sans: var(--pf-font-sans);
   --color-pf-primary: var(--pf-primary);
@@ -511,7 +331,6 @@
   --color-pf-surface-muted: var(--pf-surface-muted);
   --color-pf-surface-soft: var(--pf-surface-soft);
   --color-pf-border: var(--pf-border);
-  --color-pf-border-soft: var(--pf-border-soft);
   --color-pf-border-strong: var(--pf-border-strong);
   --color-pf-muted: var(--pf-muted);
   --color-pf-mint: var(--pf-mint);
@@ -569,34 +388,9 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-@utility pf-cash-section {
-  min-width: 0;
-  border: 1px solid var(--pf-border-soft);
-  border-radius: var(--radius-pf);
-  background: var(--pf-surface-elevated);
-  padding: 1rem;
-  box-shadow: var(--pf-shadow-card);
-
-  @media (width >= 640px) {
-    padding: 1.25rem;
-  }
-}
-
-@utility pf-cash-hero {
-  background: color-mix(in srgb, var(--pf-surface-elevated) 92%, var(--pf-primary-soft));
-}
-
-@utility pf-cash-close {
-  background: color-mix(in srgb, var(--pf-surface-elevated) 94%, var(--pf-primary-soft));
-}
-
-@utility pf-cash-open {
-  background: color-mix(in srgb, var(--pf-surface-elevated) 94%, var(--pf-success-soft));
-}
-
 @utility pf-hero-panel {
   min-width: 0;
-  border-radius: var(--radius-pf);
+  border-radius: 1.5rem;
   border: 1px solid var(--pf-glass-border);
   background: linear-gradient(to bottom right, var(--pf-hero-bg-1), var(--pf-hero-bg-2), var(--pf-hero-bg-3));
   padding: 1rem;
@@ -619,7 +413,10 @@ body {
 }
 
 @utility pf-hero-title {
-  color: var(--pf-hero-title-1);
+  background-image: linear-gradient(to right, var(--pf-hero-title-1), var(--pf-hero-title-2), var(--pf-hero-title-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-size: 1.5rem;
   line-height: 2rem;
   font-weight: 800;
@@ -648,12 +445,13 @@ body {
 
 @utility pf-table-thead {
   border-bottom: 1px solid var(--pf-border-strong);
-  background-color: var(--pf-table-head-2);
+  background: linear-gradient(to right, var(--pf-table-head-1), var(--pf-table-head-2), var(--pf-table-head-3));
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 800;
   color: var(--pf-text-secondary);
-  box-shadow: inset 0 -1px 0 rgb(15 23 42 / 0.08);
+  box-shadow: inset 0 -1px 0 rgb(15 23 42 / 0.08), 0 1px 2px 0 rgb(15 23 42 / 0.08);
+  backdrop-filter: blur(8px);
 }
 
 @utility pf-list-row-hover {
@@ -667,10 +465,15 @@ body {
 }
 
 @utility pf-card-surface {
-  border-radius: var(--radius-pf);
+  border-radius: 1rem;
   border: 1px solid var(--pf-border-soft);
-  background-color: var(--pf-surface-elevated);
-  box-shadow: var(--pf-shadow-card);
+  background: linear-gradient(
+    to bottom right,
+    color-mix(in srgb, var(--pf-surface-elevated) 94%, white),
+    color-mix(in srgb, var(--pf-surface-soft) 75%, var(--pf-surface-elevated))
+  );
+  box-shadow: var(--pf-shadow-warm-md);
+  backdrop-filter: blur(10px);
 
   @media (width >= 768px) {
     border-radius: var(--radius-pf);
@@ -683,14 +486,14 @@ body {
 
 @utility pf-btn-primary-gradient {
   touch-action: manipulation;
-  background-color: var(--pf-primary);
+  background-image: linear-gradient(to bottom right, var(--pf-primary), var(--pf-primary-mid), var(--pf-primary-hover));
   color: var(--pf-primary-foreground);
   box-shadow: var(--pf-shadow-btn-primary);
-  transition-property: transform, background-color, box-shadow;
+  transition-property: transform, filter, box-shadow;
   transition-duration: 200ms;
 
   &:hover {
-    background-color: var(--pf-primary-hover);
+    filter: brightness(1.03);
     box-shadow: var(--pf-shadow-btn-primary-hover);
   }
 
@@ -701,13 +504,21 @@ body {
 
 @utility pf-btn-secondary {
   border: 1px solid var(--pf-control-border);
-  background-color: var(--pf-surface-elevated);
+  background: linear-gradient(
+    to bottom right,
+    color-mix(in srgb, var(--pf-surface-elevated) 96%, white),
+    color-mix(in srgb, var(--pf-surface-soft) 88%, white)
+  );
   color: var(--pf-text-secondary);
   box-shadow: var(--pf-shadow-btn-soft);
 
   &:hover {
     border-color: var(--pf-control-border-hover);
-    background-color: var(--pf-primary-soft);
+    background: linear-gradient(
+      to bottom right,
+      color-mix(in srgb, var(--pf-primary-soft) 35%, white),
+      color-mix(in srgb, var(--pf-surface-soft) 92%, white)
+    );
     color: var(--pf-text);
   }
 }
@@ -726,18 +537,22 @@ body {
 }
 
 @utility pf-btn-danger {
-  background-color: var(--pf-danger);
+  background: linear-gradient(
+    to bottom right,
+    color-mix(in srgb, var(--pf-danger) 90%, white),
+    color-mix(in srgb, var(--pf-danger) 100%, black 4%)
+  );
   color: white;
   box-shadow: 0 10px 15px -3px rgb(220 38 38 / 0.18);
 
   &:hover {
-    background-color: color-mix(in srgb, var(--pf-danger) 90%, black);
+    filter: brightness(1.04);
   }
 }
 
 @utility pf-control-surface {
   width: 100%;
-  border-radius: var(--radius-pf);
+  border-radius: 0.875rem;
   border: 1px solid var(--pf-control-border);
   background: var(--pf-control-bg);
   color: var(--pf-text);
@@ -872,7 +687,10 @@ body {
 
 /* Título de app (login / marca grande) — mismos stops que pf-hero-title */
 @utility pf-drawer-title {
-  color: var(--pf-hero-title-1);
+  background-image: linear-gradient(to right, var(--pf-hero-title-1), var(--pf-hero-title-2), var(--pf-hero-title-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-size: 1.125rem;
   line-height: 1.75rem;
   font-weight: 700;
@@ -880,7 +698,10 @@ body {
 }
 
 @utility pf-app-title-xl {
-  color: var(--pf-hero-title-1);
+  background-image: linear-gradient(to right, var(--pf-hero-title-1), var(--pf-hero-title-2), var(--pf-hero-title-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-size: 1.875rem;
   line-height: 2.25rem;
   font-weight: 800;
@@ -899,7 +720,10 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.25em;
-  color: var(--pf-muted);
+  background-image: linear-gradient(to right, var(--pf-mint), var(--pf-text-tertiary), var(--pf-primary-hover));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 /** Fondo decorativo pantallas de acceso (login, ayuda pública) */
@@ -946,7 +770,10 @@ body {
 /** Cabecera “documento” nueva venta (continúa con tabla) */
 @utility pf-doc-section-title {
   margin-bottom: 0.5rem;
-  color: var(--pf-hero-title-1);
+  background-image: linear-gradient(to right, var(--pf-hero-title-1), var(--pf-hero-title-2), var(--pf-hero-title-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-size: 1.25rem;
   line-height: 1.75rem;
   font-weight: 800;
@@ -971,7 +798,7 @@ body {
 }
 
 @utility pf-sale-doc-header {
-  border-radius: var(--radius-pf) var(--radius-pf) 0 0;
+  border-radius: 1rem 1rem 0 0;
   border: 1px solid var(--pf-border);
   border-bottom: none;
   background: linear-gradient(to bottom right, #ffffff, #f8fafc 55%, #eef6ff);
@@ -981,7 +808,7 @@ body {
   backdrop-filter: none;
 
   @media (width >= 768px) {
-    border-radius: var(--radius-pf) var(--radius-pf) 0 0;
+    border-radius: 1rem 1rem 0 0;
     padding-top: 0.35rem;
     padding-bottom: 0.45rem;
   }
@@ -1010,7 +837,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.375rem;
-  border-radius: var(--radius-pf);
+  border-radius: 1rem;
   border: 1px solid var(--pf-glass-border);
   background: linear-gradient(
     to right,
@@ -1036,7 +863,7 @@ body {
 }
 
 @utility pf-hub-nav-link {
-  border-radius: var(--radius-pf);
+  border-radius: 0.75rem;
   padding: 0.625rem 0.75rem;
   font-size: 0.875rem;
   font-weight: 600;
@@ -1087,7 +914,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  border-radius: var(--radius-pf);
+  border-radius: 1rem;
   border: 1px solid var(--pf-glass-border);
   background-color: rgb(255 255 255 / 0.5);
   padding: 0.5rem;
@@ -1111,87 +938,10 @@ body {
 }
 
 @utility pf-app-shell-header {
-  border-bottom: 1px solid var(--pf-nav-shell-border);
+  border-bottom: 1px solid rgb(15 23 42 / 0.85);
   background: var(--pf-nav-shell-bg);
-  box-shadow: var(--pf-shadow-card);
+  box-shadow: 0 12px 30px -20px rgb(15 23 42 / 0.75);
   backdrop-filter: none;
-}
-
-/* La venta se lee como una sola grilla: contexto, búsqueda y luego líneas. */
-.pf-sale-grid-shell {
-  overflow: visible;
-  border: 1px solid var(--pf-border);
-  border-bottom: 0;
-  border-radius: var(--radius-pf) var(--radius-pf) 0 0;
-  background: var(--pf-surface-elevated);
-  box-shadow: var(--pf-shadow-sm);
-}
-
-.pf-sale-grid-shell .pf-sale-doc-header {
-  border: 0;
-  border-radius: var(--radius-pf) var(--radius-pf) 0 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.pf-sale-product-row {
-  border-top: 1px solid var(--pf-border-soft);
-  background: var(--pf-surface-soft);
-}
-
-.pf-sale-product-row > div:first-child {
-  min-width: 15rem;
-}
-
-@media (max-width: 640px) {
-  .pf-sale-product-row > div:first-child {
-    min-width: 0;
-  }
-}
-
-/* Barra lateral: riel estrecho expandible, discreta y constante. */
-@utility pf-sidebar-shell {
-  border-right: 1px solid var(--pf-sidebar-border);
-  background: color-mix(in srgb, var(--pf-sidebar-bg) 42%, transparent);
-  box-shadow: 10px 0 30px -24px rgb(0 0 0 / 0.52), inset -1px 0 rgb(255 255 255 / 0.18);
-  backdrop-filter: blur(18px) saturate(1.24);
-  -webkit-backdrop-filter: blur(18px) saturate(1.24);
-}
-
-@utility pf-sidebar-item-idle {
-  color: var(--pf-sidebar-ink);
-
-  &:hover {
-    background: var(--pf-sidebar-hover-bg);
-    color: var(--pf-text);
-  }
-}
-
-@utility pf-sidebar-item-active {
-  background: var(--pf-sidebar-active-bg);
-  color: var(--pf-sidebar-active-ink);
-  box-shadow: inset 2px 0 0 0 var(--pf-sidebar-rail);
-}
-
-@utility pf-sidebar-section-label {
-  color: var(--pf-sidebar-section-ink);
-}
-
-/* Menú desplegable de acciones secundarias. */
-@utility pf-menu-panel {
-  border: 1px solid var(--pf-border);
-  border-radius: var(--radius-pf);
-  background: var(--pf-surface-elevated);
-  box-shadow: var(--pf-shadow-warm-md);
-}
-
-@utility pf-menu-item {
-  color: var(--pf-text-secondary);
-
-  &:hover {
-    background: var(--pf-surface);
-    color: var(--pf-text);
-  }
 }
 
 @utility pf-mobile-shell-header {
@@ -1241,9 +991,10 @@ body {
 }
 
 @utility pf-ribbon-shell {
+  border-top: 1px solid rgb(255 255 255 / 0.08);
   border-bottom: 1px solid var(--pf-ribbon-divider);
-  background: var(--pf-ribbon-bg-1);
-  box-shadow: none;
+  background: linear-gradient(to bottom, var(--pf-ribbon-bg-1), var(--pf-ribbon-bg-2), var(--pf-ribbon-bg-3));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.72), 0 8px 20px -22px rgb(15 23 42 / 0.45);
 }
 
 @utility pf-ribbon-group {
@@ -1323,7 +1074,7 @@ body {
 
 @utility pf-glass-card-panel {
   border: 1px solid var(--pf-glass-border);
-  border-radius: var(--radius-pf);
+  border-radius: 1rem;
   background: linear-gradient(to bottom right, rgb(255 255 255 / 0.95), color-mix(in srgb, var(--pf-surface) 45%, white));
   box-shadow: var(--pf-shadow-card);
   backdrop-filter: blur(8px);
@@ -1343,115 +1094,6 @@ body {
   opacity: 0.9;
 }
 
-/* Fondo vivo exclusivo de Inicio: las tarjetas siguen siendo superficies de trabajo opacas. */
-.pf-dashboard-ambient {
-  pointer-events: none;
-  position: absolute;
-  inset: -5rem -4rem;
-  z-index: 0;
-  overflow: hidden;
-}
-
-.pf-dashboard-ambient::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    118deg,
-    transparent 12%,
-    color-mix(in srgb, white 76%, transparent) 44%,
-    transparent 72%
-  );
-  opacity: 0.78;
-}
-
-.pf-dashboard-ambient-orb {
-  position: absolute;
-  display: block;
-  border-radius: 9999px;
-  filter: blur(42px);
-  opacity: 0.74;
-}
-
-.pf-dashboard-ambient-orb-primary {
-  top: -11rem;
-  right: -11rem;
-  width: 22rem;
-  height: 22rem;
-  background: color-mix(in srgb, var(--pf-primary) 58%, transparent);
-  animation: pf-dashboard-drift-primary 15s linear infinite;
-}
-
-.pf-dashboard-ambient-orb-mint {
-  bottom: -10rem;
-  left: -10rem;
-  width: 20rem;
-  height: 20rem;
-  background: color-mix(in srgb, var(--pf-mint) 58%, transparent);
-  animation: pf-dashboard-drift-mint 18s linear infinite;
-}
-
-.pf-dashboard-ambient-orb-sky {
-  top: 42%;
-  left: 42%;
-  width: 16rem;
-  height: 16rem;
-  background: color-mix(in srgb, var(--pf-sky) 52%, transparent);
-  opacity: 0.62;
-  animation: pf-dashboard-drift-sky 13s linear infinite;
-}
-
-@keyframes pf-dashboard-drift-primary {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  25% { transform: translate3d(-30vw, 12vh, 0) scale(1.08); }
-  50% { transform: translate3d(-57vw, 43vh, 0) scale(1.12); }
-  75% { transform: translate3d(-28vw, 66vh, 0) scale(1.06); }
-}
-
-@keyframes pf-dashboard-drift-mint {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  25% { transform: translate3d(31vw, -16vh, 0) scale(1.05); }
-  50% { transform: translate3d(61vw, -50vh, 0) scale(1.12); }
-  75% { transform: translate3d(38vw, -68vh, 0) scale(1.06); }
-}
-
-@keyframes pf-dashboard-drift-sky {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  25% { transform: translate3d(24vw, -20vh, 0) scale(1.1); }
-  50% { transform: translate3d(39vw, 18vh, 0) scale(1.04); }
-  75% { transform: translate3d(10vw, 41vh, 0) scale(1.12); }
-}
-
-@media (max-width: 640px) {
-  .pf-dashboard-ambient {
-    inset: -3rem -2rem;
-  }
-
-  .pf-dashboard-ambient-orb-primary {
-    width: 13rem;
-    height: 13rem;
-    opacity: 0.7;
-  }
-
-  .pf-dashboard-ambient-orb-mint {
-    top: 31rem;
-    bottom: auto;
-    width: 12rem;
-    height: 12rem;
-  }
-
-  .pf-dashboard-ambient-orb-sky {
-    display: none;
-  }
-
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pf-dashboard-ambient-orb {
-    animation: none;
-  }
-}
-
 @utility pf-logo-fallback-ring {
   border-radius: 1.5rem;
   background: linear-gradient(to bottom right, rgb(255 255 255 / 0.8), color-mix(in srgb, var(--pf-primary-soft) 50%, white));
@@ -1466,161 +1108,21 @@ body {
   100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
-/* Cifras monetarias alineadas en columna (POS). */
-.tabular-nums,
-[data-pf-money] {
-  font-variant-numeric: tabular-nums;
+/* Contraste POS escritorio: la barra superior es oscura, asi que estos textos no deben heredar tonos suaves. */
+.pf-app-shell-header .text-pf-text-soft,
+.pf-app-shell-header .text-pf-text-tertiary,
+.pf-app-shell-header .text-pf-muted {
+  color: #cbd5e1 !important;
 }
 
-/* Grafico de tendencia (Recharts). Los colores se aplican por CSS y no por
-   props para que sigan al tema activo sin leer tokens desde JS. */
-.pf-trend .recharts-cartesian-grid line {
-  stroke: var(--pf-border);
-}
-.pf-trend text.recharts-cartesian-axis-tick-value {
-  fill: var(--pf-muted);
-}
-.pf-trend .recharts-curve.recharts-tooltip-cursor {
-  stroke: var(--pf-border-strong);
-}
-.pf-trend .recharts-area-curve {
-  stroke: var(--pf-primary-mid);
-}
-.pf-trend .recharts-active-dot circle {
-  fill: var(--pf-surface-elevated);
-  stroke: var(--pf-primary-mid);
-}
-.pf-trend #pfTrendStopA,
-.pf-trend #pfTrendStopB {
-  stop-color: var(--pf-primary-mid);
+.pf-app-shell-header .hover\:text-pf-text:hover {
+  color: #ffffff !important;
 }
 
-/* Guardarraíl: ningún elemento de una ruta puede ensanchar el documento móvil.
-   Las tablas que sí necesitan más ancho conservan su propio contenedor con scroll. */
-html,
-body {
-  max-width: 100%;
-  overflow-x: clip;
+.pf-app-shell-header .bg-pf-surface-soft {
+  background-color: rgb(255 255 255 / 0.1) !important;
 }
 
-/* Cinta de documentos: en escritorio conserva las etiquetas; en teléfono se
-   vuelve una hilera de acciones táctiles con prioridad explícita. */
-.pf-document-toolbar-button {
-  touch-action: manipulation;
-}
-
-@media (max-width: 639px) {
-  .pf-document-toolbar-actions {
-    min-width: 100%;
-    justify-content: flex-start;
-    gap: 0.375rem;
-  }
-
-  .pf-document-toolbar-button {
-    min-width: 2.75rem;
-    min-height: 2.75rem;
-    height: 2.75rem;
-    justify-content: center;
-    gap: 0.375rem;
-    padding-inline: 0.625rem;
-  }
-
-  .pf-document-toolbar-button[data-mobile-priority="overflow"],
-  .pf-document-toolbar-separator {
-    display: none;
-  }
-
-  .pf-document-toolbar-button[data-mobile-priority="quick"] .pf-document-toolbar-label,
-  .pf-document-toolbar-menu .pf-document-toolbar-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-
-  .pf-table-shell {
-    overflow-x: auto !important;
-    overscroll-behavior-inline: contain;
-    -webkit-overflow-scrolling: touch;
-  }
-}
-
-/* Datos secundarios de una venta: presentes y accesibles en todo momento en
-   escritorio, plegables en móvil para llegar al buscador de productos antes. */
-.pf-sale-extra-details > summary {
-  display: none;
-}
-
-.pf-sale-extra-details-body {
-  display: flex;
-}
-
-@media (max-width: 639px) {
-  .pf-sale-doc-key-fields {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 0.5rem;
-  }
-
-  .pf-sale-doc-key-fields > :last-child,
-  .pf-sale-customer-contact > :last-child {
-    grid-column: 1 / -1;
-  }
-
-  .pf-sale-customer-contact {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 0.5rem;
-  }
-
-  .pf-sale-extra-details {
-    border-top: 1px solid var(--pf-border-soft);
-    padding-top: 0.375rem;
-  }
-
-  .pf-sale-extra-details > summary {
-    display: flex;
-    min-height: 2.75rem;
-    cursor: pointer;
-    align-items: center;
-    justify-content: space-between;
-    border-radius: calc(var(--radius-pf) - 0.125rem);
-    padding-inline: 0.5rem;
-    color: var(--pf-text-secondary);
-    font-size: 0.75rem;
-    font-weight: 700;
-    list-style: none;
-  }
-
-  .pf-sale-extra-details > summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .pf-sale-extra-details > summary::after {
-    content: "+";
-    color: var(--pf-primary-hover);
-    font-size: 1rem;
-    line-height: 1;
-  }
-
-  .pf-sale-extra-details[open] > summary::after {
-    content: "−";
-  }
-
-  .pf-sale-extra-details-body {
-    display: none;
-    padding-top: 0.25rem;
-  }
-
-  .pf-sale-extra-details[open] > .pf-sale-extra-details-body {
-    display: flex;
-  }
-}
-
-@media (min-width: 640px) {
-  .pf-sale-extra-details:not([open]) > .pf-sale-extra-details-body {
-    display: flex;
-  }
+.pf-app-shell-header .border-pf-border\/60 {
+  border-color: rgb(255 255 255 / 0.16) !important;
 }

@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("POSTGRES_PRISMA_URL")
 }
 
 model Organization {
@@ -208,12 +208,8 @@ model User {
   active               Boolean               @default(true)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
-  /// Favoritos de venta tactil por usuario (JSON de ids). null = nunca los
-  /// configuro; se hereda una vez la lista antigua de la empresa.
-  touchFavoritesJson   String?
   cashSessions         CashSession[]
   sales                Sale[]
-  salesDeleted         Sale[]                @relation("SaleDeletedBy")
   purchases            Purchase[]
   stockTransfers       StockTransfer[]
   stockAdjustments     StockAdjustment[]
@@ -426,7 +422,7 @@ model ProductStock {
   @@index([locationId])
 }
 
-/// Ajuste manual de inventario (auditoría) con motivo y líneas por producto.
+/// Ajuste manual de inventario (auditor��a) con motivo y líneas por producto.
 model StockAdjustment {
   id               String                @id @default(cuid())
   organizationId   String
@@ -597,8 +593,6 @@ model Sale {
   originDeviceId       String?
   originDevice         Device?               @relation("SaleOriginDevice", fields: [originDeviceId], references: [id], onDelete: SetNull)
   invoiceNumber        String?
-  /// Clave de idempotencia generada por el cliente; evita duplicar una venta reenviada tras estar offline.
-  clientRef            String?               @unique
   customerId           String?
   customer             Customer?             @relation(fields: [customerId], references: [id])
   userId               String
@@ -621,11 +615,6 @@ model Sale {
   lastSyncedAt         DateTime?
   version              Int                   @default(1)
   deletedAt            DateTime?
-  /// Quien elimino la venta y por que. Una venta eliminada nunca se borra de la
-  /// base: deja de contar en listados, reportes y caja, pero el registro queda.
-  deletedById          String?
-  deletedBy            User?                 @relation("SaleDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
-  deletedReason        String?
   lines                SaleLine[]
   receivableSurcharges ReceivableSurcharge[]
 
@@ -638,7 +627,6 @@ model Sale {
   @@index([terms])
   @@index([status])
   @@index([syncStatus])
-  @@index([deletedAt])
 }
 
 /// Recargo sobre venta a crédito (aumenta lo que debe el cliente; no modifica líneas de la factura).

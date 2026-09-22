@@ -1,7 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { resolveSalePaid } from "../src/lib/saleTerms.ts";
-import { demoSeedCredentials } from "../src/lib/demoSeedCredentials.ts";
 import {
   CUSTOMERS,
   DEMO_PURCHASES,
@@ -20,14 +19,7 @@ function daysAgoDate(days: number): Date {
   return d;
 }
 
-function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
-  if (taxPercent <= 0) return { net: gross, tax: 0 };
-  const tax = gross * (taxPercent / (100 + taxPercent));
-  return { net: gross - tax, tax };
-}
-
 async function main() {
-  const credentials = demoSeedCredentials();
   const slug = "demo";
   let org = await prisma.organization.findUnique({ where: { slug } });
   if (!org) {
@@ -127,8 +119,13 @@ async function main() {
     });
   };
 
-  const adminUser = await ensureUser("ADMIN", "Administrador", "admin", credentials.adminPassword);
-  const cajeroUser = await ensureUser("CAJERO", "María Cajero", "cajero", credentials.cashierPassword);
+  const adminPassword = process.env.DEMO_ADMIN_PASSWORD?.trim();
+  const cashierPassword = process.env.DEMO_CASHIER_PASSWORD?.trim();
+  if (!adminPassword || !cashierPassword) {
+    throw new Error("DEMO_ADMIN_PASSWORD and DEMO_CASHIER_PASSWORD are required to seed demo users");
+  }
+  const adminUser = await ensureUser("ADMIN", "Administrador", "admin", adminPassword);
+  const cajeroUser = await ensureUser("CAJERO", "María Cajero", "cajero", cashierPassword);
 
   const demoEmployee = await prisma.employee.findFirst({
     where: { organizationId: org.id, employeeCode: "E001" },
@@ -308,10 +305,11 @@ async function main() {
         if (prod.productType === "INSUMO") throw new Error(`Seed: no vender insumo ${L.sku} en demo`);
 
         const discountPercent = L.discountPercent ?? 0;
-        const lineTotal = L.unitPrice * L.qty * (1 - discountPercent / 100);
-        const split = splitTaxIncluded(lineTotal, prod.taxPercent);
-        subtotal += split.net;
-        tax += split.tax;
+        const base = L.unitPrice * L.qty * (1 - discountPercent / 100);
+        const lineTax = base * (prod.taxPercent / 100);
+        const lineTotal = base + lineTax;
+        subtotal += base;
+        tax += lineTax;
         linePayload.push({
           productId: prod.id,
           qty: L.qty,
@@ -455,8 +453,9 @@ async function main() {
     const p = qProducts[i];
     const qty = i === 0 ? 2 : i === 1 ? 5 : 12;
     const unitPrice = p.price;
-    const lineTotal = unitPrice * qty;
-    const split = splitTaxIncluded(lineTotal, p.taxPercent);
+    const base = unitPrice * qty;
+    const lineTax = base * (p.taxPercent / 100);
+    const lineTotal = base + lineTax;
 
     await prisma.quote.create({
       data: {
@@ -468,8 +467,8 @@ async function main() {
         customerId: cust.id,
         quoteNumber: `SEED-Q-${String(i + 1).padStart(2, "0")}`,
         status: "BORRADOR",
-        subtotal: split.net,
-        tax: split.tax,
+        subtotal: base,
+        tax: lineTax,
         total: lineTotal,
         notes: note,
         lines: {
@@ -577,7 +576,7 @@ async function main() {
   }
 
   console.log(
-    "Seed OK | Org: demo | usuarios de demostración creados | Productos, ventas, compras y caja."
+    "Seed OK | Org: demo | ADMIN/admin | CAJERO/cajero | P4: empleado E001 + gasto demo | Productos, ventas, compras, caja."
   );
 }
 

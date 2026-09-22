@@ -8,7 +8,7 @@ function esc(s: string): string {
 
 function money(n: number, sym: string): string {
   const x = Number.isFinite(n) ? n : 0;
-  return `${esc(sym)} ${x.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${sym} ${x.toLocaleString("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export type CashCloseDiaryShape = {

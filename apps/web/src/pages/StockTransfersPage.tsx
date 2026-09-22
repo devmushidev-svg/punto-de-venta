@@ -1,5 +1,6 @@
 import { ArrowLeftRight, Ban, ClipboardCheck, Download, PackageCheck, Plus, Printer, RefreshCw, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { PageHero } from "../components/PageHero";
 import { Navigate } from "react-router-dom";
 import { apiDownload, apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -263,50 +264,30 @@ export function StockTransfersPage() {
     return <Navigate to="/" replace />;
   }
 
-  const inTransit = transfers.filter((t) => t.status === "ENVIADA");
-  const drafts = transfers.filter((t) => t.status === "BORRADOR");
-
   return (
-    <div className="mx-auto max-w-[76rem] space-y-4 pf-safe-page">
-      {/* Lo que importa vigilar: mercancia que salio y todavia no llego. */}
-      <section className="flex flex-wrap items-end gap-x-10 gap-y-4 border-b border-pf-border pb-4">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">En tránsito</p>
-          <p
-            className={`mt-1 text-3xl font-bold tabular-nums tracking-tight ${
-              inTransit.length > 0 ? "text-pf-warning" : "text-pf-text"
-            }`}
-          >
-            {inTransit.length}
+    <div className="space-y-4 pf-safe-page">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <PageHero title={"Traslados de inventario"} constrained>
+          <p className="mt-1.5 text-sm font-medium text-stone-700 max-w-xl">
+            Mueva mercadería entre ubicaciones. Al <strong className="font-semibold text-stone-800">enviar</strong> baja el stock global (mercancía en
+            tránsito); al <strong className="font-semibold text-stone-800">recibir</strong> vuelve a subir. Útil cuando el total del catálogo representa
+            existencias vendibles de la empresa.
           </p>
-          <p className="mt-0.5 text-xs text-pf-text-tertiary">
-            {inTransit.length === 0
-              ? "Nada viajando entre ubicaciones"
-              : "enviados y sin recibir; ese stock no está disponible"}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">Borradores</p>
-          <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-pf-text-tertiary">{drafts.length}</p>
-          <p className="mt-0.5 text-xs text-pf-text-tertiary">
-            {drafts.length === 0 ? "Ninguno sin enviar" : "preparados, aún sin enviar"}
-          </p>
-        </div>
+        </PageHero>
         <Button
           type="button"
           variant="secondary"
-          className="ml-auto min-h-10 self-center"
+          className="min-h-[48px] w-full shrink-0 shadow-md sm:w-auto sm:min-h-[44px]"
           onClick={() => void loadTransfers()}
-          title="Recargar traslados"
-          aria-label="Recargar traslados"
         >
-          <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+          <RefreshCw className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2} aria-hidden />
+          Actualizar
         </Button>
-      </section>
+      </div>
 
       {admin ? (
-        <Card className="space-y-2 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">Nueva ubicación</p>
+        <Card className="space-y-2 border-white/50 bg-gradient-to-br from-violet-50/40 via-white/95 to-cyan-50/20 p-3 shadow-lg backdrop-blur-sm">
+          <p className="text-xs font-bold uppercase tracking-wide text-stone-600">Nueva ubicación (admin)</p>
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Código" className="min-w-[100px]">
               <Input value={newLocCode} onChange={(e) => setNewLocCode(e.target.value)} placeholder="ej. SUC2" />
@@ -322,15 +303,11 @@ export function StockTransfersPage() {
         </Card>
       ) : null}
 
-      <Card className="space-y-4 p-4">
-        <div className="flex items-center gap-2">
-          <ArrowLeftRight className="h-4 w-4 shrink-0 text-pf-text-tertiary" strokeWidth={2} aria-hidden />
-          <h2 className="text-sm font-bold text-pf-text">Nuevo traslado</h2>
+      <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-cyan-50/18 to-indigo-50/20 p-4 shadow-lg backdrop-blur-sm md:p-5">
+        <div className="flex items-center gap-2 text-stone-800">
+          <ArrowLeftRight className="h-5 w-5 shrink-0 text-cyan-700/80" strokeWidth={2} aria-hidden />
+          <h2 className="text-lg font-bold text-stone-900">Nuevo traslado (borrador)</h2>
         </div>
-        <p className="text-xs text-pf-text-tertiary">
-          Al enviarlo, el stock sale de la ubicación de origen y queda en tránsito. Vuelve a estar disponible cuando se
-          recibe en el destino.
-        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Desde">
             <Select value={fromId} onChange={(e) => setFromId(e.target.value)}>
@@ -358,12 +335,12 @@ export function StockTransfersPage() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nombre o SKU" />
         </Field>
         {hits.length > 0 ? (
-          <ul className="max-h-48 divide-y divide-pf-border overflow-y-auto rounded-[var(--radius-pf)] border border-pf-border text-sm">
+          <ul className="max-h-48 divide-y divide-stone-100/90 overflow-y-auto rounded-2xl border border-white/60 bg-white/80 text-sm shadow-inner backdrop-blur-sm">
             {hits.map((p) => (
               <li key={p.id}>
                 <button
                   type="button"
-                  className="flex min-h-11 w-full touch-manipulation items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-pf-surface focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+                  className="flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-2 px-4 py-3 text-left transition hover:bg-gradient-to-r hover:from-cyan-50/80 hover:to-transparent"
                   onClick={() => addProduct(p)}
                 >
                   <span className="font-medium truncate">{p.name}</span>
@@ -374,20 +351,20 @@ export function StockTransfersPage() {
           </ul>
         ) : null}
         {lines.length > 0 ? (
-          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner">
+          <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/85 shadow-inner backdrop-blur-sm">
             <table className="w-full min-w-[400px] text-sm">
               <thead>
-                <tr className="border-b border-pf-border text-left text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
-                  <th scope="col" className="px-3 py-2 font-semibold">Producto</th>
-                  <th scope="col" className="w-28 px-3 py-2 font-semibold">Cant.</th>
-                  <th scope="col" className="w-12 px-3 py-2"><span className="sr-only">Quitar</span></th>
+                <tr className="bg-gradient-to-r from-cyan-50/95 to-indigo-50/50 text-left text-xs font-bold text-stone-700">
+                  <th className="p-2">Producto</th>
+                  <th className="p-2 w-28">Cant.</th>
+                  <th className="p-2 w-12" />
                 </tr>
               </thead>
               <tbody>
                 {lines.map((l, i) => (
-                  <tr key={l.productId} className="border-b border-pf-border last:border-0">
-                    <td className="px-3 py-2">
-                      <span className="font-medium text-pf-text">{l.product.name}</span>
+                  <tr key={l.productId} className="border-t border-stone-100/90 transition hover:bg-cyan-50/25">
+                    <td className="p-2">
+                      <span className="font-bold text-stone-900">{l.product.name}</span>
                       <span className="block font-mono text-xs text-pf-muted">{l.product.sku}</span>
                     </td>
                     <td className="p-2">
@@ -403,7 +380,7 @@ export function StockTransfersPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        className="min-h-11 touch-manipulation text-xs font-bold text-pf-danger sm:min-h-9"
+                        className="min-h-11 touch-manipulation text-xs font-bold text-red-700 sm:min-h-9"
                         onClick={() => removeLine(i)}
                       >
                         Quitar
@@ -418,7 +395,7 @@ export function StockTransfersPage() {
           <p className="text-xs text-pf-muted">Agregue productos para crear el borrador.</p>
         )}
         {err ? (
-          <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">{err}</p>
+          <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
         ) : null}
         <Button
           type="button"
@@ -431,9 +408,9 @@ export function StockTransfersPage() {
         </Button>
       </Card>
 
-      <Card className="space-y-2 p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">Importar traslado (JSON)</p>
-        <p className="text-xs text-pf-text-tertiary">
+      <Card className="space-y-2 border-white/50 bg-gradient-to-br from-white/92 via-cyan-50/12 to-indigo-50/15 p-4 shadow-lg backdrop-blur-sm">
+        <p className="text-xs font-bold uppercase tracking-wide text-stone-600">Importar archivo de traslado (JSON)</p>
+        <p className="text-xs text-stone-600">
           Crea un <strong>borrador</strong> con las mismas líneas (SKU y cantidades) entre ubicaciones con los códigos indicados en el archivo.
         </p>
         <Input
@@ -444,66 +421,52 @@ export function StockTransfersPage() {
         />
       </Card>
 
-      <Card className="overflow-hidden p-0">
-        <h2 className="border-b border-pf-border px-4 py-3 text-sm font-bold text-pf-text">Traslados</h2>
+      <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-cyan-50/12 to-indigo-50/15 p-0 shadow-lg backdrop-blur-sm">
+        <h2 className="border-b border-stone-200/80 bg-gradient-to-r from-white/90 to-cyan-50/35 px-4 py-3 text-lg font-bold text-stone-900">
+          Historial
+        </h2>
         {loading ? (
-          <p className="p-8 text-center text-sm text-pf-muted">Cargando…</p>
+          <p className="p-6 text-center font-medium text-pf-muted">Cargando…</p>
         ) : transfers.length === 0 ? (
-          <div className="px-5 py-12 text-center">
-            <p className="text-sm font-medium text-pf-text">Todavía no hay traslados</p>
-            <p className="mt-1 text-sm text-pf-text-tertiary">
-              Sirven para mover mercancía entre ubicaciones sin perderle el rastro.
-            </p>
-          </div>
+          <p className="p-6 text-center font-medium text-pf-muted">No hay traslados registrados.</p>
         ) : (
-          <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
-            <caption className="sr-only">Traslados de inventario entre ubicaciones</caption>
-            <thead>
-              <tr className="border-b border-pf-border text-left text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
-                <th scope="col" className="px-4 py-2.5 font-semibold">Número</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Estado</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">De → a</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Contiene</th>
-                <th scope="col" className="px-4 py-2.5 text-right font-semibold">
-                  <span className="sr-only">Acciones</span>
-                </th>
+          <table className="w-full min-w-[720px] text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-stone-200/80 bg-gradient-to-r from-cyan-50/90 to-indigo-50/60 text-left text-xs font-bold text-stone-700 shadow-sm backdrop-blur-md">
+                <th className="p-2">Número</th>
+                <th className="p-2">Estado</th>
+                <th className="p-2">Ruta</th>
+                <th className="p-2">Líneas</th>
+                <th className="p-2">Usuario</th>
+                <th className="w-52 p-2">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {transfers.map((t) => {
-                const names = (t.lines ?? []).map((l) => l.product?.name).filter(Boolean);
-                const content =
-                  names.length === 0
-                    ? "Sin productos"
-                    : names.length > 2
-                      ? `${names.slice(0, 2).join(", ")} y ${names.length - 2} más`
-                      : names.join(", ");
-                return (
-                <tr key={t.id} className="border-b border-pf-border last:border-0 hover:bg-pf-surface">
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-pf-text-tertiary">
-                    {t.transferNumber ?? "—"}
-                    <span className="mt-0.5 block font-sans text-xs text-pf-muted">{t.user.displayName}</span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
+              {transfers.map((t) => (
+                <tr key={t.id} className="border-b border-stone-100/90 transition hover:bg-cyan-50/30">
+                  <td className="p-2 font-mono text-xs">{t.transferNumber ?? "—"}</td>
+                  <td className="p-2">
                     <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                         t.status === "RECIBIDA"
-                          ? "bg-pf-success-soft text-pf-success"
+                          ? "bg-emerald-100 text-emerald-900"
                           : t.status === "ENVIADA"
-                            ? "bg-pf-warning-soft text-pf-warning"
-                            : "bg-pf-surface-muted text-pf-text-tertiary"
+                            ? "bg-amber-100 text-amber-900"
+                            : t.status === "ANULADA"
+                              ? "bg-stone-200 text-stone-600"
+                              : "bg-stone-100 text-stone-700"
                       }`}
                     >
                       {statusLabel(t.status)}
                     </span>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 font-medium text-pf-text">
+                  <td className="p-2 text-xs">
                     {t.fromLocation.code} → {t.toLocation.code}
                   </td>
-                  <td className="max-w-0 truncate px-4 py-3 text-pf-text-tertiary">{content}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap justify-end gap-1.5">
+                  <td className="p-2 text-xs">{t.lines.length} ítem(s)</td>
+                  <td className="p-2 text-xs text-pf-muted">{t.user.displayName}</td>
+                  <td className="p-2">
+                    <div className="flex flex-wrap gap-1">
                       <Button
                         type="button"
                         variant="ghost"
@@ -538,10 +501,10 @@ export function StockTransfersPage() {
                           <Button
                             type="button"
                             variant="ghost"
-                            className="min-h-9 text-xs !text-pf-danger"
+                            className="min-h-10 py-2 text-xs text-red-600 sm:min-h-8 sm:py-1"
                             onClick={() => void cancelTransfer(t.id)}
                           >
-                            <Ban className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                            <Ban className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
                             Anular
                           </Button>
                         </>
@@ -559,10 +522,10 @@ export function StockTransfersPage() {
                           <Button
                             type="button"
                             variant="ghost"
-                            className="min-h-9 text-xs !text-pf-danger"
+                            className="min-h-10 py-2 text-xs text-red-600 sm:min-h-8 sm:py-1"
                             onClick={() => void cancelTransfer(t.id)}
                           >
-                            <Ban className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                            <Ban className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
                             Anular envío
                           </Button>
                         </>
@@ -570,11 +533,9 @@ export function StockTransfersPage() {
                     </div>
                   </td>
                 </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
-          </div>
         )}
       </Card>
     </div>
