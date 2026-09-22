@@ -441,7 +441,15 @@ export function NewSalePage() {
           const i = prev.findIndex((l) => l.productId === p.id);
           if (i >= 0) {
             focusLineAfter = i;
-            return [...prev];
+            const next = [...prev];
+            const qty = next[i].qty + 1;
+            next[i] = {
+              ...next[i],
+              product: p,
+              qty,
+              unitPrice: resolveProductUnitPrice(p, qty, tier),
+            };
+            return next;
           }
 
           focusLineAfter = prev.length;
@@ -1015,7 +1023,15 @@ export function NewSalePage() {
           if (i >= 0) {
             focusLineAfter = i;
             pendingLineFieldFocusRef.current = { lineIndex: i, field: "qty" };
-            return [...prev];
+            const next = [...prev];
+            const qty = next[i].qty + 1;
+            next[i] = {
+              ...next[i],
+              product: exact,
+              qty,
+              unitPrice: resolveProductUnitPrice(exact, qty, tier),
+            };
+            return next;
           }
           const idx = prev.length;
           focusLineAfter = idx;
