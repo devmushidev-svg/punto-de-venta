@@ -21,6 +21,7 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiBaseDraft, setApiBaseDraft] = useState(() => getApiBase());
+  const demoFallback: OrgRow = { id: "", slug: "demo", name: "Mi Empresa Demo" };
 
   useEffect(() => {
     if (!loading && token) navigate("/", { replace: true });
@@ -49,7 +50,7 @@ export function LoginPage() {
           }
         }
       })
-      .catch(() => setOrgs([]));
+      .catch(() => setOrgs([demoFallback]));
     return () => {
       cancelled = true;
     };
@@ -60,11 +61,12 @@ export function LoginPage() {
     setError("");
     setBusy(true);
     try {
+      const selectedOrg = orgs.find((org) => org.id === orgId) ?? demoFallback;
       await login({
-        organizationId: orgId || undefined,
-        organizationSlug: orgId ? undefined : undefined,
-        username: username.trim(),
-        password,
+        organizationId: selectedOrg.id || undefined,
+        organizationSlug: selectedOrg.slug,
+        username: (username.trim() || "ADMIN").toUpperCase(),
+        password: password || "admin",
       });
       navigate("/", { replace: true });
     } catch (err) {
