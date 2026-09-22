@@ -11,6 +11,7 @@
     "postinstall": "prisma generate",
     "db:push": "prisma db push && node scripts/snapshot-schema.mjs",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:recent-sales": "tsx --env-file=.env scripts/seedRecentSales.ts",
     "db:snapshot-schema": "node scripts/snapshot-schema.mjs",
     "db:generate": "prisma generate",
     "test": "vitest run",
