@@ -1,7 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Customer, Organization, Product, Sale, SaleLine, User } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import PDFDocument from "pdfkit";
+
+type Customer = Prisma.CustomerGetPayload<{}>;
+type Organization = Prisma.OrganizationGetPayload<{}>;
+type Product = Prisma.ProductGetPayload<{}>;
+type Sale = Prisma.SaleGetPayload<{}>;
+type SaleLine = Prisma.SaleLineGetPayload<{}>;
+type User = Prisma.UserGetPayload<{}>;
 
 export type SaleComprobanteModel = Sale & {
   customer: Customer | null;

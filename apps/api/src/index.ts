@@ -2429,7 +2429,7 @@ api.get("/reports/top-products", requirePermission(PERMISSION_KEYS.REPORTS_VIEW)
     take: limit,
   });
   const ids = grouped.map((g) => g.productId);
-  const products = await prisma.product.findMany({
+  const products: Array<{ id: string; sku: string; name: string }> = await prisma.product.findMany({
     where: { id: { in: ids }, organizationId: jwt.orgId },
     select: { id: true, sku: true, name: true },
   });
