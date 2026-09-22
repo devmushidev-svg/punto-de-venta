@@ -6,6 +6,14 @@
       "use": "@vercel/node"
     }
   ],
+  "functions": {
+    "api/[[...path]].ts": {
+      "includeFiles": [
+        "node_modules/.prisma/client/**",
+        "node_modules/@prisma/client/**"
+      ]
+    }
+  },
   "routes": [
     {
       "src": "/(.*)",
