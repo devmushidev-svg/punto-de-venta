@@ -452,12 +452,11 @@ export function SettingsPage() {
               <p className="text-sm font-bold text-pf-text">Tema visual</p>
               <p className="mt-0.5 text-xs text-pf-text-tertiary">Se guarda solo en este navegador.</p>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {[
                 { id: "default" as PfThemeId, label: "Cobre", desc: "Cálido y acogedor", color: "bg-[#f4a574]" },
                 { id: "slate" as PfThemeId, label: "Pizarra", desc: "Neutro y sobrio", color: "bg-[#64748b]" },
                 { id: "ocean" as PfThemeId, label: "Océano", desc: "Frío y profesional", color: "bg-[#2494c7]" },
-                { id: "night" as PfThemeId, label: "Nocturno", desc: "Profundo y sereno", color: "bg-[#1c2723]" },
               ].map((t) => (
                 <button
                   key={t.id}
@@ -771,10 +770,9 @@ export function SettingsPage() {
               <div>
                 <p className="text-sm font-bold text-pf-text">Configuración general (JSON)</p>
                 <p className="mt-0.5 text-xs text-pf-text-tertiary">
-                  Objeto JSON fusionado con el existente. Aquí viven ajustes de
-                  toda la empresa, como{" "}
-                  <code className="rounded bg-pf-surface-muted px-1 text-[11px] font-semibold">posBehavior</code>. Los
-                  favoritos de venta táctil ya no están aquí: ahora son de cada usuario.
+                  Objeto JSON fusionado con el existente. Incluye por ejemplo{" "}
+                  <code className="rounded bg-pf-surface-muted px-1 text-[11px] font-semibold">touchFavoriteProductIds</code>{" "}
+                  desde venta táctil.
                 </p>
               </div>
               <Textarea
@@ -815,9 +813,9 @@ export function SettingsPage() {
                   onChange={(e) => void mergeBackupMaster(e.target.files?.[0] ?? null)}
                 />
               </div>
-              <div className="border-t border-pf-danger-soft/80 bg-pf-danger-soft/40 pt-4">
-                <p className="text-sm font-bold text-pf-danger">Restauración total (peligro)</p>
-                <p className="mt-0.5 text-xs text-pf-danger/80">
+              <div className="border-t border-red-200/80 bg-red-50/40 pt-4">
+                <p className="text-sm font-bold text-red-900">Restauración total (peligro)</p>
+                <p className="mt-0.5 text-xs text-red-900/80">
                   Solo si descargó un JSON de respaldo <strong>nuevo</strong> (incluye <code className="text-[11px]">passwordHash</code> en
                   usuarios). El archivo debe ser de <strong>esta misma</strong> organización.
                 </p>

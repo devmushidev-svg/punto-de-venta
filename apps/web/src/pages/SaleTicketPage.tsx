@@ -88,13 +88,13 @@ export function SaleTicketPage() {
   if (!sale) {
     return (
       <div className="space-y-4 pf-safe-page">
-        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted">
+        <p className="rounded-2xl border border-white/50 bg-white/70 px-4 py-6 text-center font-medium text-pf-muted backdrop-blur-sm">
           Cargando ticket…
         </p>
         {!isEmbed && (
           <Link
             to="/ventas"
-            className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl border border-[color:var(--pf-primary-mid)] bg-pf-primary-soft text-sm font-semibold text-pf-primary-hover shadow-md sm:w-auto sm:px-4 touch-manipulation"
+            className="inline-flex min-h-[48px] w-full items-center justify-center rounded-2xl border border-orange-200/50 bg-gradient-to-r from-pf-primary-soft/90 to-amber-50/80 text-sm font-bold text-pf-primary-foreground shadow-md sm:w-auto sm:px-4 touch-manipulation"
           >
             Volver
           </Link>
@@ -128,11 +128,11 @@ export function SaleTicketPage() {
         </div>
       )}
 
-      <Card className="border-white/50 bg-white/95 p-6 shadow-lg print:border-0 print:bg-white print:shadow-none" id="ticket">
+      <Card className="border-white/50 bg-white/95 p-6 shadow-lg backdrop-blur-sm print:border-0 print:bg-white print:shadow-none" id="ticket">
         <div className="text-center border-b border-pf-border pb-4 mb-4">
-          <h1 className="text-xl font-bold text-pf-text">{organization?.name ?? "MultiPOS"}</h1>
+          <h1 className="text-xl font-bold text-stone-900">{organization?.name ?? "MultiPOS"}</h1>
           {ticket.headerLine ? (
-            <p className="text-sm text-pf-text-secondary mt-1 whitespace-pre-line">{ticket.headerLine}</p>
+            <p className="text-sm text-stone-700 mt-1 whitespace-pre-line">{ticket.headerLine}</p>
           ) : (
             <p className="text-sm text-pf-muted mt-1">Ticket de venta</p>
           )}
@@ -201,7 +201,7 @@ export function SaleTicketPage() {
           {ticket.footerLine ?? "Gracias por su compra"}
         </p>
         {sarFooter.trim() ? (
-          <p className="text-center text-[10px] text-pf-text-tertiary mt-3 whitespace-pre-line leading-snug px-1">
+          <p className="text-center text-[10px] text-stone-600 mt-3 whitespace-pre-line leading-snug px-1">
             {sarFooter.trim()}
           </p>
         ) : null}

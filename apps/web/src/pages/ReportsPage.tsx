@@ -421,7 +421,7 @@ export function ReportsPage() {
 
       {tab === "top" ? (
         <Card className="pf-table-shell overflow-x-auto p-0">
-          <div className="flex justify-end border-b border-[var(--pf-border-soft)] bg-[color:var(--pf-surface-overlay)] p-3">
+          <div className="flex justify-end border-b border-[var(--pf-border-soft)] bg-[color:var(--pf-surface-overlay)] p-3 backdrop-blur-sm">
             <Button
               type="button"
               variant="secondary"

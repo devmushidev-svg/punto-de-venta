@@ -1,5 +1,6 @@
 import { Receipt, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { PageHero } from "../components/PageHero";
 import { Navigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -7,7 +8,6 @@ import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import { Button, Card, Field, Input, Select, Textarea } from "../components/ui";
 import { formatDate, formatMoney } from "../lib/format";
 import type { ExpenseRow } from "../types";
-import "./admin-workspace.css";
 
 type ExpenseBookRow = {
   id: string;
@@ -28,32 +28,14 @@ const CATEGORIES = [
 
 function startEndOfTodayISO() {
   const t = new Date();
-  const start = new Date(
-    t.getFullYear(),
-    t.getMonth(),
-    t.getDate(),
-    0,
-    0,
-    0,
-    0,
-  );
-  const end = new Date(
-    t.getFullYear(),
-    t.getMonth(),
-    t.getDate(),
-    23,
-    59,
-    59,
-    999,
-  );
+  const start = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, 0, 0, 0);
+  const end = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 23, 59, 59, 999);
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
 export function ExpensesPage() {
   const { token, user, organization } = useAuth();
-  const canView =
-    user?.role === "admin" ||
-    hasPermission(user, PERMISSION_KEYS.EXPENSES_VIEW);
+  const canView = user?.role === "admin" || hasPermission(user, PERMISSION_KEYS.EXPENSES_VIEW);
   const canRegister = user?.role === "admin";
   const sym = organization?.currencySymbol ?? "L";
   const [list, setList] = useState<ExpenseRow[]>([]);
@@ -69,9 +51,7 @@ export function ExpensesPage() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [structureBusy, setStructureBusy] = useState(false);
   const [amount, setAmount] = useState("");
-  const [expenseDate, setExpenseDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -85,10 +65,7 @@ export function ExpensesPage() {
       if (to) q.set("to", new Date(to + "T23:59:59").toISOString());
       if (categoryFilter.trim()) q.set("category", categoryFilter.trim());
       const qs = q.toString();
-      const data = await apiFetch<ExpenseRow[]>(
-        `/api/expenses${qs ? `?${qs}` : ""}`,
-        { token },
-      );
+      const data = await apiFetch<ExpenseRow[]>(`/api/expenses${qs ? `?${qs}` : ""}`, { token });
       setList(data);
     } catch {
       setList([]);
@@ -104,9 +81,7 @@ export function ExpensesPage() {
   const loadBooks = useCallback(async () => {
     if (!token || !canView) return;
     try {
-      const data = await apiFetch<ExpenseBookRow[]>("/api/expense-books", {
-        token,
-      });
+      const data = await apiFetch<ExpenseBookRow[]>("/api/expense-books", { token });
       setExpenseBooks(data);
     } catch {
       setExpenseBooks([]);
@@ -136,9 +111,7 @@ export function ExpensesPage() {
         body: JSON.stringify({
           category,
           amount: a,
-          expenseDate: expenseDate
-            ? new Date(expenseDate + "T12:00:00").toISOString()
-            : undefined,
+          expenseDate: expenseDate ? new Date(expenseDate + "T12:00:00").toISOString() : undefined,
           notes: notes.trim() || undefined,
         }),
         token,
@@ -163,11 +136,7 @@ export function ExpensesPage() {
     setStructureBusy(true);
     setErr("");
     try {
-      await apiFetch("/api/expense-books", {
-        method: "POST",
-        body: JSON.stringify({ name: n }),
-        token,
-      });
+      await apiFetch("/api/expense-books", { method: "POST", body: JSON.stringify({ name: n }), token });
       setNewBookName("");
       await loadBooks();
     } catch (e) {
@@ -201,131 +170,85 @@ export function ExpensesPage() {
     }
   }
 
-  const categoriesForBook =
-    expenseBooks.find((b) => b.id === bookId)?.categories ?? [];
-  const visibleTotal = list.reduce((sum, row) => sum + row.amount, 0);
+  const categoriesForBook = expenseBooks.find((b) => b.id === bookId)?.categories ?? [];
 
   if (!canView) {
     return <Navigate to="/" replace />;
   }
 
   return (
-    <div className="pf-admin-page space-y-5 pf-safe-page">
-      <div className="pf-admin-heading">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
-            {categoryFilter ? `Categoría: ${categoryFilter}` : "Gastado en el periodo"}
+    <div className="space-y-4 pf-safe-page">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <PageHero title={"Gastos"} constrained>
+          <p className="mt-1.5 text-sm font-medium text-stone-700 max-w-xl">
+            {canRegister
+              ? "Registro categorizado para control operativo."
+              : "Consulta de gastos registrados. Solo un administrador puede dar de alta nuevos gastos."}
           </p>
-          <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-pf-text">
-            {formatMoney(sym, visibleTotal)}
-          </p>
-          <p className="mt-0.5 text-xs text-pf-text-tertiary">
-            {list.length} {list.length === 1 ? "gasto" : "gastos"}
-          </p>
-        </div>
-        <div className="pf-admin-heading-actions">
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-10 w-full shrink-0 sm:w-auto"
-            onClick={() => void load()}
-          >
-            <RefreshCw
-              className="h-5 w-5 shrink-0 sm:h-4 sm:w-4"
-              strokeWidth={2}
-              aria-hidden
-            />
-            Actualizar
-          </Button>
-        </div>
+        </PageHero>
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-[48px] w-full shrink-0 shadow-md sm:w-auto sm:min-h-[44px]"
+          onClick={() => void load()}
+        >
+          <RefreshCw className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2} aria-hidden />
+          Actualizar
+        </Button>
       </div>
 
       {canRegister ? (
-        <details className="pf-admin-disclosure">
-          <summary>
-            Libros y categorías{" "}
-            <span className="ml-2 text-xs font-normal text-pf-text-tertiary">
-              Configuración administrativa
-            </span>
-          </summary>
-          <div className="pf-admin-disclosure-body">
-            <div className="pf-admin-form-head">
-              <div>
-                <h2>Libros y categorías</h2>
-                <p>
-                  Configurá agrupaciones administrativas para clasificar mejor
-                  los gastos.
-                </p>
-              </div>
-              <Receipt size={20} className="text-pf-primary" aria-hidden />
-            </div>
-            <div className="pf-admin-form-grid">
-              <Field label="Nuevo libro">
-                <Input
-                  value={newBookName}
-                  onChange={(e) => setNewBookName(e.target.value)}
-                  placeholder="Ej: Operaciones"
-                />
-              </Field>
-              <Button
-                type="button"
-                variant="secondary"
-                className="min-h-11 self-end"
-                disabled={structureBusy}
-                onClick={() => void addBook()}
-              >
-                Crear libro
-              </Button>
-              <Field label="Libro (para nueva categoría)">
-                <Select
-                  value={bookId}
-                  onChange={(e) => {
-                    setBookId(e.target.value);
-                    setExpenseCategoryId("");
-                  }}
-                >
-                  <option value="">—</option>
-                  {expenseBooks.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Nombre categoría">
-                <Input
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  placeholder="Ej: Combustible"
-                />
-              </Field>
-              <Button
-                type="button"
-                variant="secondary"
-                className="min-h-11 self-end sm:col-span-2"
-                disabled={structureBusy || !bookId}
-                onClick={() => void addCategoryToBook()}
-              >
-                Agregar categoría al libro
-              </Button>
-            </div>
+        <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-rose-50/20 to-violet-50/25 p-4 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm md:p-5">
+          <div className="flex items-center gap-2 text-stone-800">
+            <Receipt className="h-5 w-5 shrink-0 text-rose-600/80" strokeWidth={2} aria-hidden />
+            <h2 className="text-lg font-bold text-stone-900">Libros y categorías</h2>
           </div>
-        </details>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Nuevo libro">
+              <Input value={newBookName} onChange={(e) => setNewBookName(e.target.value)} placeholder="Ej: Operaciones" />
+            </Field>
+            <Button type="button" variant="secondary" className="min-h-11 self-end" disabled={structureBusy} onClick={() => void addBook()}>
+              Crear libro
+            </Button>
+            <Field label="Libro (para nueva categoría)">
+              <Select
+                value={bookId}
+                onChange={(e) => {
+                  setBookId(e.target.value);
+                  setExpenseCategoryId("");
+                }}
+              >
+                <option value="">—</option>
+                {expenseBooks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Nombre categoría">
+              <Input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Ej: Combustible" />
+            </Field>
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11 self-end sm:col-span-2"
+              disabled={structureBusy || !bookId}
+              onClick={() => void addCategoryToBook()}
+            >
+              Agregar categoría al libro
+            </Button>
+          </div>
+        </Card>
       ) : null}
 
       {canRegister ? (
-        <section className="pf-admin-form">
-          <div className="pf-admin-form-head">
-            <div>
-              <h2>Registrar gasto</h2>
-              <p>
-                El registro aparece en la consulta y puede reflejarse en caja si
-                corresponde.
-              </p>
-            </div>
-            <Receipt size={20} className="text-pf-primary" aria-hidden />
+        <Card className="space-y-4 border-white/50 bg-gradient-to-br from-white/92 via-rose-50/20 to-violet-50/25 p-4 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm md:p-5">
+          <div className="flex items-center gap-2 text-stone-800">
+            <Receipt className="h-5 w-5 shrink-0 text-rose-600/80" strokeWidth={2} aria-hidden />
+            <h2 className="text-lg font-bold text-stone-900">Registrar gasto</h2>
           </div>
-          <div className="pf-admin-form-grid">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Libro administrativo (opc.)">
               <Select
                 value={bookId}
@@ -344,10 +267,7 @@ export function ExpensesPage() {
             </Field>
             <Field label={bookId ? "Categoría del libro" : "Categoría rápida"}>
               {bookId ? (
-                <Select
-                  value={expenseCategoryId}
-                  onChange={(e) => setExpenseCategoryId(e.target.value)}
-                >
+                <Select value={expenseCategoryId} onChange={(e) => setExpenseCategoryId(e.target.value)}>
                   <option value="">Elija…</option>
                   {categoriesForBook.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -356,10 +276,7 @@ export function ExpensesPage() {
                   ))}
                 </Select>
               ) : (
-                <Select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                >
+                <Select value={category} onChange={(e) => setCategory(e.target.value)}>
                   {CATEGORIES.map((c) => (
                     <option key={c.value} value={c.value}>
                       {c.label}
@@ -369,70 +286,35 @@ export function ExpensesPage() {
               )}
             </Field>
             <Field label="Monto">
-              <Input
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-              />
+              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
             </Field>
             <Field label="Fecha">
-              <Input
-                type="date"
-                value={expenseDate}
-                onChange={(e) => setExpenseDate(e.target.value)}
-              />
+              <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} />
             </Field>
             <Field label="Notas" className="sm:col-span-2 lg:col-span-4">
-              <Textarea
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Opcional"
-              />
+              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
             </Field>
           </div>
           {err ? (
-            <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft/80 px-3 py-2 text-sm font-medium text-pf-danger">
-              {err}
-            </p>
+            <p className="rounded-xl border border-red-100 bg-red-50/80 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
           ) : null}
-          <Button
-            type="button"
-            className="min-h-[52px] w-full text-base shadow-lg sm:w-auto"
-            onClick={() => void submit()}
-            disabled={busy}
-          >
+          <Button type="button" className="min-h-[52px] w-full text-base shadow-lg sm:w-auto" onClick={() => void submit()} disabled={busy}>
             Guardar gasto
           </Button>
-        </section>
+        </Card>
       ) : null}
 
       <Card className="pf-glass-card-panel space-y-3 p-4 md:p-5">
         <h2 className="text-lg font-bold text-pf-text">Filtros del listado</h2>
         <div className="flex flex-wrap gap-3 items-end">
           <Field label="Desde" className="min-w-[140px] flex-1 sm:flex-none">
-            <Input
-              type="date"
-              className="min-h-11 sm:min-h-10"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
+            <Input type="date" className="min-h-11 sm:min-h-10" value={from} onChange={(e) => setFrom(e.target.value)} />
           </Field>
           <Field label="Hasta" className="min-w-[140px] flex-1 sm:flex-none">
-            <Input
-              type="date"
-              className="min-h-11 sm:min-h-10"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
+            <Input type="date" className="min-h-11 sm:min-h-10" value={to} onChange={(e) => setTo(e.target.value)} />
           </Field>
           <Field label="Categoría" className="min-w-[180px] w-full sm:w-auto">
-            <Select
-              className="min-h-11 sm:min-h-10"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
+            <Select className="min-h-11 sm:min-h-10" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
               <option value="">Todas</option>
               {CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value}>
@@ -441,12 +323,7 @@ export function ExpensesPage() {
               ))}
             </Select>
           </Field>
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-11 w-full sm:w-auto sm:min-h-10"
-            onClick={() => void load()}
-          >
+          <Button type="button" variant="secondary" className="min-h-11 w-full sm:w-auto sm:min-h-10" onClick={() => void load()}>
             Aplicar
           </Button>
           <Button
@@ -464,115 +341,47 @@ export function ExpensesPage() {
         </div>
       </Card>
 
-      <Card className="overflow-x-auto p-0 shadow-lg">
-        <div className="sm:hidden">
-          {loading ? (
-            <p className="p-6 text-center text-sm text-pf-muted">Cargando…</p>
-          ) : list.length === 0 ? (
-            <p className="p-6 text-center text-sm text-pf-muted">
-              Sin gastos en el rango.
-            </p>
-          ) : (
-            <div className="divide-y divide-pf-border" role="list" aria-label="Gastos registrados">
-              {list.map((r) => (
-                <article key={r.id} className="space-y-3 px-4 py-4" role="listitem">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="break-words text-sm font-semibold text-pf-text">
-                        {r.expenseCategory?.name ?? r.category}
-                      </p>
-                      <p className="mt-1 text-xs text-pf-text-tertiary">
-                        {formatDate(r.expenseDate)}
-                      </p>
-                    </div>
-                    <p className="shrink-0 text-base font-bold tabular-nums text-pf-text">
-                      {formatMoney(sym, r.amount)}
-                    </p>
-                  </div>
-
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-y border-pf-border py-2.5 text-xs">
-                    <div className="min-w-0">
-                      <dt className="text-pf-muted">Libro</dt>
-                      <dd className="mt-0.5 break-words font-medium text-pf-text">
-                        {r.book?.name ?? "Sin libro"}
-                      </dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-pf-muted">Registró</dt>
-                      <dd className="mt-0.5 break-words font-medium text-pf-text">
-                        {r.user.displayName}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  {r.notes ? (
-                    <div>
-                      <p className="text-xs font-semibold text-pf-text-secondary">Notas</p>
-                      <p className="mt-1 break-words text-sm text-pf-text-tertiary">
-                        {r.notes}
-                      </p>
-                    </div>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="hidden overflow-x-auto sm:block">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10">
-              <tr className="border-b border-pf-border/80 bg-pf-surface text-left text-xs font-bold text-pf-text-tertiary shadow-sm backdrop-blur-md">
-                <th className="p-3">Fecha</th>
-                <th className="p-3">Libro</th>
-                <th className="p-3">Categoría</th>
-                <th className="p-3 text-right">Monto</th>
-                <th className="p-3">Usuario</th>
-                <th className="p-3">Notas</th>
+      <Card className="overflow-x-auto border-white/50 bg-gradient-to-br from-white/92 via-rose-50/12 to-violet-50/20 p-0 shadow-lg shadow-stone-900/[0.05] backdrop-blur-sm">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-stone-200/80 bg-gradient-to-r from-rose-50/90 via-pf-primary-soft/40 to-violet-50/75 text-left text-xs font-bold text-stone-600 shadow-sm backdrop-blur-md">
+              <th className="p-3">Fecha</th>
+              <th className="p-3">Libro</th>
+              <th className="p-3">Categoría</th>
+              <th className="p-3 text-right">Monto</th>
+              <th className="p-3">Usuario</th>
+              <th className="p-3">Notas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-pf-muted">
+                  Cargando…
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="p-6 text-center text-pf-muted">
-                    Cargando…
+            ) : list.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-pf-muted">
+                  Sin gastos en el rango.
+                </td>
+              </tr>
+            ) : (
+              list.map((r) => (
+                <tr key={r.id} className="border-b border-stone-100/90 transition hover:bg-rose-50/35">
+                  <td className="p-3 whitespace-nowrap">{formatDate(r.expenseDate)}</td>
+                  <td className="p-3 text-pf-muted">{r.book?.name ?? "—"}</td>
+                  <td className="p-3">{r.expenseCategory?.name ?? r.category}</td>
+                  <td className="p-3 text-right font-medium tabular-nums">{formatMoney(sym, r.amount)}</td>
+                  <td className="p-3 text-pf-muted">{r.user.displayName}</td>
+                  <td className="p-3 text-pf-muted max-w-[220px] truncate" title={r.notes ?? ""}>
+                    {r.notes ?? "—"}
                   </td>
                 </tr>
-              ) : list.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-6 text-center text-pf-muted">
-                    Sin gastos en el rango.
-                  </td>
-                </tr>
-              ) : (
-                list.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-b border-pf-border/90 transition hover:bg-pf-danger-soft/35"
-                  >
-                    <td className="p-3 whitespace-nowrap">
-                      {formatDate(r.expenseDate)}
-                    </td>
-                    <td className="p-3 text-pf-muted">{r.book?.name ?? "—"}</td>
-                    <td className="p-3">
-                      {r.expenseCategory?.name ?? r.category}
-                    </td>
-                    <td className="p-3 text-right font-medium tabular-nums">
-                      {formatMoney(sym, r.amount)}
-                    </td>
-                    <td className="p-3 text-pf-muted">{r.user.displayName}</td>
-                    <td
-                      className="p-3 text-pf-muted max-w-[220px] truncate"
-                      title={r.notes ?? ""}
-                    >
-                      {r.notes ?? "—"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
       </Card>
     </div>
   );

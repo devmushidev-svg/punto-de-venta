@@ -9,9 +9,6 @@ export const PERMISSION_KEYS = {
   PURCHASES_VIEW: "purchases.view",
   EXPENSES_VIEW: "expenses.view",
   PAYROLL_VIEW: "payroll.view",
-  SALES_PRICE_OVERRIDE: "sales.price_override",
-  /** Eliminar una venta. Ningun rol lo trae por defecto; queda bitacora de quien la elimino. */
-  SALES_DELETE: "sales.delete",
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS];
@@ -25,8 +22,6 @@ export const ALL_PERMISSION_KEYS: PermissionKey[] = [
   PERMISSION_KEYS.PURCHASES_VIEW,
   PERMISSION_KEYS.EXPENSES_VIEW,
   PERMISSION_KEYS.PAYROLL_VIEW,
-  PERMISSION_KEYS.SALES_PRICE_OVERRIDE,
-  PERMISSION_KEYS.SALES_DELETE,
 ];
 
 export const PERMISSION_LABELS: Record<PermissionKey, string> = {
@@ -41,10 +36,6 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
     "Ver gastos y resumen en reportes (solo consulta; registrar gastos sigue siendo administrador)",
   [PERMISSION_KEYS.PAYROLL_VIEW]:
     "Ver planillas y resumen en reportes (solo consulta; crear/cerrar planilla sigue siendo administrador)",
-  [PERMISSION_KEYS.SALES_PRICE_OVERRIDE]:
-    "Vender a precio distinto del catálogo o aplicar descuentos",
-  [PERMISSION_KEYS.SALES_DELETE]:
-    "Eliminar ventas. La venta deja de contar en reportes y caja, pero queda registrada con el motivo y quién la eliminó",
 };
 
 const DEFAULT_AR_AP_PURCHASES: PermissionKey[] = [

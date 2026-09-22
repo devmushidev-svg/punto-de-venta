@@ -1,24 +1,11 @@
-import {
-  ArrowRight,
-  ArrowDownUp,
-  BookOpen,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  DoorClosed,
-  DoorOpen,
-  Printer,
-  RefreshCw,
-  Wallet,
-} from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { DoorClosed, DoorOpen } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import { apiDownload, apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Field, Input, Select } from "../components/ui";
 import { formatDate, formatMoney, formatTimeOnly } from "../lib/format";
-import "./cash-workspace.css";
 
 type Session = {
   id: string;
@@ -27,7 +14,18 @@ type Session = {
   openingCash: number;
   closingCash: number | null;
   expectedCash: number | null;
+  notes: string | null;
 };
+
+type DiarySale = {
+  id: string;
+  total: number;
+  paid: number;
+  terms: string;
+  saleDate: string;
+  invoiceNumber: string | null;
+};
+
 type DiaryMovement = {
   id: string;
   category: string;
@@ -36,6 +34,7 @@ type DiaryMovement = {
   note: string | null;
   createdAt: string;
 };
+
 type Diary = {
   session: Session | null;
   saleCount: number;
@@ -51,1136 +50,705 @@ type Diary = {
   movements: DiaryMovement[];
   efectivoCajaSugerido: number;
   cashDifference: number | null;
-  sales: {
-    id: string;
-    total: number;
-    paid: number;
-    terms: string;
-    saleDate: string;
-    invoiceNumber: string | null;
-  }[];
+  sales: DiarySale[];
 };
-type AdminSummary = {
-  sessions: {
-    sessionId: string;
-    user: { id: string; displayName: string };
-    openedAt: string;
-    closedAt: string | null;
-    ventasTotal: number;
-    efectivoCajaSugerido: number;
-  }[];
-  totals: { ventasTotal: number; efectivoCajaSugerido: number };
+
+const EMPTY_DIARY: Diary = {
+  session: null,
+  saleCount: 0,
+  contadoTotal: 0,
+  tarjetaTotal: 0,
+  efectivoVentasTotal: 0,
+  creditoTotal: 0,
+  creditoCobrado: 0,
+  creditoPendiente: 0,
+  ventasTotal: 0,
+  gastosSesion: 0,
+  movementNet: 0,
+  movements: [],
+  efectivoCajaSugerido: 0,
+  cashDifference: null,
+  sales: [],
 };
-const CATEGORIES = [
+
+const MOVEMENT_CATEGORIES = [
   { value: "GASTO", label: "Gasto" },
   { value: "INGRESO", label: "Ingreso" },
   { value: "PAGO_ABONO", label: "Pago / abono" },
   { value: "RETIRO", label: "Retiro" },
   { value: "AJUSTE_TARJETA", label: "Ajuste tarjeta" },
-];
-const categoryLabel = (value: string) =>
-  CATEGORIES.find((c) => c.value === value)?.label ?? value;
-function localDate(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-function validMoney(value: string) {
+] as const;
+
+function CashMovementTableRow({
+  movement: m,
+  sym,
+  token,
+  isAdmin,
+  onPatched,
+}: {
+  movement: DiaryMovement;
+  sym: string;
+  token: string | null;
+  isAdmin: boolean;
+  onPatched: () => void;
+}) {
+  const [category, setCategory] = useState(m.category);
+  const [note, setNote] = useState(m.note ?? "");
+  const [busy, setBusy] = useState(false);
+  const [localErr, setLocalErr] = useState("");
+  useEffect(() => {
+    setCategory(m.category);
+    setNote(m.note ?? "");
+  }, [m.id, m.category, m.note]);
+  const dirty = category !== m.category || (note.trim() || "") !== (m.note?.trim() ?? "");
+  async function save() {
+    if (!token || !dirty) return;
+    setLocalErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/cash-movements/${m.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ category, note: note.trim() || null }),
+        token,
+      });
+      onPatched();
+    } catch (e) {
+      setLocalErr(e instanceof Error ? e.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!isAdmin) {
+    return (
+      <tr className="border-b border-pf-border/70">
+        <td className="px-3 py-2 whitespace-nowrap text-pf-text-secondary">{formatTimeOnly(m.createdAt)}</td>
+        <td className="px-3 py-2 font-medium text-pf-text">{m.category}</td>
+        <td className="px-3 py-2 text-right tabular-nums">{formatMoney(sym, m.amount)}</td>
+        <td className="px-3 py-2 text-pf-text-secondary">{m.note ?? "—"}</td>
+      </tr>
+    );
+  }
   return (
-    value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0
+    <tr className="border-b border-pf-border/70">
+      <td className="px-3 py-2 whitespace-nowrap text-pf-text-secondary">{formatTimeOnly(m.createdAt)}</td>
+      <td className="px-3 py-2 font-medium text-pf-text">{m.category}</td>
+      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(sym, m.amount)}</td>
+      <td className="px-3 py-2 text-pf-text-secondary">{m.note ?? "—"}</td>
+      <td className="px-3 py-2">
+        <Select value={category} onChange={(e) => setCategory(e.target.value)} className="min-h-9 text-xs">
+          {MOVEMENT_CATEGORIES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+      </td>
+      <td className="px-3 py-2">
+        <Input value={note} onChange={(e) => setNote(e.target.value)} className="min-h-9 text-xs" placeholder="Corregir nota" />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <Button type="button" variant="secondary" className="min-h-9 text-xs" disabled={!dirty || busy} onClick={() => void save()}>
+          {busy ? "…" : "Guardar"}
+        </Button>
+        {localErr ? <p className="mt-1 text-[10px] font-medium text-pf-danger">{localErr}</p> : null}
+      </td>
+    </tr>
   );
 }
 
-// A failed request is not an empty register. Key each result so changing a filter
-// cannot briefly display the previous cashier's figures under the new heading.
-function useCashResource<T>(
-  url: string | null,
-  revision: number,
-): { data?: T; error?: string } {
-  const { token } = useAuth();
-  const [result, setResult] = useState<{
-    key: string;
-    data?: T;
-    error?: string;
-  }>();
-  const key = `${url}:${revision}:${token}`;
-  useEffect(() => {
-    if (!url || !token) return;
-    let active = true;
-    apiFetch<T>(url, { token }).then(
-      (data) => {
-        if (active) setResult({ key, data });
-      },
-      (e) => {
-        if (active)
-          setResult({
-            key,
-            error:
-              e instanceof Error
-                ? e.message
-                : "No se pudo conectar con el sistema.",
-          });
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [url, token, key]);
-  return result?.key === key ? result : {};
-}
+type AdminSummaryRow = {
+  sessionId: string;
+  user: { id: string; displayName: string; username: string };
+  openedAt: string;
+  closedAt: string | null;
+  ventasTotal: number;
+  efectivoCajaSugerido: number;
+  saleCount: number;
+};
 
-function LoadState({ error, retry }: { error?: string; retry: () => void }) {
+function DiaryTopField({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="cash-load" role={error ? "alert" : "status"}>
-      <h2>{error ? "No pudimos consultar la caja" : "Consultando la caja…"}</h2>
-      <p>
-        {error ?? "Estamos obteniendo el estado y los movimientos del turno."}
-      </p>
-      {error && (
-        <Button variant="secondary" onClick={retry}>
-          Volver a intentar
-        </Button>
-      )}
+    <div className="rounded-xl border border-pf-border bg-white px-3 py-2.5 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-pf-muted">{label}</p>
+      <div className="mt-1 text-sm font-semibold text-pf-text">{value}</div>
     </div>
   );
 }
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+
+function DiaryMetric({
+  label,
+  value,
+  help,
+  tone = "default",
+}: {
+  label: string;
+  value: ReactNode;
+  help?: string;
+  tone?: "default" | "warn" | "danger" | "strong";
+}) {
+  const toneClass =
+    tone === "warn"
+      ? "border-amber-200 bg-amber-50/70"
+      : tone === "danger"
+        ? "border-red-200 bg-red-50/70"
+        : tone === "strong"
+          ? "border-pf-primary/35 bg-pf-primary-soft/35"
+          : "border-pf-border bg-white";
   return (
-    <section className="cash-panel">
-      <h2>{title}</h2>
-      {children}
-    </section>
+    <div className={`rounded-xl border px-3 py-3 shadow-sm ${toneClass}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-pf-muted">{label}</p>
+      <p className="mt-1 text-2xl font-extrabold tabular-nums text-pf-text">{value}</p>
+      {help ? <p className="mt-1 text-xs text-pf-text-tertiary">{help}</p> : null}
+    </div>
+  );
+}
+
+function DiarySection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-pf-border bg-white p-4 shadow-[var(--pf-shadow-card)]">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-pf-text">{title}</h2>
+      <div className="mt-3">{children}</div>
+    </div>
   );
 }
 
 export function CashPage() {
-  const { user } = useAuth();
-  const [view, setView] = useState<"current" | "history">("current");
-  const [revision, setRevision] = useState(0);
-  const refresh = () => setRevision((v) => v + 1);
-  return (
-    <div className="cash-workspace pf-safe-page">
-      <header className="cash-heading">
-        <div>
-          <p>
-            {user?.displayName} <span aria-hidden>·</span>{" "}
-            {new Date().toLocaleDateString("es-HN", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}
-          </p>
-        </div>
-        <Button variant="ghost" aria-label="Actualizar caja" onClick={refresh}>
-          <RefreshCw size={16} aria-hidden />
-          <span>Actualizar</span>
-        </Button>
-      </header>
-      <nav className="cash-tabs" aria-label="Vistas de caja">
-        <button
-          type="button"
-          aria-current={view === "current" ? "page" : undefined}
-          onClick={() => setView("current")}
-        >
-          <Wallet size={18} aria-hidden />
-          Mi caja
-        </button>
-        <button
-          type="button"
-          aria-current={view === "history" ? "page" : undefined}
-          onClick={() => setView("history")}
-        >
-          <BookOpen size={18} aria-hidden />
-          Diario digital
-        </button>
-      </nav>
-      {view === "current" ? (
-        <CurrentCash
-          revision={revision}
-          refresh={refresh}
-          showHistory={() => setView("history")}
-        />
-      ) : (
-        <CashHistory revision={revision} refresh={refresh} />
-      )}
-    </div>
-  );
-}
-
-function CurrentCash({
-  revision,
-  refresh,
-  showHistory,
-}: {
-  revision: number;
-  refresh: () => void;
-  showHistory: () => void;
-}) {
-  const { token, organization, user } = useAuth();
-  const { data: diary, error } = useCashResource<Diary>(
-    "/api/cash-sessions/current/diary",
-    revision,
-  );
+  const { token, user, organization } = useAuth();
+  const canCxc = hasPermission(user, PERMISSION_KEYS.ACCOUNTS_RECEIVABLE);
+  const canCxp = hasPermission(user, PERMISSION_KEYS.ACCOUNTS_PAYABLE);
+  const canGastosLink = user?.role === "admin" || hasPermission(user, PERMISSION_KEYS.EXPENSES_VIEW);
   const sym = organization?.currencySymbol ?? "L";
-  const [task, setTask] = useState<"overview" | "movement" | "close">(
-    "overview",
-  );
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [opening, setOpening] = useState("0");
   const [closing, setClosing] = useState("");
   const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [notice, setNotice] = useState("");
-  const session = diary?.session;
-  async function submitSession(action: "open" | "close") {
-    if (!token || busy) return;
-    const amount = action === "open" ? opening : closing;
-    if (!validMoney(amount)) {
-      setErr("Ingrese un monto válido, igual o mayor que cero.");
-      return;
-    }
-    if (action === "close" && !session) return;
-    setBusy(true);
-    setErr("");
-    setNotice("");
-    try {
-      await apiFetch(
-        action === "open"
-          ? "/api/cash-sessions/open"
-          : `/api/cash-sessions/${session!.id}/close`,
-        {
-          method: "POST",
-          token,
-          body: JSON.stringify(
-            action === "open"
-              ? { openingCash: Number(amount) }
-              : {
-                  closingCash: Number(amount),
-                  notes: notes.trim() || undefined,
-                },
-          ),
-        },
-      );
-      setNotice(
-        action === "open"
-          ? "Caja abierta. Ya puede empezar a vender."
-          : "Caja cerrada. El resumen quedó disponible en el diario digital.",
-      );
-      setClosing("");
-      setNotes("");
-      setOpening("0");
-      setTask("overview");
-      refresh();
-    } catch (e) {
-      setErr(
-        e instanceof Error
-          ? e.message
-          : "No se pudo guardar. Intente de nuevo.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  function changeTask(next: typeof task) {
-    setTask(next);
-    setErr("");
-    setNotice("");
-  }
-  if (!diary) return <LoadState error={error} retry={refresh} />;
-  const difference = validMoney(closing)
-    ? Math.round((Number(closing) - diary.efectivoCajaSugerido) * 100) / 100
-    : null;
-  return (
-    <>
-      {notice && (
-        <p className="cash-notice" role="status">
-          <Check size={18} aria-hidden />
-          {notice}
-        </p>
-      )}
-      {!session ? (
-        <>
-          <section className="cash-start" aria-labelledby="cash-open-title">
-            <div className="cash-start-copy">
-              <span className="cash-status">Caja cerrada</span>
-              <h2 id="cash-open-title">
-                Abra su caja
-                <br />
-                para empezar.
-              </h2>
-              <p>
-                Cuente el efectivo que tiene en el cajón. Ese será su fondo
-                inicial para dar cambio.
-              </p>
-              <p className="cash-start-note">
-                Las ventas y los movimientos se irán sumando a su turno.
-              </p>
-            </div>
-            <form
-              className="cash-opening-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void submitSession("open");
-              }}
-            >
-              <Field label={`Efectivo inicial (${sym})`}>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={opening}
-                  onChange={(e) => setOpening(e.target.value)}
-                  onFocus={(e) => e.target.select()}
-                  required
-                  aria-describedby="cash-opening-help"
-                  className="cash-money-input"
-                />
-              </Field>
-              <p id="cash-opening-help">
-                Si empieza sin efectivo, deje el monto en 0.
-              </p>
-              {err && (
-                <p className="cash-error" role="alert">
-                  {err}
-                </p>
-              )}
-              <Button
-                type="submit"
-                className="cash-primary"
-                disabled={busy || !validMoney(opening)}
-              >
-                <DoorOpen size={18} aria-hidden />
-                {busy ? "Abriendo caja…" : "Abrir caja"}
-                <ArrowRight size={18} aria-hidden />
-              </Button>
-              <span className="cash-form-footnote">
-                Abre un turno a su nombre.
-              </span>
-            </form>
-          </section>
-          <div className="cash-next">
-            <div>
-              <h3>¿Busca un cierre anterior?</h3>
-              <p>Consulte ventas, movimientos y cierres sin abrir una caja.</p>
-            </div>
-            <Button variant="secondary" onClick={showHistory}>
-              Ver diario digital
-              <ArrowRight size={16} aria-hidden />
-            </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="cash-session-bar">
-            <span className="cash-status cash-status-open">Caja abierta</span>
-            <span>Desde {formatDate(session.openedAt)}</span>
-          </div>
-          <section className="cash-overview" aria-label="Resumen de su turno">
-            <div>
-              <span>Efectivo esperado en caja</span>
-              <strong>{formatMoney(sym, diary.efectivoCajaSugerido)}</strong>
-              <small>
-                Incluye su fondo inicial de{" "}
-                {formatMoney(sym, session.openingCash)}
-              </small>
-            </div>
-            <div>
-              <span>Ventas del turno</span>
-              <strong>{formatMoney(sym, diary.ventasTotal)}</strong>
-              <small>
-                {diary.saleCount}{" "}
-                {diary.saleCount === 1
-                  ? "venta registrada"
-                  : "ventas registradas"}
-              </small>
-            </div>
-            <div>
-              <span>Cobros con tarjeta</span>
-              <strong>{formatMoney(sym, diary.tarjetaTotal)}</strong>
-              <small>No son efectivo en el cajón</small>
-            </div>
-          </section>
-          <div className="cash-actions">
-            <Link className="cash-sale-link" to="/venta">
-              Nueva venta
-              <ArrowRight size={17} aria-hidden />
-            </Link>
-            <Button
-              variant="secondary"
-              aria-expanded={task === "movement"}
-              onClick={() =>
-                changeTask(task === "movement" ? "overview" : "movement")
-              }
-            >
-              <ArrowDownUp size={17} aria-hidden />
-              Registrar movimiento
-            </Button>
-            <Button
-              variant="secondary"
-              aria-expanded={task === "close"}
-              onClick={() =>
-                changeTask(task === "close" ? "overview" : "close")
-              }
-            >
-              <DoorClosed size={17} aria-hidden />
-              Preparar cierre
-            </Button>
-          </div>
-          {task === "movement" && (
-            <MovementForm
-              sessionId={session.id}
-              onCancel={() => changeTask("overview")}
-              onSaved={() => {
-                setTask("overview");
-                setNotice(
-                  "Movimiento registrado. El efectivo esperado se actualizó.",
-                );
-                refresh();
-              }}
-            />
-          )}
-          {task === "close" && (
-            <section className="cash-close" aria-labelledby="cash-close-title">
-              <div className="cash-close-copy">
-                <h2 id="cash-close-title">Cuente el efectivo y cierre su caja</h2>
-                <p>
-                  Incluya billetes y monedas. No sume comprobantes de tarjeta.
-                </p>
-                <CashBreakdown diary={diary} sym={sym} />
-              </div>
-              <form
-                className="cash-close-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void submitSession("close");
-                }}
-              >
-                <Field label={`Efectivo que contaste (${sym})`}>
-                  <Input
-                    autoFocus
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    value={closing}
-                    onChange={(e) => setClosing(e.target.value)}
-                    required
-                    placeholder="0.00"
-                    className="cash-money-input"
-                  />
-                </Field>
-                <div
-                  className={`cash-difference ${difference === 0 ? "cash-balanced" : difference !== null ? "cash-unbalanced" : ""}`}
-                  role="status"
-                >
-                  <span>
-                    {difference === null
-                      ? "Diferencia por comprobar"
-                      : difference === 0
-                        ? "Su caja cuadra"
-                        : difference > 0
-                          ? "Hay un sobrante"
-                          : "Hay un faltante"}
-                  </span>
-                  <strong>
-                    {difference === null
-                      ? "—"
-                      : formatMoney(sym, Math.abs(difference))}
-                  </strong>
-                </div>
-                <Field label="Observaciones (opcional)">
-                  <Input
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Anote cualquier diferencia o detalle"
-                  />
-                </Field>
-                {err && (
-                  <p className="cash-error" role="alert">
-                    {err}
-                  </p>
-                )}
-                <p className="cash-confirm-help">
-                  Al confirmar, este turno termina y se guarda el efectivo
-                  contado.
-                </p>
-                <div className="cash-form-actions">
-                  <Button
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => changeTask("overview")}
-                  >
-                    Volver
-                  </Button>
-                  <Button
-                    type="submit"
-                    className="cash-primary"
-                    disabled={busy || !validMoney(closing)}
-                  >
-                    <DoorClosed size={17} aria-hidden />
-                    {busy ? "Cerrando…" : "Confirmar cierre"}
-                  </Button>
-                </div>
-              </form>
-            </section>
-          )}
-          {task === "overview" && (
-            <details className="cash-details">
-              <summary>Ver cómo se calcula el efectivo esperado</summary>
-              <CashBreakdown diary={diary} sym={sym} />
-            </details>
-          )}
-          <Activity diary={diary} sym={sym} refresh={refresh} />
-          <nav className="cash-related" aria-label="Otras operaciones">
-            <span>Otras operaciones</span>
-            {hasPermission(user, PERMISSION_KEYS.ACCOUNTS_RECEIVABLE) && (
-              <Link to="/cxc">Pagos de clientes</Link>
-            )}
-            {hasPermission(user, PERMISSION_KEYS.ACCOUNTS_PAYABLE) && (
-              <Link to="/cxp">Pagos a proveedores</Link>
-            )}
-            {(user?.role === "admin" ||
-              hasPermission(user, PERMISSION_KEYS.EXPENSES_VIEW)) && (
-              <Link to="/gastos">Gastos</Link>
-            )}
-          </nav>
-        </>
-      )}
-    </>
-  );
-}
-
-function CashBreakdown({ diary: d, sym }: { diary: Diary; sym: string }) {
-  // Credit collections include non-cash payments in creditoCobrado; derive only
-  // the cash contribution from the server's authoritative register total.
-  const creditCash =
-    d.efectivoCajaSugerido -
-    (d.session?.openingCash ?? 0) -
-    d.efectivoVentasTotal +
-    d.gastosSesion -
-    d.movementNet;
-  const rows: [string, number][] = [
-    ["Fondo inicial", d.session?.openingCash ?? 0],
-    ["Ventas en efectivo", d.efectivoVentasTotal],
-    ["Abonos en efectivo", creditCash],
-    ["Gastos del turno", -d.gastosSesion],
-    ["Movimientos manuales (neto)", d.movementNet],
-  ];
-  return (
-    <dl className="cash-breakdown">
-      {rows.map(([label, amount]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{formatMoney(sym, Math.round(amount * 100) / 100 || 0)}</dd>
-        </div>
-      ))}
-      <div className="cash-breakdown-total">
-        <dt>Efectivo esperado</dt>
-        <dd>{formatMoney(sym, d.efectivoCajaSugerido)}</dd>
-      </div>
-    </dl>
-  );
-}
-
-function MovementForm({
-  sessionId,
-  onCancel,
-  onSaved,
-}: {
-  sessionId: string;
-  onCancel: () => void;
-  onSaved: () => void;
-}) {
-  const { token, organization } = useAuth();
-  const [category, setCategory] = useState("GASTO");
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-  const [voucher, setVoucher] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  async function save() {
-    if (!token || busy || !validMoney(amount) || Number(amount) <= 0) return;
-    setBusy(true);
+  const [diary, setDiary] = useState<Diary | null>(null);
+  const isAdmin = user?.role === "admin";
+  const [viewDate, setViewDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [viewUserId, setViewUserId] = useState("");
+  const [orgUsers, setOrgUsers] = useState<{ id: string; displayName: string; username: string }[]>([]);
+  const [adminSummary, setAdminSummary] = useState<{
+    date: string;
+    sessions: AdminSummaryRow[];
+    totals: { ventasTotal: number; efectivoCajaSugerido: number };
+  } | null>(null);
+  const [movCategory, setMovCategory] = useState<string>(MOVEMENT_CATEGORIES[0].value);
+  const [movAmount, setMovAmount] = useState("");
+  const [movNote, setMovNote] = useState("");
+  const [movVoucher, setMovVoucher] = useState(false);
+  const [movBusy, setMovBusy] = useState(false);
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const viewingSelf =
+    (viewUserId === "" || viewUserId === user?.id) && viewDate === todayStr;
+
+  const todayLabel = useMemo(() => {
+    const d = new Date(viewDate + "T12:00:00");
+    return d.toLocaleDateString("es-HN", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }, [viewDate]);
+
+  function shiftViewDate(delta: number) {
+    const d = new Date(viewDate + "T12:00:00");
+    d.setDate(d.getDate() + delta);
+    setViewDate(d.toISOString().slice(0, 10));
+  }
+
+  async function printCloseReport() {
+    if (!token) return;
     setErr("");
     try {
-      await apiFetch("/api/cash-movements", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          sessionId,
-          category,
-          amount: Number(amount),
-          hasVoucher: voucher,
-          note: note.trim() || undefined,
-        }),
-      });
-      onSaved();
-    } catch (e) {
-      setErr(
-        e instanceof Error ? e.message : "No se pudo registrar el movimiento.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Panel title="Registrar movimiento">
-      <p className="cash-description">
-        Registre una entrada o salida de dinero que no sea una venta. No repita
-        un gasto que ya registró en Gastos.
-      </p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
-      >
-        <div className="cash-movement-fields">
-          <Field label="Tipo de movimiento">
-            <Select
-              autoFocus
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label={`Monto (${organization?.currencySymbol ?? "L"})`}>
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0.01"
-              step="0.01"
-              required
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-            />
-          </Field>
-          <Field label="Descripción (opcional)">
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Por ejemplo: retiro para depósito"
-            />
-          </Field>
-        </div>
-        <label className="cash-checkbox">
-          <input
-            type="checkbox"
-            checked={voucher}
-            onChange={(e) => setVoucher(e.target.checked)}
-          />
-          Tengo comprobante
-        </label>
-        {err && (
-          <p className="cash-error" role="alert">
-            {err}
-          </p>
-        )}
-        <div className="cash-form-actions">
-          <Button variant="secondary" onClick={onCancel} disabled={busy}>
-            Cancelar
-          </Button>
-          <Button
-            type="submit"
-            className="cash-primary"
-            disabled={busy || !validMoney(amount) || Number(amount) <= 0}
-          >
-            {busy ? "Guardando…" : "Guardar movimiento"}
-          </Button>
-        </div>
-      </form>
-    </Panel>
-  );
-}
-
-function CashHistory({
-  revision,
-  refresh,
-}: {
-  revision: number;
-  refresh: () => void;
-}) {
-  const { token, user, organization } = useAuth();
-  const sym = organization?.currencySymbol ?? "L";
-  const admin = user?.role === "admin";
-  const [date, setDate] = useState(localDate);
-  const [userId, setUserId] = useState("");
-  const [printError, setPrintError] = useState("");
-  const [printing, setPrinting] = useState(false);
-  const query = new URLSearchParams({
-    date,
-    ...(userId ? { userId } : {}),
-  }).toString();
-  const { data: diary, error } = useCashResource<Diary>(
-    `/api/cash-diary?${query}`,
-    revision,
-  );
-  const { data: users, error: usersError } = useCashResource<
-    { id: string; displayName: string }[]
-  >(admin ? "/api/users" : null, revision);
-  const { data: summary, error: summaryError } = useCashResource<AdminSummary>(
-    admin ? `/api/cash-diary/admin-summary?date=${date}` : null,
-    revision,
-  );
-  function shift(delta: number) {
-    const day = new Date(`${date}T12:00:00`);
-    day.setDate(day.getDate() + delta);
-    setDate(localDate(day));
-  }
-  async function print() {
-    if (!token || printing) return;
-    setPrinting(true);
-    setPrintError("");
-    try {
-      const blob = await apiDownload(
-        `/api/cash-diary/close-report.html?${query}&print=1`,
-        token,
-      );
+      const qs = new URLSearchParams();
+      qs.set("date", viewDate);
+      if (viewUserId.trim()) qs.set("userId", viewUserId.trim());
+      qs.set("print", "1");
+      const blob = await apiDownload(`/api/cash-diary/close-report.html?${qs.toString()}`, token);
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank", "noopener,noreferrer");
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
-      setPrintError(
-        e instanceof Error ? e.message : "No se pudo generar el reporte.",
-      );
-    } finally {
-      setPrinting(false);
+      setErr(e instanceof Error ? e.message : "Error");
     }
   }
+
+  function refresh() {
+    if (!token) return;
+    apiFetch<Session | null>("/api/cash-sessions/current", { token })
+      .then((s) => setSession(s))
+      .catch(() => setSession(null));
+    const qs = new URLSearchParams();
+    qs.set("date", viewDate);
+    if (viewUserId.trim()) qs.set("userId", viewUserId.trim());
+    apiFetch<Diary>(`/api/cash-diary?${qs.toString()}`, { token })
+      .then(setDiary)
+      .catch(() => setDiary(EMPTY_DIARY));
+    if (isAdmin) {
+      apiFetch<{
+        date: string;
+        sessions: AdminSummaryRow[];
+        totals: { ventasTotal: number; efectivoCajaSugerido: number };
+      }>(`/api/cash-diary/admin-summary?date=${encodeURIComponent(viewDate)}`, { token })
+        .then(setAdminSummary)
+        .catch(() => setAdminSummary(null));
+    } else {
+      setAdminSummary(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!token || !isAdmin) return;
+    apiFetch<{ id: string; displayName: string; username: string }[]>("/api/users", { token })
+      .then(setOrgUsers)
+      .catch(() => setOrgUsers([]));
+  }, [token, isAdmin]);
+
+  useEffect(() => {
+    refresh();
+  }, [token, viewDate, viewUserId, isAdmin]);
+
+  async function openSession() {
+    if (!token) return;
+    setErr("");
+    setBusy(true);
+    try {
+      await apiFetch("/api/cash-sessions/open", {
+        method: "POST",
+        body: JSON.stringify({ openingCash: Number(opening) || 0 }),
+        token,
+      });
+      refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeSession() {
+    if (!token || !session?.id) return;
+    setErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/cash-sessions/${session.id}/close`, {
+        method: "POST",
+        body: JSON.stringify({
+          closingCash: closing === "" ? undefined : Number(closing),
+          notes: notes || undefined,
+        }),
+        token,
+      });
+      setClosing("");
+      setNotes("");
+      refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addCashMovement() {
+    if (!token || !session?.id) return;
+    const amount = Number(movAmount);
+    if (!amount || amount <= 0) {
+      setErr("Indique un monto válido para el movimiento.");
+      return;
+    }
+    setErr("");
+    setMovBusy(true);
+    try {
+      await apiFetch("/api/cash-movements", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId: session.id,
+          category: movCategory,
+          amount,
+          hasVoucher: movVoucher,
+          note: movNote.trim() || undefined,
+        }),
+        token,
+      });
+      setMovAmount("");
+      setMovNote("");
+      setMovVoucher(false);
+      refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error");
+    } finally {
+      setMovBusy(false);
+    }
+  }
+
+  if (session === undefined || diary === null) {
+    return (
+      <p className="rounded-2xl border border-white/50 bg-white/60 px-4 py-6 text-center font-medium text-pf-muted backdrop-blur-sm">
+        Cargando caja…
+      </p>
+    );
+  }
+
+  const closingValue = closing === "" ? null : Number(closing);
+  const closingDifference =
+    closingValue !== null && Number.isFinite(closingValue) ? closingValue - diary.efectivoCajaSugerido : null;
+  const sessionStatus = session ? "Turno abierto" : "Sin turno abierto";
+  const sessionStatusTone =
+    closingDifference === null ? "text-pf-text" : closingDifference === 0 ? "text-pf-success" : closingDifference > 0 ? "text-pf-info" : "text-pf-danger";
+
   return (
-    <>
-      <div className="cash-history-intro">
-        <h2>Consulte un turno anterior</h2>
-        <p>
-          Elija una fecha para revisar el turno. Esta vista no modifica
-          su caja actual.
-        </p>
-      </div>
-      <div className="cash-filters">
-        <div className="cash-date-filter">
-          <Button
-            variant="secondary"
-            aria-label="Día anterior"
-            onClick={() => shift(-1)}
-          >
-            <ChevronLeft size={18} aria-hidden />
-          </Button>
-          <Field label="Fecha">
-            <Input
-              type="date"
-              value={date}
-              onChange={(e) => {
-                if (e.target.value) setDate(e.target.value);
-              }}
-            />
-          </Field>
-          <Button
-            variant="secondary"
-            aria-label="Día siguiente"
-            onClick={() => shift(1)}
-          >
-            <ChevronRight size={18} aria-hidden />
-          </Button>
-        </div>
-        <Button variant="ghost" onClick={() => setDate(localDate())}>
-          Hoy
-        </Button>
-        {admin && (
-          <Field label="Cajero">
-            <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
-              <option value="">Mi diario · {user?.displayName}</option>
-              {users
-                ?.filter((u) => u.id !== user?.id)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.displayName}
-                  </option>
-                ))}
-            </Select>
-          </Field>
-        )}
-      </div>
-      {usersError && (
-        <p className="cash-error" role="alert">
-          No se pudo cargar la lista de cajeros. Use Actualizar para reintentar.
-        </p>
-      )}
-      {!diary ? (
-        <LoadState error={error} retry={refresh} />
-      ) : !diary.session ? (
-        <div className="cash-empty">
-          <BookOpen size={26} aria-hidden />
-          <h3>No hay turno para esta consulta</h3>
-          <p>
-            Pruebe con otra fecha{admin ? " o elija otro cajero" : ""}. No
-            necesita abrir una caja para consultar el diario.
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="cash-history-title">
-            <div>
-              <h3>
-                {userId
-                  ? (users?.find((u) => u.id === userId)?.displayName ??
-                    "Cajero seleccionado")
-                  : user?.displayName}
-              </h3>
-              <p>
-                Abrió {formatDate(diary.session.openedAt)}
-                {diary.session.closedAt
-                  ? ` · Cerró ${formatDate(diary.session.closedAt)}`
-                  : " · Turno todavía abierto"}
+    <div className="max-w-6xl space-y-4 pf-safe-page">
+      <DiarySection title="Caja y Diario Digital">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-1.5">
+              <p className="text-3xl font-extrabold tracking-tight text-pf-text">Caja y diario digital</p>
+              <p className="max-w-3xl text-sm text-pf-text-secondary">
+                Administre el turno de caja: abra con un fondo inicial, venda normalmente, registre gastos y cierre comparando
+                efectivo esperado contra efectivo contado.
               </p>
             </div>
-            <Button
-              variant="secondary"
-              disabled={printing}
-              onClick={() => void print()}
-            >
-              <Printer size={17} aria-hidden />
-              {printing ? "Preparando…" : "Imprimir resumen"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {canCxc ? (
+                <Link to="/cxc" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                  Pagos clientes
+                </Link>
+              ) : null}
+              {canCxp ? (
+                <Link to="/cxp" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                  Pagos proveedores
+                </Link>
+              ) : null}
+              {canGastosLink ? (
+                <Link to="/gastos" className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted">
+                  Gastos
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                onClick={refresh}
+                className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted"
+              >
+                Actualizar
+              </button>
+              <button
+                type="button"
+                onClick={() => void printCloseReport()}
+                className="rounded-lg border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs font-semibold text-pf-text hover:bg-pf-surface-muted"
+              >
+                Imprimir cierre
+              </button>
+            </div>
           </div>
-          {printError && (
-            <p className="cash-error" role="alert">
-              {printError}
-            </p>
-          )}
-          <div className="cash-history-summary">
-            <Panel title="Efectivo del turno">
-              <CashBreakdown diary={diary} sym={sym} />
-              {diary.session.closedAt && (
-                <dl className="cash-breakdown">
-                  <div>
-                    <dt>Efectivo contado al cierre</dt>
-                    <dd>
-                      {diary.session.closingCash === null
-                        ? "No registrado"
-                        : formatMoney(sym, diary.session.closingCash)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Diferencia registrada</dt>
-                    <dd>
-                      {diary.cashDifference === null
-                        ? "No registrada"
-                        : formatMoney(sym, diary.cashDifference)}
-                    </dd>
-                  </div>
-                </dl>
-              )}
-            </Panel>
-            <Panel title="Ventas del turno">
-              <dl className="cash-breakdown">
-                <div>
-                  <dt>Ventas registradas</dt>
-                  <dd>{diary.saleCount}</dd>
-                </div>
-                <div>
-                  <dt>Venta inmediata</dt>
-                  <dd>{formatMoney(sym, diary.contadoTotal)}</dd>
-                </div>
-                <div>
-                  <dt>Con tarjeta</dt>
-                  <dd>{formatMoney(sym, diary.tarjetaTotal)}</dd>
-                </div>
-                <div>
-                  <dt>Crédito facturado</dt>
-                  <dd>{formatMoney(sym, diary.creditoTotal)}</dd>
-                </div>
-                <div>
-                  <dt>Pendiente a crédito</dt>
-                  <dd>{formatMoney(sym, diary.creditoPendiente)}</dd>
-                </div>
-                <div className="cash-breakdown-total">
-                  <dt>Facturación total</dt>
-                  <dd>{formatMoney(sym, diary.ventasTotal)}</dd>
-                </div>
-              </dl>
-            </Panel>
-          </div>
-          <Activity diary={diary} sym={sym} refresh={refresh} />
-        </>
-      )}
-      {admin && (
-        <details className="cash-details">
-          <summary>Todos los turnos abiertos en esta fecha</summary>
-          {summaryError ? (
-            <p className="cash-error">
-              No se pudo cargar el resumen general. Use Actualizar para
-              reintentar.
-            </p>
-          ) : !summary ? (
-            <p role="status">Cargando turnos…</p>
-          ) : !summary.sessions.length ? (
-            <p>No se abrieron turnos en esta fecha.</p>
-          ) : (
-            <>
-              <p className="cash-description">
-                Ventas de todos los turnos:{" "}
-                {formatMoney(sym, summary.totals.ventasTotal)} · Efectivo
-                esperado:{" "}
-                {formatMoney(sym, summary.totals.efectivoCajaSugerido)}
-              </p>
-              <div className="cash-table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Cajero</th>
-                      <th>Apertura</th>
-                      <th>Cierre</th>
-                      <th className="cash-number">Ventas</th>
-                      <th className="cash-number">Efectivo esperado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.sessions.map((s) => (
-                      <tr key={s.sessionId}>
-                        <td>{s.user.displayName}</td>
-                        <td>{formatTimeOnly(s.openedAt)}</td>
-                        <td>
-                          {s.closedAt ? formatTimeOnly(s.closedAt) : "Abierto"}
-                        </td>
-                        <td className="cash-number">
-                          {formatMoney(sym, s.ventasTotal)}
-                        </td>
-                        <td className="cash-number">
-                          {formatMoney(sym, s.efectivoCajaSugerido)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </details>
-      )}
-    </>
-  );
-}
 
-function Activity({
-  diary,
-  sym,
-  refresh,
-}: {
-  diary: Diary;
-  sym: string;
-  refresh: () => void;
-}) {
-  const { token, user } = useAuth();
-  const [view, setView] = useState<"sales" | "movements">("sales");
-  const [editing, setEditing] = useState(false);
-  return (
-    <section className="cash-activity" aria-label="Actividad del turno">
-      <div className="cash-activity-heading">
-        <h2>Actividad del turno</h2>
-        <div
-          className="cash-activity-switch"
-          role="group"
-          aria-label="Tipo de actividad"
-        >
-          <button
-            type="button"
-            aria-pressed={view === "sales"}
-            onClick={() => setView("sales")}
-          >
-            Ventas ({diary.sales.length})
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === "movements"}
-            onClick={() => setView("movements")}
-          >
-            Movimientos ({diary.movements.length})
-          </button>
-        </div>
-      </div>
-      {view === "sales" ? (
-        !diary.sales.length ? (
-          <div className="cash-empty-inline">
-            <p>
-              {diary.session?.closedAt
-                ? "No se registraron ventas en este turno."
-                : "Todavía no hay ventas en este turno."}
-            </p>
-            {!diary.session?.closedAt && (
-              <span>Las ventas que registre aparecerán aquí.</span>
-            )}
+          <div className="grid gap-3 md:grid-cols-3">
+            <DiaryTopField label="Usuario" value={user?.displayName ?? "Usuario actual"} />
+            <DiaryTopField label="Fecha consulta" value={todayLabel} />
+            <DiaryTopField
+              label="Estado"
+              value={<span className={session ? "text-pf-success" : "text-pf-warning"}>{sessionStatus}</span>}
+            />
           </div>
-        ) : (
-          <div className="cash-table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Hora</th>
-                  <th>Documento</th>
-                  <th>Términos</th>
-                  <th className="cash-number">Total</th>
+
+          <div className="flex flex-col gap-3 rounded-xl border border-pf-border bg-pf-surface-soft/80 p-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" className="min-h-10 text-xs" onClick={() => shiftViewDate(-1)}>
+                ← Día anterior
+              </Button>
+              <Field label="Fecha" className="min-w-[160px]">
+                <Input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="min-h-10" />
+              </Field>
+              <Button type="button" variant="secondary" className="min-h-10 text-xs" onClick={() => shiftViewDate(1)}>
+                Día siguiente →
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-10 text-xs"
+                onClick={() => {
+                  setViewDate(todayStr);
+                  setViewUserId("");
+                }}
+              >
+                Hoy
+              </Button>
+            </div>
+            {isAdmin ? (
+              <Field label="Ver diario de" className="min-w-[200px] flex-1">
+                <Select value={viewUserId} onChange={(e) => setViewUserId(e.target.value)} className="min-h-10">
+                  <option value="">Cajero (filtro por fecha)</option>
+                  {orgUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.displayName}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border border-pf-border bg-pf-surface-soft px-3 py-2 text-xs leading-5 text-pf-text-secondary">
+            Arqueo: <strong>fondo inicial + efectivo de ventas + abonos a crédito del mismo turno − gastos ± movimientos manuales</strong>.
+            Las ventas con tarjeta no cuentan como efectivo en cajón. Use movimientos para retiros, ingresos y ajustes (diario digital).
+          </div>
+        </div>
+      </DiarySection>
+
+      <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+        <DiarySection title="Resumen del turno">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <DiaryMetric label="Ventas (tickets)" value={diary.saleCount} />
+            <DiaryMetric label="Facturacion total" value={formatMoney(sym, diary.ventasTotal)} />
+            <DiaryMetric label="Venta inmediata" value={formatMoney(sym, diary.contadoTotal)} help="Contado / tarjeta / efectivo" />
+            <DiaryMetric label="Tarjeta" value={formatMoney(sym, diary.tarjetaTotal)} help="No entra al cajon" />
+            <DiaryMetric label="Credito facturado" value={formatMoney(sym, diary.creditoTotal)} />
+            <DiaryMetric label="Pendiente credito" value={formatMoney(sym, diary.creditoPendiente)} tone="warn" />
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+            <DiaryMetric label="Efectivo ventas" value={formatMoney(sym, diary.efectivoVentasTotal)} help="Contado y efectivo" />
+            <DiaryMetric label="Gastos turno" value={formatMoney(sym, diary.gastosSesion)} help="Registrados con su usuario" tone="danger" />
+            <DiaryMetric
+              label="Mov. manual (neto)"
+              value={formatMoney(sym, diary.movementNet)}
+              help="Retiros, ingresos, ajustes"
+            />
+            <DiaryMetric
+              label="Efectivo esperado"
+              value={formatMoney(sym, diary.efectivoCajaSugerido)}
+              help="Fondo + ventas + abonos − gastos ± movimientos"
+              tone="strong"
+            />
+          </div>
+
+          <div className="mt-3 rounded-xl border border-pf-border bg-pf-surface-soft/70 px-3 py-2 text-xs text-pf-text-tertiary">
+            {diary.session
+              ? `Turno abierto desde ${formatDate(diary.session.openedAt)} ${formatTimeOnly(diary.session.openedAt)}`
+              : "No hay turno abierto. Abra un turno para poder cuadrar la caja correctamente."}
+          </div>
+        </DiarySection>
+
+        <DiarySection title={session ? "Cierre de turno" : "Apertura de turno"}>
+          {!viewingSelf ? (
+            <p className="text-sm text-pf-text-secondary">
+              Está viendo el diario de otra fecha o cajero. Para abrir o cerrar <strong>su</strong> turno de hoy, use «Hoy» y
+              deje el filtro de cajero en blanco.
+            </p>
+          ) : null}
+          {session ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <DiaryMetric label="Fondo inicial" value={formatMoney(sym, session.openingCash)} />
+                <DiaryMetric label="Esperado" value={formatMoney(sym, diary.efectivoCajaSugerido)} tone="strong" />
+                <DiaryMetric
+                  label="Diferencia"
+                  value={closingDifference === null ? "—" : formatMoney(sym, closingDifference)}
+                  help={
+                    closingDifference === null
+                      ? "Ingrese el contado real."
+                      : closingDifference === 0
+                        ? "Caja cuadrada"
+                        : closingDifference > 0
+                          ? "Sobrante"
+                          : "Faltante"
+                  }
+                  tone={
+                    closingDifference === null
+                      ? "default"
+                      : closingDifference === 0
+                        ? "strong"
+                        : closingDifference > 0
+                          ? "warn"
+                          : "danger"
+                  }
+                />
+              </div>
+
+              <div className="rounded-xl border border-pf-border bg-pf-surface-soft p-3">
+                <div className="grid gap-4">
+                  <Field label="Efectivo contado al cierre">
+                    <Input type="number" step="any" value={closing} onChange={(e) => setClosing(e.target.value)} />
+                  </Field>
+                  <Field label="Observaciones (opcional)">
+                    <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Faltante, sobrante, retiro, cambio, etc." />
+                  </Field>
+                </div>
+              </div>
+
+              {err ? <p className="text-sm font-medium text-pf-danger">{err}</p> : null}
+
+              <Button
+                type="button"
+                variant="danger"
+                className="w-full min-h-[48px]"
+                onClick={closeSession}
+                disabled={busy || !viewingSelf}
+              >
+                <DoorClosed className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                {busy ? "Cerrando…" : "Cerrar turno"}
+              </Button>
+
+              <p className={`text-xs font-semibold ${sessionStatusTone}`}>
+                {closingDifference === null
+                  ? "Listo para arqueo."
+                  : closingDifference === 0
+                    ? "La caja cuadra correctamente."
+                    : closingDifference > 0
+                      ? "Hay un sobrante respecto al efectivo esperado."
+                      : "Hay un faltante respecto al efectivo esperado."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-pf-border bg-pf-surface-soft p-3 text-sm text-pf-text-secondary">
+                Abra el turno ingresando solo el fondo inicial. Si la caja empieza vacia, deje <strong>0</strong>.
+              </div>
+              <Field label="Fondo inicial">
+                <Input type="number" step="any" value={opening} onChange={(e) => setOpening(e.target.value)} />
+              </Field>
+              {err ? <p className="text-sm font-medium text-pf-danger">{err}</p> : null}
+              <Button type="button" className="w-full min-h-[48px]" onClick={openSession} disabled={busy || !viewingSelf}>
+                <DoorOpen className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                {busy ? "Abriendo…" : "Abrir turno"}
+              </Button>
+            </div>
+          )}
+        </DiarySection>
+      </div>
+
+      {viewingSelf && session ? (
+        <DiarySection title="Registrar movimiento de caja">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <Field label="Categoría">
+              <Select value={movCategory} onChange={(e) => setMovCategory(e.target.value)} className="min-h-10">
+                {MOVEMENT_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Monto">
+              <Input type="number" step="any" value={movAmount} onChange={(e) => setMovAmount(e.target.value)} className="min-h-10" />
+            </Field>
+            <Field label="Nota (opc.)">
+              <Input value={movNote} onChange={(e) => setMovNote(e.target.value)} className="min-h-10" />
+            </Field>
+            <label className="flex cursor-pointer items-center gap-2 pt-7 text-sm font-medium text-pf-text">
+              <input type="checkbox" checked={movVoucher} onChange={(e) => setMovVoucher(e.target.checked)} className="h-4 w-4" />
+              Comprobante
+            </label>
+          </div>
+          <Button type="button" className="mt-3 min-h-11" onClick={() => void addCashMovement()} disabled={movBusy}>
+            {movBusy ? "Guardando…" : "Agregar movimiento"}
+          </Button>
+        </DiarySection>
+      ) : null}
+
+      {diary.movements.length > 0 ? (
+        <DiarySection title="Movimientos manuales registrados">
+          {isAdmin ? (
+            <p className="mb-2 text-xs text-pf-text-secondary">
+              Como administrador puede corregir la categoría o la nota de un movimiento ya registrado (el monto no se altera).
+            </p>
+          ) : null}
+          <div className="max-h-56 overflow-y-auto rounded-xl border border-pf-border bg-white">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-pf-surface-soft">
+                <tr className="border-b border-pf-border text-left text-xs font-bold uppercase text-pf-text-tertiary">
+                  <th className="px-3 py-2">Hora</th>
+                  <th className="px-3 py-2">Tipo</th>
+                  <th className="px-3 py-2 text-right">Monto</th>
+                  <th className="px-3 py-2">Nota</th>
+                  {isAdmin ? (
+                    <>
+                      <th className="px-3 py-2">Corregir tipo</th>
+                      <th className="px-3 py-2">Corregir nota</th>
+                      <th className="px-3 py-2 w-24" />
+                    </>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
-                {diary.sales.map((s) => (
-                  <tr key={s.id}>
-                    <td>{formatTimeOnly(s.saleDate)}</td>
-                    <td>{s.invoiceNumber ?? s.id.slice(0, 6)}</td>
-                    <td>{s.terms}</td>
-                    <td className="cash-number">{formatMoney(sym, s.total)}</td>
+                {diary.movements.map((m) => (
+                  <CashMovementTableRow
+                    key={m.id}
+                    movement={m}
+                    sym={sym}
+                    token={token}
+                    isAdmin={isAdmin}
+                    onPatched={refresh}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </DiarySection>
+      ) : null}
+
+      {isAdmin && adminSummary && adminSummary.sessions.length > 0 ? (
+        <DiarySection title={`Diario general (admin) — ${adminSummary.date}`}>
+          <p className="mb-2 text-xs text-pf-text-secondary">
+            Suma de turnos del día: ventas {formatMoney(sym, adminSummary.totals.ventasTotal)} · efectivo sugerido{" "}
+            {formatMoney(sym, adminSummary.totals.efectivoCajaSugerido)}
+          </p>
+          <div className="max-h-64 overflow-y-auto rounded-xl border border-pf-border bg-white">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-pf-surface-soft">
+                <tr className="text-left text-xs font-bold uppercase text-pf-text-tertiary">
+                  <th className="px-3 py-2">Cajero</th>
+                  <th className="px-3 py-2">Apertura</th>
+                  <th className="px-3 py-2">Cierre</th>
+                  <th className="px-3 py-2 text-right">Ventas</th>
+                  <th className="px-3 py-2 text-right">Efectivo sug.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adminSummary.sessions.map((s) => (
+                  <tr key={s.sessionId} className="border-b border-pf-border/70">
+                    <td className="px-3 py-2">{s.user.displayName}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs">{formatDate(s.openedAt)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs">{s.closedAt ? formatDate(s.closedAt) : "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatMoney(sym, s.ventasTotal)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatMoney(sym, s.efectivoCajaSugerido)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )
-      ) : !diary.movements.length ? (
-        <div className="cash-empty-inline">
-          <p>No hay movimientos manuales en este turno.</p>
-          <span>
-            Aquí se muestran los ingresos, retiros y ajustes registrados en
-            caja.
-          </span>
-        </div>
-      ) : (
-        <>
-          {user?.role === "admin" && (
-            <div className="cash-edit-toolbar">
-              <Button variant="ghost" onClick={() => setEditing(!editing)}>
-                {editing
-                  ? "Terminar correcciones"
-                  : "Corregir categoría o nota"}
-              </Button>
-            </div>
-          )}
-          <div className="cash-table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Hora</th>
-                  <th>Tipo</th>
-                  <th className="cash-number">Monto</th>
-                  <th>Nota</th>
-                  {editing && <th>Corrección</th>}
+        </DiarySection>
+      ) : null}
+
+      {diary.sales.length > 0 ? (
+        <DiarySection title="Movimientos del turno">
+          <div className="max-h-72 overflow-y-auto rounded-xl border border-pf-border bg-white">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-pf-surface-soft">
+                <tr className="border-b border-pf-border text-left text-xs font-bold uppercase tracking-wide text-pf-text-tertiary">
+                  <th className="px-3 py-2">Hora</th>
+                  <th className="px-3 py-2">Documento</th>
+                  <th className="px-3 py-2">Términos</th>
+                  <th className="px-3 py-2 text-right">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {diary.movements.map((m) => (
-                  <MovementRow
-                    key={m.id}
-                    movement={m}
-                    sym={sym}
-                    token={token}
-                    editing={editing && user?.role === "admin"}
-                    refresh={refresh}
-                  />
+                {diary.sales.map((s) => (
+                  <tr key={s.id} className="border-b border-pf-border/70 last:border-b-0">
+                    <td className="px-3 py-2 whitespace-nowrap text-pf-text-secondary">{formatTimeOnly(s.saleDate)}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-pf-text">{s.invoiceNumber ?? s.id.slice(0, 6)}</td>
+                    <td className="px-3 py-2 text-pf-text-secondary">{s.terms}</td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-pf-text">{formatMoney(sym, s.total)}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </>
-      )}
-    </section>
-  );
-}
-function MovementRow({
-  movement: m,
-  sym,
-  token,
-  editing,
-  refresh,
-}: {
-  movement: DiaryMovement;
-  sym: string;
-  token: string | null;
-  editing: boolean;
-  refresh: () => void;
-}) {
-  const [category, setCategory] = useState(m.category);
-  const [note, setNote] = useState(m.note ?? "");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  useEffect(() => {
-    setCategory(m.category);
-    setNote(m.note ?? "");
-  }, [m.category, m.note, editing]);
-  const dirty =
-    category !== m.category || note.trim() !== (m.note ?? "").trim();
-  async function save() {
-    if (!token || busy || !dirty) return;
-    setBusy(true);
-    setErr("");
-    try {
-      await apiFetch(`/api/cash-movements/${m.id}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ category, note: note.trim() || null }),
-      });
-      refresh();
-    } catch (e) {
-      setErr(
-        e instanceof Error ? e.message : "No se pudo corregir el movimiento.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <tr>
-      <td>{formatTimeOnly(m.createdAt)}</td>
-      <td>
-        {editing ? (
-          <Select
-            aria-label="Corregir categoría"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
-        ) : (
-          categoryLabel(m.category)
-        )}
-      </td>
-      <td className="cash-number">{formatMoney(sym, m.amount)}</td>
-      <td>
-        {editing ? (
-          <Input
-            aria-label="Corregir nota"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-        ) : (
-          m.note || "—"
-        )}
-        {m.hasVoucher && (
-          <small className="cash-voucher">Con comprobante</small>
-        )}
-      </td>
-      {editing && (
-        <td>
-          <Button
-            variant="secondary"
-            disabled={busy || !dirty}
-            onClick={() => void save()}
-          >
-            {busy ? "Guardando…" : "Guardar"}
-          </Button>
-          {err && (
-            <p className="cash-error" role="alert">
-              {err}
-            </p>
-          )}
-        </td>
-      )}
-    </tr>
+        </DiarySection>
+      ) : null}
+    </div>
   );
 }

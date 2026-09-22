@@ -2,7 +2,7 @@ export const PF_THEME_STORAGE_KEY = "pf-theme";
 
 export const PF_THEME_META_COLOR_VAR = "--pf-theme-color";
 
-export type PfThemeId = "default" | "slate" | "ocean" | "night";
+export type PfThemeId = "default" | "slate" | "ocean";
 
 export type PfThemePreset = {
   id: PfThemeId;
@@ -28,12 +28,6 @@ export const PF_THEME_PRESETS: Record<PfThemeId, PfThemePreset> = {
     label: "Ocean",
     datasetValue: "ocean",
     fallbackThemeColor: "#eef8ff",
-  },
-  night: {
-    id: "night",
-    label: "Nocturno",
-    datasetValue: "night",
-    fallbackThemeColor: "#101614",
   },
 };
 

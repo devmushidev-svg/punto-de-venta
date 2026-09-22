@@ -24,8 +24,6 @@ npm-debug.log*
 
 # Claude Code local
 .claude/
-.agents/
-.playwright-cli/
 
 # OS / editor
 .DS_Store

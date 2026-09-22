@@ -23,11 +23,10 @@ type Props = {
   open: boolean;
   onClose: () => void;
   existingCustomerId?: string | null;
-  initialValues?: Partial<typeof emptyForm>;
   onSaved: (customer: Customer) => void;
 };
 
-export function CustomerModal({ open, onClose, existingCustomerId = null, initialValues, onSaved }: Props) {
+export function CustomerModal({ open, onClose, existingCustomerId = null, onSaved }: Props) {
   const { token } = useAuth();
   const [form, setForm] = useState(emptyForm);
   const [err, setErr] = useState("");
@@ -37,7 +36,7 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, initia
   useEffect(() => {
     if (!open || !token) return;
     if (!existingCustomerId) {
-      setForm({ ...emptyForm, ...initialValues });
+      setForm(emptyForm);
       setErr("");
       setLoading(false);
       return;
@@ -66,7 +65,7 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, initia
     return () => {
       cancelled = true;
     };
-  }, [open, existingCustomerId, token, initialValues]);
+  }, [open, existingCustomerId, token]);
 
   function clearForm() {
     setErr("");
@@ -206,7 +205,7 @@ export function CustomerModal({ open, onClose, existingCustomerId = null, initia
         </div>
       ) : null}
 
-      {err ? <p className="mt-3 text-sm font-medium text-pf-danger">{err}</p> : null}
+      {err ? <p className="mt-3 text-sm font-medium text-red-600">{err}</p> : null}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-pf-border pt-4">
         <Button

@@ -1,28 +1,24 @@
-import { Columns3, Eye, FileText, FilterX, History, Inbox, Pencil, Plus, Printer, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Eye,
+  FileText,
+  FilterX,
+  Inbox,
+  Pencil,
+  Plus,
+  Printer,
+  RefreshCw,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
-import { Button, Card, EmptyState, Input, Modal, PaginationBar, Select, Textarea } from "../components/ui";
-import { ToolbarButton, ToolbarSeparator } from "../components/DocumentToolbar";
+import { Button, Card, EmptyState, Input, PaginationBar, Select } from "../components/ui";
 import { formatDateOnly, formatMoney, formatTimeOnly } from "../lib/format";
-import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import { isCreditSaleTerm } from "../lib/saleTerms";
 import type { Customer, PaginatedResponse, Sale } from "../types";
-
-/** Fila de la bitacora de ventas eliminadas (GET /api/sales/eliminadas). */
-type DeletedSale = {
-  id: string;
-  invoiceNumber: string | null;
-  total: number;
-  saleDate: string;
-  deletedAt: string;
-  deletedReason: string | null;
-  customer: { name: string } | null;
-  user: { displayName: string };
-  deletedBy: { displayName: string } | null;
-};
 
 function saleStatus(s: Sale): string {
   const balance = s.total - s.paid;
@@ -47,12 +43,61 @@ const SALES_LIST_COL_DEFAULT: Record<SalesColKey, boolean> = {
   seller: false,
 };
 
+function RibbonTile({
+  icon: Icon,
+  line1,
+  line2,
+  onClick,
+  disabled,
+  title,
+  variant = "default",
+}: {
+  icon: LucideIcon;
+  line1: string;
+  line2: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  variant?: "default" | "primary" | "muted" | "danger";
+}) {
+  const iconBg =
+    variant === "primary"
+      ? "bg-gradient-to-b from-[color:var(--pf-primary-soft)] to-[color:var(--pf-warning-soft)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-ribbon-active-border)]"
+      : variant === "muted"
+        ? "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-muted)] text-pf-text-secondary ring-1 ring-[color:var(--pf-border-soft)]"
+        : variant === "danger"
+          ? "bg-gradient-to-b from-[color:var(--pf-danger-soft)] to-[color:var(--pf-warning-soft)] text-pf-danger ring-1 ring-[color:var(--pf-danger-soft)]"
+          : "bg-gradient-to-b from-[color:var(--pf-surface-soft)] to-[color:var(--pf-surface-elevated)] text-pf-primary-foreground ring-1 ring-[color:var(--pf-border-soft)]";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`pf-ribbon-tile-idle group flex min-w-[4.5rem] flex-col items-center gap-0.5 px-2 py-1 text-center transition active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:min-w-[5rem]`}
+    >
+      <span className={`pf-ribbon-icon-shell inline-flex rounded-lg p-1.5 ${iconBg}`}>
+        <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+      </span>
+      <span className="text-[10px] font-semibold leading-tight">{line1}</span>
+      <span className="text-[9px] leading-tight opacity-70">{line2}</span>
+    </button>
+  );
+}
+
+function RibbonGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="pf-ribbon-group flex flex-col items-stretch">
+      <div className="flex flex-1 flex-row items-end gap-0">{children}</div>
+      <span className="pf-ribbon-group-label">{title}</span>
+    </div>
+  );
+}
 
 export function SalesPage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
   const canEditSales = user?.role === "admin";
-  const canDeleteSales = hasPermission(user, PERMISSION_KEYS.SALES_DELETE);
   const canConfigColumns = user?.role === "admin";
   const sym = organization?.currencySymbol ?? "L";
   const navigate = useNavigate();
@@ -71,16 +116,7 @@ export function SalesPage() {
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const selectedSale = list.find((s) => s.id === selectedSaleId) ?? null;
-  const [auditOpen, setAuditOpen] = useState(false);
-  const [audit, setAudit] = useState<DeletedSale[] | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteReason, setDeleteReason] = useState("");
-  const [deleteErr, setDeleteErr] = useState("");
-  const [deleting, setDeleting] = useState(false);
-
   const [colVis, setColVis] = useState<Record<SalesColKey, boolean>>(SALES_LIST_COL_DEFAULT);
-  const [colsOpen, setColsOpen] = useState(false);
   const hasFilters = Boolean(dateFrom || dateTo || debouncedQ.trim() || customerId || termsFilter);
 
   useEffect(() => {
@@ -160,89 +196,118 @@ export function SalesPage() {
     setTermsFilter("");
   }
 
-  function openSale(saleId: string) {
-    navigate(canEditSales ? `/ventas/${saleId}/editar` : `/ventas/${saleId}/ticket`);
-  }
-
-  /**
-   * Acciones sobre la venta seleccionada. "Nueva venta" no vive aqui: es la
-   * accion global de la barra lateral. Los filtros de fecha bajaron al panel
-   * de filtros, junto al resto.
-   */
   const ribbonBar = useMemo(
     () => (
       <>
-        <ToolbarButton
-          tone="primary"
-          icon={Eye}
-          label="Ver"
-          title="Ver el ticket de la venta seleccionada"
-          onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/ticket`)}
-          disabled={!selectedSaleId}
-        />
-        <ToolbarButton
-          icon={Pencil}
-          label="Editar"
-          title="Editar la venta seleccionada"
-          onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/editar`)}
-          disabled={!canEditSales || !selectedSaleId}
-        />
-        <ToolbarButton
-          icon={Printer}
-          label="Imprimir"
-          title="Imprimir el ticket de la venta seleccionada"
-          onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/ticket?print=1`)}
-          disabled={!selectedSaleId}
-        />
-        <ToolbarButton
-          icon={FileText}
-          label="Comprobante"
-          title="Ver el comprobante tamaño carta"
-          onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/comprobante`)}
-          disabled={!selectedSaleId}
-        />
-        <ToolbarSeparator />
-        <ToolbarButton
-          icon={RefreshCw}
-          label="Actualizar"
-          shortcut="F5"
-          title="Recargar la lista"
-          onClick={load}
-        />
-        <ToolbarButton
-          tone="danger"
-          icon={Trash2}
-          label="Eliminar"
-          title={
-            canDeleteSales
-              ? "Eliminar la venta seleccionada indicando el motivo"
-              : "Requiere el permiso sales.delete"
-          }
-          onClick={() => {
-            if (!selectedSaleId || !canDeleteSales) return;
-            setDeleteReason("");
-            setDeleteErr("");
-            setDeleteOpen(true);
-          }}
-          disabled={!canDeleteSales || !selectedSaleId}
-        />
-        {canEditSales ? (
-          <ToolbarButton
-            icon={History}
-            label="Eliminadas"
-            title="Ver las ventas eliminadas, con su motivo y quién las eliminó"
-            onClick={() => {
-              setAuditOpen(true);
-              setAudit(null);
-              apiFetch<DeletedSale[]>("/api/sales/eliminadas", { token: token! })
-                .then(setAudit)
-                .catch(() => setAudit([]));
-            }}
+        <RibbonGroup title="Facturas">
+          <RibbonTile
+            variant="primary"
+            icon={Plus}
+            line1="Nueva venta"
+            line2="estándar"
+            title="Crear nueva venta (abre pestaña Venta)"
+            onClick={() => navigate("/venta")}
           />
-        ) : null}
+          <RibbonTile
+            variant="default"
+            icon={Pencil}
+            line1="Editar"
+            line2="venta"
+            title="Editar la venta seleccionada"
+            onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/editar`)}
+            disabled={!canEditSales || !selectedSaleId}
+          />
+          <RibbonTile
+            variant="default"
+            icon={Eye}
+            line1="Ver"
+            line2="venta"
+            title="Ver ticket de la venta seleccionada"
+            onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/ticket`)}
+            disabled={!selectedSaleId}
+          />
+          <RibbonTile
+            variant="danger"
+            icon={Trash2}
+            line1="Eliminar"
+            line2="venta"
+            title="Eliminar la venta seleccionada (solo admin)"
+            onClick={() => {
+              if (!selectedSaleId || !canEditSales) return;
+              if (!window.confirm("¿Seguro que desea eliminar esta venta? Esta acción no se puede deshacer.")) return;
+              apiFetch(`/api/sales/${selectedSaleId}`, { method: "DELETE", token: token! })
+                .then(() => {
+                  setSelectedSaleId(null);
+                  void load();
+                })
+                .catch(() => alert("No se pudo eliminar la venta."));
+            }}
+            disabled={!canEditSales || !selectedSaleId}
+          />
+        </RibbonGroup>
+        <RibbonGroup title="Filtro fecha">
+          <div className="flex items-end gap-2 px-2 py-1">
+            <label className="text-[10px] font-semibold text-pf-text-tertiary">
+              Inicio
+              <Input
+                type="date"
+                className="mt-0.5 min-h-8 w-[130px] cursor-pointer text-xs"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+              />
+            </label>
+            <label className="text-[10px] font-semibold text-pf-text-tertiary">
+              Final
+              <Input
+                type="date"
+                className="mt-0.5 min-h-8 w-[130px] cursor-pointer text-xs"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+              />
+            </label>
+          </div>
+          <RibbonTile
+            variant="muted"
+            icon={RefreshCw}
+            line1="F5 Actualizar"
+            line2="lista"
+            title="Recargar la lista de ventas"
+            onClick={load}
+          />
+          <RibbonTile
+            variant="default"
+            icon={FilterX}
+            line1="Limpiar"
+            line2="filtros"
+            title="Quitar todos los filtros"
+            onClick={clearFilters}
+          />
+        </RibbonGroup>
+        <RibbonGroup title="Imprimir / Ver">
+          <RibbonTile
+            variant="default"
+            icon={Printer}
+            line1="Imprimir"
+            line2="factura"
+            title="Ver e imprimir ticket de la venta seleccionada"
+            onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/ticket?print=1`)}
+            disabled={!selectedSaleId}
+          />
+          <RibbonTile
+            variant="default"
+            icon={FileText}
+            line1="Vista previa"
+            line2="factura"
+            title="Ver comprobante carta de la venta seleccionada"
+            onClick={() => selectedSaleId && navigate(`/ventas/${selectedSaleId}/comprobante`)}
+            disabled={!selectedSaleId}
+          />
+        </RibbonGroup>
       </>
     ),
-    [canEditSales, canDeleteSales, load, navigate, selectedSaleId, token]
+    [canEditSales, dateFrom, dateTo, load, navigate, selectedSaleId, token]
   );
 
   useLayoutEffect(() => {
@@ -263,25 +328,21 @@ export function SalesPage() {
 
   return (
     <div className="flex min-h-0 flex-col gap-3 pf-safe-page">
-      <Card className="space-y-3 p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-[180px] flex-1">
-            <label
-              htmlFor="sales-search"
-              className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-pf-muted"
-            >
-              Buscar
-            </label>
+      <Card className="space-y-3 p-3 sm:p-3.5">
+        <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+          <div className="min-w-[200px] flex-1">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-pf-text-tertiary">
+              Buscar venta por nombre o código
+            </span>
             <Input
-              id="sales-search"
               ref={searchRef}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
-              placeholder="Nombre o N° de factura…"
+              placeholder="Nombre, N° factura…"
               autoComplete="off"
             />
           </div>
-          <label className="min-w-[150px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-pf-text-tertiary shrink-0 min-w-[160px]">
             Cliente
             <Select className="mt-1 min-h-10" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
               <option value="">Todos</option>
@@ -292,7 +353,7 @@ export function SalesPage() {
               ))}
             </Select>
           </label>
-          <label className="min-w-[130px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-pf-text-tertiary shrink-0 min-w-[130px]">
             Términos
             <Select className="mt-1 min-h-10" value={termsFilter} onChange={(e) => setTermsFilter(e.target.value)}>
               <option value="">Todos</option>
@@ -308,48 +369,10 @@ export function SalesPage() {
               <option value="60 DIAS">60 días</option>
             </Select>
           </label>
-          <label className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
-            Desde
-            <Input
-              type="date"
-              className="mt-1 min-h-10 w-[140px] cursor-pointer"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-            />
-          </label>
-          <label className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
-            Hasta
-            <Input
-              type="date"
-              className="mt-1 min-h-10 w-[140px] cursor-pointer"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-            />
-          </label>
-          {hasFilters ? (
-            <Button type="button" variant="ghost" className="min-h-10 shrink-0" onClick={clearFilters}>
-              <FilterX className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              Limpiar
-            </Button>
-          ) : null}
-          {canConfigColumns ? (
-            <Button
-              type="button"
-              variant="secondary"
-              className="!hidden min-h-10 shrink-0 sm:!inline-flex"
-              aria-expanded={colsOpen}
-              onClick={() => setColsOpen((v) => !v)}
-            >
-              <Columns3 className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              Columnas
-            </Button>
-          ) : null}
         </div>
-
-        {canConfigColumns && colsOpen ? (
-          <div className="hidden flex-wrap gap-x-4 gap-y-2 border-t border-pf-border pt-3 text-xs sm:flex">
+        {canConfigColumns ? (
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-pf-border/60 pt-3 text-[11px] font-semibold text-pf-text-tertiary">
+            <span className="w-full text-pf-text">Columnas visibles:</span>
             {(
               [
                 ["date", "Fecha"],
@@ -364,10 +387,10 @@ export function SalesPage() {
                 ["seller", "Vendedor"],
               ] as [SalesColKey, string][]
             ).map(([key, label]) => (
-              <label key={key} className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium text-pf-text-secondary">
+              <label key={key} className="flex cursor-pointer items-center gap-1.5 text-pf-text">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-pf-border accent-[color:var(--pf-primary)]"
+                  className="h-3.5 w-3.5 rounded border-pf-border"
                   checked={colVis[key]}
                   onChange={(e) => persistColumns({ ...colVis, [key]: e.target.checked })}
                 />
@@ -376,6 +399,16 @@ export function SalesPage() {
             ))}
           </div>
         ) : null}
+        <div className="pf-table-toolbar mt-3">
+          <div className="flex flex-wrap gap-1.5">
+            <span className="pf-filter-chip">{total} venta(s)</span>
+            {debouncedQ.trim() ? <span className="pf-filter-chip">Busqueda: {debouncedQ.trim()}</span> : null}
+            {dateFrom || dateTo ? <span className="pf-filter-chip">Rango de fechas</span> : null}
+            {customerId ? <span className="pf-filter-chip">Cliente filtrado</span> : null}
+            {termsFilter ? <span className="pf-filter-chip">Terminos filtrados</span> : null}
+          </div>
+          <p className="text-xs font-medium text-pf-text-soft">{list.length} visibles en esta pagina</p>
+        </div>
       </Card>
 
       <Card className="pf-table-shell min-h-0 flex-1 overflow-hidden p-0">
@@ -406,89 +439,7 @@ export function SalesPage() {
           />
         ) : (
           <>
-          <div className="divide-y divide-pf-border-soft sm:hidden" role="list" aria-label="Ventas">
-            {list.map((s) => {
-              const balance = s.total - s.paid;
-              const selected = selectedSaleId === s.id;
-              const status = saleStatus(s);
-              const invoice = s.invoiceNumber ?? "Venta sin factura";
-              const ActionIcon = canEditSales ? Pencil : Eye;
-              const actionLabel = canEditSales ? "Editar" : "Ver ticket";
-
-              return (
-                <article
-                  key={s.id}
-                  role="listitem"
-                  className={`p-3 transition-colors ${
-                    selected ? "bg-pf-primary-soft shadow-[inset_3px_0_0_0_var(--pf-primary-mid)]" : "bg-pf-surface-elevated"
-                  }`}
-                  aria-current={selected ? "true" : undefined}
-                >
-                  <button
-                    type="button"
-                    className="flex w-full touch-manipulation items-start justify-between gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
-                    aria-pressed={selected}
-                    aria-label={`Seleccionar ${invoice}`}
-                    onClick={() => setSelectedSaleId(s.id)}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-mono text-xs font-semibold text-pf-text">{invoice}</span>
-                      <span className="mt-1 block truncate text-sm font-semibold text-pf-text">
-                        {s.customer?.name ?? "Consumidor final"}
-                      </span>
-                      <span className="mt-1 block text-xs text-pf-muted">
-                        {formatDateOnly(s.saleDate)} · {formatTimeOnly(s.saleDate)}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-right">
-                      <span className="block text-base font-bold tabular-nums text-pf-text">
-                        {formatMoney(sym, s.total)}
-                      </span>
-                      {balance > 0.009 ? (
-                        <span className="mt-1 block text-xs font-medium tabular-nums text-pf-warning">
-                          Saldo {formatMoney(sym, balance)}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2 text-xs">
-                      <span className="truncate rounded-md bg-pf-surface px-2 py-1 font-medium text-pf-text-secondary">
-                        {s.terms}
-                      </span>
-                      <span
-                        className={
-                          status === "PAGADA"
-                            ? "font-semibold text-pf-success"
-                            : status === "CRÉDITO"
-                              ? "font-semibold text-pf-warning"
-                              : "font-semibold text-pf-text-soft"
-                        }
-                      >
-                        {status}
-                      </span>
-                    </div>
-                    <Button
-                      type="button"
-                      variant={canEditSales ? "secondary" : "ghost"}
-                      className="min-h-11 shrink-0 px-3 text-xs"
-                      aria-label={`${actionLabel}: ${invoice}`}
-                      onClick={() => {
-                        setSelectedSaleId(s.id);
-                        openSale(s.id);
-                      }}
-                    >
-                      <ActionIcon className="h-4 w-4" strokeWidth={2} aria-hidden />
-                      {actionLabel}
-                    </Button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-
-          <div className="hidden max-h-[min(600px,calc(100vh-14rem))] overflow-auto overscroll-contain sm:block">
+          <div className="max-h-[min(600px,calc(100vh-14rem))] overflow-auto overscroll-contain">
             <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1]">
                 <tr className="pf-table-thead text-left">
@@ -511,20 +462,21 @@ export function SalesPage() {
                   return (
                     <tr
                       key={s.id}
-                      aria-selected={selected}
-                      className={`pf-table-row cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
+                      className={`pf-table-row cursor-pointer transition ${
                         selected
-                          ? "bg-pf-primary-soft shadow-[inset_2px_0_0_0_var(--pf-primary-mid)]"
-                          : "hover:bg-pf-surface"
+                          ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
+                          : "hover:bg-pf-primary-soft/20"
                       }`}
                       onClick={() => setSelectedSaleId(s.id)}
                       onDoubleClick={() => {
-                        openSale(s.id);
+                        if (canEditSales) navigate(`/ventas/${s.id}/editar`);
+                        else navigate(`/ventas/${s.id}/ticket`);
                       }}
                       tabIndex={0}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
-                          openSale(s.id);
+                          if (canEditSales) navigate(`/ventas/${s.id}/editar`);
+                          else navigate(`/ventas/${s.id}/ticket`);
                         }
                       }}
                     >
@@ -566,123 +518,33 @@ export function SalesPage() {
               </tbody>
             </table>
           </div>
+          <div className="hidden">
+            <span>
+              Mostrando {list.length} de {total} ventas · PÃ¡gina {page} de {Math.max(1, Math.ceil(total / pageSize))}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-pf-border-soft bg-pf-surface-elevated px-2 py-1 font-semibold disabled:opacity-45"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-pf-border-soft bg-pf-surface-elevated px-2 py-1 font-semibold disabled:opacity-45"
+                disabled={page >= Math.max(1, Math.ceil(total / pageSize))}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
           <PaginationBar page={page} pageSize={pageSize} total={total} itemLabel="ventas" onPageChange={setPage} />
           </>
         )}
       </Card>
-
-      <Modal
-        open={deleteOpen}
-        title="Eliminar venta"
-        onClose={() => (deleting ? undefined : setDeleteOpen(false))}
-      >
-        <div className="space-y-3">
-          <p className="text-sm text-pf-text">
-            Va a eliminar la venta{" "}
-            <strong>{selectedSale?.invoiceNumber ?? "sin número"}</strong>
-            {selectedSale ? ` por ${formatMoney(sym, selectedSale.total)}` : ""}.
-          </p>
-          <div className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface p-3 text-xs text-pf-text-tertiary">
-            <p>La venta deja de contar en los listados, en los reportes y en la caja.</p>
-            <p className="mt-1">El inventario de sus productos vuelve a existencias.</p>
-            <p className="mt-1">
-              Queda registrada con su nombre, la fecha y el motivo. Un administrador puede consultarla después.
-            </p>
-          </div>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-pf-muted">
-              Motivo de la eliminación
-            </span>
-            <Textarea
-              autoFocus
-              value={deleteReason}
-              onChange={(e) => setDeleteReason(e.target.value)}
-              placeholder="Ej.: factura duplicada por error del cajero"
-              className="min-h-[80px]"
-              maxLength={300}
-            />
-          </label>
-          {deleteErr ? <p className="text-sm text-pf-danger">{deleteErr}</p> : null}
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" type="button" onClick={() => setDeleteOpen(false)} disabled={deleting}>
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            variant="danger"
-            disabled={deleteReason.trim().length < 4 || deleting || !selectedSaleId}
-            onClick={async () => {
-              if (!selectedSaleId || !token) return;
-              setDeleting(true);
-              setDeleteErr("");
-              try {
-                await apiFetch(`/api/sales/${selectedSaleId}`, {
-                  method: "DELETE",
-                  body: JSON.stringify({ reason: deleteReason.trim() }),
-                  token,
-                });
-                setDeleteOpen(false);
-                setSelectedSaleId(null);
-                void load();
-              } catch (e) {
-                setDeleteErr(e instanceof Error ? e.message : "No se pudo eliminar la venta.");
-              } finally {
-                setDeleting(false);
-              }
-            }}
-          >
-            {deleting ? "Eliminando…" : "Eliminar venta"}
-          </Button>
-        </div>
-      </Modal>
-
-      <Modal open={auditOpen} title="Ventas eliminadas" onClose={() => setAuditOpen(false)} wide>
-        {audit === null ? (
-          <p className="py-8 text-center text-sm text-pf-muted">Cargando…</p>
-        ) : audit.length === 0 ? (
-          <div className="py-8 text-center">
-            <p className="text-sm font-medium text-pf-text">No se ha eliminado ninguna venta.</p>
-            <p className="mt-1 text-sm text-pf-text-tertiary">
-              Cuando alguien elimine una, aparecerá aquí con el motivo y su nombre.
-            </p>
-          </div>
-        ) : (
-          <div className="max-h-[60vh] overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-pf-surface-elevated">
-                <tr className="border-b border-pf-border text-left text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
-                  <th scope="col" className="py-2 pr-3 font-semibold">Documento</th>
-                  <th scope="col" className="py-2 pr-3 text-right font-semibold">Total</th>
-                  <th scope="col" className="py-2 pr-3 font-semibold">Eliminó</th>
-                  <th scope="col" className="py-2 pr-3 font-semibold">Cuándo</th>
-                  <th scope="col" className="py-2 font-semibold">Motivo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {audit.map((d) => (
-                  <tr key={d.id} className="border-b border-pf-border last:border-0 align-top">
-                    <td className="py-2.5 pr-3">
-                      <span className="block font-medium text-pf-text">{d.invoiceNumber ?? "Sin número"}</span>
-                      <span className="block text-xs text-pf-text-tertiary">
-                        {d.customer?.name ?? "Consumidor final"} · vendió {d.user.displayName}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-semibold tabular-nums text-pf-text">
-                      {formatMoney(sym, d.total)}
-                    </td>
-                    <td className="py-2.5 pr-3 text-pf-text-secondary">{d.deletedBy?.displayName ?? "Usuario eliminado"}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 tabular-nums text-pf-text-tertiary">
-                      {formatDateOnly(d.deletedAt)} {formatTimeOnly(d.deletedAt)}
-                    </td>
-                    <td className="py-2.5 text-pf-text-tertiary">{d.deletedReason ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

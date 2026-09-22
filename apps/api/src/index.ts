@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
@@ -30,8 +29,6 @@ import {
 import { cashMovementDelta, isCashMovementCategory } from "./lib/cashMovementMath.js";
 import { adjustProductStock, migrateOrgProductStocks } from "./lib/productStockLocation.js";
 import { normalizeVolumePricesPayload, resolveProductUnitPrice } from "./lib/volumePrice.js";
-import { authorizedLinePrice } from "./lib/salePricing.js";
-import { DECLARED_ROUTES } from "./lib/authorizationManifest.js";
 import { getProductMovements } from "./lib/productMovements.js";
 import { buildSaleComprobantePdf } from "./lib/saleComprobantePdf.js";
 import {
@@ -70,27 +67,6 @@ import { buildStockTransferPrintHtml } from "./lib/stockTransferPrintHtml.js";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
 
-/** Importaciones están controladas en el borde para no entregar cuerpos arbitrarios a parsers. */
-const MAX_EXCEL_IMPORT_BYTES = 10 * 1024 * 1024;
-const MAX_BACKUP_IMPORT_BYTES = 20 * 1024 * 1024;
-const MAX_TRANSFER_IMPORT_BYTES = 2 * 1024 * 1024;
-
-function contentLengthExceeds(c: { req: { header(name: string): string | undefined } }, maxBytes: number): boolean {
-  const raw = c.req.header("content-length");
-  if (!raw) return false;
-  const length = Number(raw);
-  return Number.isFinite(length) && length > maxBytes;
-}
-
-/** Product prices are stored and displayed as final prices (ISV included). */
-function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
-  if (!Number.isFinite(gross) || !Number.isFinite(taxPercent) || taxPercent <= 0) {
-    return { net: gross, tax: 0 };
-  }
-  const tax = gross * (taxPercent / (100 + taxPercent));
-  return { net: gross - tax, tax };
-}
-
 const LOGO_UPLOAD_DIR = join(process.cwd(), "uploads", "logos");
 
 function isValidProductType(pt: string): pt is (typeof PRODUCT_TYPES)[number] {
@@ -105,14 +81,6 @@ const productIncludeKit = {
     },
   },
 } as const;
-
-// El cliente Prisma generado para SQLite no acepta `mode`; el entorno local usa
-// `file:...` y `contains` ya se comporta como LIKE sin distinguir mayúsculas.
-// En Postgres sí agregamos `mode: insensitive` para conservar esa experiencia.
-type InsContains = { contains: string; mode?: "insensitive" };
-const isSqliteDatabase = (process.env.DATABASE_URL ?? "").trim().startsWith("file:");
-const insContains = (value: string): InsContains =>
-  isSqliteDatabase ? { contains: value } : { contains: value, mode: "insensitive" };
 
 type PageMeta = { page: number; pageSize: number; skip: number; take: number };
 
@@ -228,22 +196,13 @@ function slugifyOrgName(name: string): string {
   return (base.slice(0, 48) || "org").replace(/^-+|-+$/g, "") || "org";
 }
 
-/** Comparacion en tiempo constante: `!==` filtra el secreto byte a byte. */
-function secretosIguales(a: string, b: string) {
-  const ba = Buffer.from(a, "utf8");
-  const bb = Buffer.from(b, "utf8");
-  // timingSafeEqual exige el mismo largo; comparar contra si mismo mantiene el costo fijo.
-  if (ba.length !== bb.length) return timingSafeEqual(ba, ba) && false;
-  return timingSafeEqual(ba, bb);
-}
-
 /** Primera organización sin JWT. Requiere `BOOTSTRAP_SECRET` y cabecera `X-Bootstrap-Secret`. */
 app.post("/admin/bootstrap-org", async (c) => {
   const secret = process.env.BOOTSTRAP_SECRET?.trim();
   if (!secret) {
     return c.json({ error: "Bootstrap deshabilitado (defina BOOTSTRAP_SECRET en el servidor)." }, 503);
   }
-  if (!secretosIguales((c.req.header("X-Bootstrap-Secret") || "").trim(), secret)) {
+  if ((c.req.header("X-Bootstrap-Secret") || "").trim() !== secret) {
     return c.json({ error: "Secreto inválido" }, 401);
   }
   const body = await c.req.json<{ name?: string; slug?: string; adminUsername?: string; adminPassword?: string }>();
@@ -472,18 +431,6 @@ function requireAnyPermission(...required: PermissionKey[]) {
 
 const api = new Hono<{ Variables: Variables }>();
 api.use("*", requireAuth);
-/**
- * Niega por defecto: una ruta de /api que no este declarada en el manifiesto se
- * rechaza. Olvidarse de decidir quien puede llamarla falla cerrado.
- */
-api.use("*", async (c, next) => {
-  const matched = (c.req.matchedRoutes ?? []).filter((r) => r.method !== "ALL");
-  const final = matched[matched.length - 1];
-  if (final && !DECLARED_ROUTES.has(`${final.method} ${final.path}`)) {
-    return c.json({ error: "Ruta sin autorizacion declarada en el manifiesto." }, 403);
-  }
-  await next();
-});
 
 api.get("/auth/me", async (c) => {
   const jwt = c.get("jwt");
@@ -733,7 +680,6 @@ api.post("/org/logo", requireAdmin, async (c) => {
   const ext =
     type === "image/png" ? "png" : type === "image/jpeg" || type === "image/jpg" ? "jpg" : type === "image/webp" ? "webp" : null;
   if (!ext) return c.json({ error: "Use imagen PNG, JPEG o WebP" }, 400);
-  // ponytail: logo en disco local. En la nube no persiste tras redeploy; subir al bucket Supabase punto-flow si molesta.
   await mkdir(LOGO_UPLOAD_DIR, { recursive: true });
   const buf = Buffer.from(await blob.arrayBuffer());
   const filename = `${jwt.orgId}.${ext}`;
@@ -876,7 +822,7 @@ api.get("/products", async (c) => {
 
   const where: {
     organizationId: string;
-    OR?: { name?: InsContains; sku?: InsContains; barcode?: InsContains; quickCode?: InsContains }[];
+    OR?: { name?: { contains: string }; sku?: { contains: string }; barcode?: { contains: string }; quickCode?: { contains: string } }[];
     stock?: { gt?: number; lte?: number };
     supplierId?: string;
     active?: boolean;
@@ -897,18 +843,18 @@ api.get("/products", async (c) => {
       .filter(Boolean);
     if (tokens.length > 1) {
       where.OR = tokens.flatMap((token) => [
-        { name: insContains(token) },
-        { sku: insContains(token) },
-        { barcode: insContains(token) },
-        { quickCode: insContains(token) },
+        { name: { contains: token } },
+        { sku: { contains: token } },
+        { barcode: { contains: token } },
+        { quickCode: { contains: token } },
       ]);
     } else {
       const term = tokens[0] ?? q;
       where.OR = [
-        { name: insContains(term) },
-        { sku: insContains(term) },
-        { barcode: insContains(term) },
-        { quickCode: insContains(term) },
+        { name: { contains: term } },
+        { sku: { contains: term } },
+        { barcode: { contains: term } },
+        { quickCode: { contains: term } },
       ];
     }
   }
@@ -992,7 +938,7 @@ api.get("/products/labels/preview", requireAdmin, async (c) => {
   const rows = products
     .map(
       (p) =>
- `<div class="lbl"><div class="bc">${escapeHtml(p.barcode ?? p.sku)}</div><strong>${escapeHtml(p.name)}</strong><div>${escapeHtml(p.sku)}</div><div>L ${p.price.toFixed(2)}</div></div>`
+ `<div class="lbl"><div class="bc">${p.barcode ?? p.sku}</div><strong>${escapeHtml(p.name)}</strong><div>${p.sku}</div><div>L ${p.price.toFixed(2)}</div></div>`
     )
     .join("");
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
@@ -1421,31 +1367,12 @@ api.post("/sales", async (c) => {
     paid?: number;
     /** ISO 8601; si se omite se usa la fecha/hora del servidor. */
     saleDate?: string;
-    /** Clave de idempotencia para ventas reenviadas tras estar offline. */
-    clientRef?: string;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
 
-  const saleInclude = {
-    lines: { include: { product: true } },
-    customer: true,
-    user: { select: { id: true, displayName: true, username: true } },
-  } as const;
-  const clientRef = typeof body.clientRef === "string" && body.clientRef.trim() ? body.clientRef.trim() : null;
-  if (clientRef) {
-    const existing = await prisma.sale.findFirst({
-      where: { clientRef, organizationId: jwt.orgId },
-      include: saleInclude,
-    });
-    if (existing) return c.json(existing, 201); // idempotente: ya se proceso este reenvio
-  }
-
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
-  /** Apartarse del precio de catalogo o aplicar descuento exige permiso; admin siempre puede. */
-  const canOverride =
-    jwt.role === "admin" || (jwt.perms?.includes(PERMISSION_KEYS.SALES_PRICE_OVERRIDE) ?? false);
   const localContext = await ensureDefaultBranchDevice(jwt.orgId);
 
   if (isCreditSaleTerm(terms)) {
@@ -1483,19 +1410,15 @@ api.post("/sales", async (c) => {
       } else if (!isService && product.stock < line.qty && !allowOversell) {
         throw new Error("INSUFFICIENT_STOCK");
       }
-      const { unitPrice, discountPercent } = authorizedLinePrice({
-        product,
-        qty: line.qty,
-        priceTier,
-        requestedUnitPrice: line.unitPrice,
-        requestedDiscountPercent: line.discountPercent,
-        canOverride,
-      });
-      const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
+      const unitPrice =
+        line.unitPrice ?? resolveProductUnitPrice(product, line.qty, priceTier);
+      const discountPercent = line.discountPercent ?? 0;
+      const base = unitPrice * line.qty * (1 - discountPercent / 100);
       const taxPercent = product.taxPercent;
-      const split = splitTaxIncluded(lineTotal, taxPercent);
-      subtotal += split.net;
-      tax += split.tax;
+      const lineTax = base * (taxPercent / 100);
+      const lineTotal = base + lineTax;
+      subtotal += base;
+      tax += lineTax;
       saleLines.push({
         productId: product.id,
         qty: line.qty,
@@ -1583,11 +1506,14 @@ api.post("/sales", async (c) => {
         total,
         paid,
         saleDate: saleDateResolved,
-        clientRef,
         syncStatus: "PENDING",
         lines: { create: saleLines },
       },
-      include: saleInclude,
+      include: {
+        lines: { include: { product: true } },
+        customer: true,
+        user: { select: { id: true, displayName: true, username: true } },
+      },
     });
 
     for (const line of saleLines) {
@@ -1621,8 +1547,6 @@ api.post("/sales", async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
-    if (msg === "PRICE_OVERRIDE_FORBIDDEN")
-      return c.json({ error: "No tiene permiso para vender a un precio distinto del catalogo ni aplicar descuentos." }, 403);
     if (msg === "INSUFFICIENT_STOCK") return c.json({ error: "Stock insuficiente" }, 400);
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
@@ -1635,14 +1559,6 @@ api.post("/sales", async (c) => {
         { error: "Fecha de venta posterior al límite de autorización SAR; revise configuración o la fecha del documento" },
         400
       );
-    }
-    // Idempotencia ante carrera: dos reenvíos casi simultáneos chocan en clientRef único → devolver la ya creada.
-    if (clientRef && typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
-      const existing = await prisma.sale.findFirst({
-        where: { clientRef, organizationId: jwt.orgId },
-        include: saleInclude,
-      });
-      if (existing) return c.json(existing, 201);
     }
     throw e;
   }
@@ -1662,7 +1578,7 @@ api.get("/sales", async (c) => {
   const where: {
     organizationId: string;
     saleDate?: { gte?: Date; lte?: Date };
-    OR?: ({ invoiceNumber?: InsContains } | { customer?: { name: InsContains } })[];
+    OR?: ({ invoiceNumber?: { contains: string } } | { customer?: { name: { contains: string } } })[];
     customerId?: string;
     terms?: string | { in: string[] };
     NOT?: { terms: { in: string[] } };
@@ -1678,7 +1594,7 @@ api.get("/sales", async (c) => {
     }
   }
   if (q) {
-    where.OR = [{ invoiceNumber: insContains(q) }, { customer: { name: insContains(q) } }];
+    where.OR = [{ invoiceNumber: { contains: q } }, { customer: { name: { contains: q } } }];
   }
   if (customerId) where.customerId = customerId;
   if (termsGroup === "credit") {
@@ -1732,34 +1648,6 @@ api.get("/sales", async (c) => {
       user: { select: { id: true, displayName: true, username: true } },
       lines: { include: { product: true } },
     },
-  });
-  return c.json(sales);
-});
-
-/**
- * Bitacora de ventas eliminadas. Va declarada ANTES de `/sales/:id`, porque
- * Hono resuelve en orden de registro y el parametro se comeria "eliminadas".
- * Pasar `deletedAt` explicito desactiva el filtro de lib/prisma.ts.
- */
-api.get("/sales/eliminadas", requireAdmin, async (c) => {
-  const jwt = c.get("jwt");
-  const sales = await prisma.sale.findMany({
-    where: { organizationId: jwt.orgId, deletedAt: { not: null } },
-    select: {
-      id: true,
-      invoiceNumber: true,
-      total: true,
-      terms: true,
-      saleDate: true,
-      deletedAt: true,
-      deletedReason: true,
-      customer: { select: { name: true } },
-      user: { select: { displayName: true, username: true } },
-      deletedBy: { select: { displayName: true, username: true } },
-      _count: { select: { lines: true } },
-    },
-    orderBy: { deletedAt: "desc" },
-    take: 500,
   });
   return c.json(sales);
 });
@@ -1854,11 +1742,12 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         }
         const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, priceTier);
         const discountPercent = line.discountPercent ?? 0;
-        const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
+        const base = unitPrice * line.qty * (1 - discountPercent / 100);
         const taxPercent = product.taxPercent;
-        const split = splitTaxIncluded(lineTotal, taxPercent);
-        subtotal += split.net;
-        tax += split.tax;
+        const lineTax = base * (taxPercent / 100);
+        const lineTotal = base + lineTax;
+        subtotal += base;
+        tax += lineTax;
         saleLines.push({
           productId: product.id,
           qty: line.qty,
@@ -1942,63 +1831,6 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         { error: "Fecha de venta posterior al límite de autorización SAR; revise configuración o la fecha del documento" },
         400
       );
-    }
-    throw e;
-  }
-});
-
-/**
- * Eliminar una venta NO la borra de la base: queda con `deletedAt`, quien la
- * elimino y el motivo, y la consulta la esconde de listados, reportes y caja
- * (ver lib/prisma.ts). El motivo es obligatorio: una bitacora que dice "se
- * elimino" sin decir por que no sirve para auditar nada.
- *
- * El inventario vuelve: si la venta no ocurrio, la mercancia no salio.
- */
-api.delete("/sales/:id", requirePermission(PERMISSION_KEYS.SALES_DELETE), async (c) => {
-  const jwt = c.get("jwt");
-  const saleId = c.req.param("id");
-  const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }));
-  const reason = (body.reason ?? "").trim();
-  if (reason.length < 4) {
-    return c.json({ error: "Indique el motivo de la eliminación (mínimo 4 caracteres)." }, 400);
-  }
-
-  try {
-    const resultado = await prisma.$transaction(async (tx) => {
-      const venta = await tx.sale.findFirst({
-        where: { id: saleId, organizationId: jwt.orgId },
-        include: { lines: true, receivableSurcharges: true },
-      });
-      if (!venta) throw new Error("SALE_NOT_FOUND");
-      if (venta.receivableSurcharges.length > 0) throw new Error("SALE_HAS_SURCHARGES");
-
-      for (const linea of venta.lines) {
-        await restoreStockForSaleLine(tx, jwt.orgId, { productId: linea.productId, qty: linea.qty });
-      }
-
-      return tx.sale.update({
-        where: { id: venta.id },
-        data: {
-          deletedAt: new Date(),
-          deletedById: jwt.sub,
-          deletedReason: reason.slice(0, 300),
-        },
-        select: { id: true, invoiceNumber: true, total: true, deletedAt: true, deletedReason: true },
-      });
-    });
-    return c.json({ ...resultado, inventarioDevuelto: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "";
-    if (msg === "SALE_NOT_FOUND") return c.json({ error: "Venta no encontrada" }, 404);
-    if (msg === "SALE_HAS_SURCHARGES") {
-      return c.json(
-        { error: "No se puede eliminar una venta con recargos en cuentas por cobrar. Quite los recargos primero." },
-        400
-      );
-    }
-    if (msg === "PRODUCT_NOT_FOUND") {
-      return c.json({ error: "Un producto de la venta ya no existe; no se puede devolver su inventario." }, 400);
     }
     throw e;
   }
@@ -2536,43 +2368,6 @@ api.post("/auth/verify-password", async (c) => {
   return c.json({ ok: true });
 });
 
-/** Fecha local YYYY-MM-DD. toISOString() agruparia en UTC y moveria las ventas
- *  de la tarde al dia siguiente. */
-function ymdLocal(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** Totales por dia para la tendencia del inicio. Agrupa en JS: son pocos dias. */
-api.get("/reports/sales-daily", requirePermission(PERMISSION_KEYS.REPORTS_VIEW), async (c) => {
-  const jwt = c.get("jwt");
-  const raw = Number(c.req.query("days"));
-  const days = Number.isFinite(raw) ? Math.min(90, Math.max(2, Math.trunc(raw))) : 14;
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - (days - 1));
-  const sales = await prisma.sale.findMany({
-    where: { organizationId: jwt.orgId, saleDate: { gte: start } },
-    select: { saleDate: true, total: true },
-  });
-  const buckets = new Map<string, { total: number; count: number }>();
-  for (let i = 0; i < days; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    buckets.set(ymdLocal(d), { total: 0, count: 0 });
-  }
-  for (const s of sales) {
-    const key = ymdLocal(new Date(s.saleDate));
-    const b = buckets.get(key);
-    if (b) {
-      b.total += s.total;
-      b.count += 1;
-    }
-  }
-  return c.json({
-    days: [...buckets.entries()].map(([date, v]) => ({ date, total: v.total, count: v.count })),
-  });
-});
-
 api.get("/reports/sales-summary", requirePermission(PERMISSION_KEYS.REPORTS_VIEW), async (c) => {
   const jwt = c.get("jwt");
   const from = c.req.query("from");
@@ -2933,19 +2728,13 @@ api.post("/quotes", async (c) => {
       });
       if (!product) throw new Error("PRODUCT_NOT_FOUND");
       if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
-      const { unitPrice } = authorizedLinePrice({
-        product,
-        qty: line.qty,
-        priceTier: 1,
-        requestedUnitPrice: line.unitPrice,
-        canOverride:
-          jwt.role === "admin" || (jwt.perms?.includes(PERMISSION_KEYS.SALES_PRICE_OVERRIDE) ?? false),
-      });
-      const lineTotal = unitPrice * line.qty;
+      const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, 1);
+      const base = unitPrice * line.qty;
       const taxPercent = product.taxPercent;
-      const split = splitTaxIncluded(lineTotal, taxPercent);
-      subtotal += split.net;
-      tax += split.tax;
+      const lineTax = base * (taxPercent / 100);
+      const lineTotal = base + lineTax;
+      subtotal += base;
+      tax += lineTax;
       linesData.push({ productId: product.id, qty: line.qty, unitPrice, taxPercent, lineTotal });
     }
 
@@ -2970,8 +2759,6 @@ api.post("/quotes", async (c) => {
   });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
-    if (msg === "PRICE_OVERRIDE_FORBIDDEN")
-      return c.json({ error: "No tiene permiso para cotizar a un precio distinto del catalogo." }, 403);
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se incluyen en cotizaciones" }, 400);
     throw e;
@@ -3019,11 +2806,12 @@ api.patch("/quotes/:id", async (c) => {
         if (!product) throw new Error("PRODUCT_NOT_FOUND");
         if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
         const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, 1);
-        const lineTotal = unitPrice * line.qty;
+        const base = unitPrice * line.qty;
         const taxPercent = product.taxPercent;
-        const split = splitTaxIncluded(lineTotal, taxPercent);
-        subtotal += split.net;
-        tax += split.tax;
+        const lineTax = base * (taxPercent / 100);
+        const lineTotal = base + lineTax;
+        subtotal += base;
+        tax += lineTax;
         linesData.push({ productId: product.id, qty: line.qty, unitPrice, taxPercent, lineTotal });
       }
 
@@ -3131,10 +2919,11 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
       } else if (!isService && product.stock < l.qty) {
         throw new Error("STOCK");
       }
-      const lineTotal = l.unitPrice * l.qty;
-      const split = splitTaxIncluded(lineTotal, l.taxPercent);
-      subtotal += split.net;
-      tax += split.tax;
+      const base = l.unitPrice * l.qty;
+      const lineTax = base * (l.taxPercent / 100);
+      const lineTotal = base + lineTax;
+      subtotal += base;
+      tax += lineTax;
       saleLines.push({
         productId: l.productId,
         qty: l.qty,
@@ -3537,9 +3326,6 @@ api.get("/stock-transfers/:id/export-file", requirePermission(PERMISSION_KEYS.IN
 });
 
 api.post("/stock-transfers/import-file", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFERS), async (c) => {
-  if (contentLengthExceeds(c, MAX_TRANSFER_IMPORT_BYTES)) {
-    return c.json({ error: "El archivo de traslado excede el límite de 2 MB." }, 413);
-  }
   const jwt = c.get("jwt");
   const body = await c.req.json<{
     version?: number;
@@ -4194,50 +3980,19 @@ api.patch("/settings", requireAdmin, async (c) => {
   });
 });
 
-function parseIdList(raw: string | null | undefined): string[] {
-  if (!raw?.trim()) return [];
-  try {
-    const v = JSON.parse(raw) as unknown;
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Favoritos de venta tactil, por usuario. Antes se guardaban en
- * `organizationSettings` y cualquier cajero le cambiaba la pantalla a todos.
- * Quien nunca los configuro hereda una vez la lista vieja de la empresa, para
- * que nadie pierda lo que ya tenia.
- */
-api.get("/settings/touch-favorites", async (c) => {
-  const jwt = c.get("jwt");
-  const row = await prisma.user.findFirst({
-    where: { id: jwt.sub, organizationId: jwt.orgId },
-    select: { touchFavoritesJson: true },
-  });
-  if (row?.touchFavoritesJson != null) {
-    return c.json({ productIds: parseIdList(row.touchFavoritesJson), heredado: false });
-  }
-  const st = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
-  const general = JSON.parse(st?.generalJson || "{}") as Record<string, unknown>;
-  const legado = general.touchFavoriteProductIds;
-  const ids = Array.isArray(legado) ? legado.filter((x): x is string => typeof x === "string") : [];
-  return c.json({ productIds: ids, heredado: ids.length > 0 });
-});
-
 api.post("/settings/touch-favorites", async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{ productIds: string[] }>();
-  const ids = [
-    ...new Set(Array.isArray(body.productIds) ? body.productIds.filter((x) => typeof x === "string") : []),
-  ].slice(0, 200);
-  const r = await prisma.user.updateMany({
-    where: { id: jwt.sub, organizationId: jwt.orgId },
-    data: { touchFavoritesJson: JSON.stringify(ids) },
+  const ids = Array.isArray(body.productIds) ? body.productIds.filter((x) => typeof x === "string") : [];
+  let s = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+  if (!s) s = await prisma.organizationSettings.create({ data: { organizationId: jwt.orgId } });
+  const prevG = JSON.parse(s.generalJson || "{}") as Record<string, unknown>;
+  prevG.touchFavoriteProductIds = ids;
+  const updated = await prisma.organizationSettings.update({
+    where: { organizationId: jwt.orgId },
+    data: { generalJson: JSON.stringify(prevG) },
   });
-  if (r.count === 0) return c.json({ error: "Usuario no encontrado" }, 404);
-  return c.json({ productIds: ids });
+  return c.json({ general: JSON.parse(updated.generalJson) });
 });
 
 api.get("/backup/export", requireAdmin, async (c) => {
@@ -4340,9 +4095,6 @@ api.get("/backup/export", requireAdmin, async (c) => {
 });
 
 api.post("/backup/import", requireAdmin, async (c) => {
-  if (contentLengthExceeds(c, MAX_BACKUP_IMPORT_BYTES)) {
-    return c.json({ error: "El respaldo excede el límite de 20 MB." }, 413);
-  }
   const jwt = c.get("jwt");
   const body = await c.req.json<{
     payload?: unknown;
@@ -4411,9 +4163,6 @@ api.get("/import/template", requireAdmin, async (c) => {
 });
 
 api.post("/import/excel", requireAdmin, async (c) => {
-  if (contentLengthExceeds(c, MAX_EXCEL_IMPORT_BYTES)) {
-    return c.json({ error: "El archivo Excel excede el límite de 10 MB." }, 413);
-  }
   const jwt = c.get("jwt");
   const b = await c.req.parseBody();
   const type = String(b.type ?? "");
@@ -4422,9 +4171,6 @@ api.post("/import/excel", requireAdmin, async (c) => {
     return c.json({ error: "Archivo requerido (campo file)" }, 400);
   }
   const buf = new Uint8Array(await (file as Blob).arrayBuffer());
-  if (buf.byteLength > MAX_EXCEL_IMPORT_BYTES) {
-    return c.json({ error: "El archivo Excel excede el límite de 10 MB." }, 413);
-  }
   if (type === "products") {
     const r = await importProductsFromExcel(prisma, jwt.orgId, buf);
     return c.json({ imported: r.imported, errors: r.errors });
