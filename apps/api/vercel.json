@@ -3,17 +3,15 @@
   "builds": [
     {
       "src": "api/[[...path]].ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "node_modules/.prisma/client/**",
+          "node_modules/@prisma/client/**"
+        ]
+      }
     }
   ],
-  "functions": {
-    "api/[[...path]].ts": {
-      "includeFiles": [
-        "node_modules/.prisma/client/**",
-        "node_modules/@prisma/client/**"
-      ]
-    }
-  },
   "routes": [
     {
       "src": "/(.*)",
