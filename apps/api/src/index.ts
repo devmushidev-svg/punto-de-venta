@@ -166,7 +166,7 @@ async function ensureDefaultBranchDevice(organizationId: string) {
 
 type Variables = { jwt: JwtPayload };
 
-const app = new Hono<{ Variables: Variables }>();
+export const app = new Hono<{ Variables: Variables }>();
 
 const DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
 
@@ -4442,6 +4442,8 @@ api.post("/import/excel", requireAdmin, async (c) => {
 
 app.route("/api", api);
 
-const port = Number(process.env.PORT) || 3001;
-console.log(`API http://localhost:${port}`);
-serve({ fetch: app.fetch, port });
+if (process.env.VERCEL !== "1") {
+  const port = Number(process.env.PORT) || 3001;
+  console.log(`API http://localhost:${port}`);
+  serve({ fetch: app.fetch, port });
+}
