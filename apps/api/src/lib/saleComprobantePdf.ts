@@ -1,12 +1,50 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Customer, Organization, Product, Sale, SaleLine, User } from "@prisma/client";
 import PDFDocument from "pdfkit";
+
+type Organization = {
+  currencySymbol: string;
+  address: string | null;
+  city: string | null;
+  department: string | null;
+  zip: string | null;
+  logoUrl: string | null;
+  name: string;
+  slogan: string | null;
+  taxId: string | null;
+  taxIdType: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+type Customer = { name: string; taxId: string | null; address: string | null; phone: string | null };
+type Product = { name: string; sku: string };
+type SaleLine = {
+  product: Product;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+  discountPercent: number;
+  taxPercent: number;
+};
+type User = { displayName: string };
+type Sale = {
+  id: string;
+  invoiceNumber: string | null;
+  saleDate: Date;
+  terms: string;
+  dueDate: Date | null;
+  notes: string | null;
+  subtotal: number;
+  tax: number;
+  total: number;
+  paid: number;
+};
 
 export type SaleComprobanteModel = Sale & {
   customer: Customer | null;
   user: Pick<User, "displayName"> | null;
-  lines: (SaleLine & { product: Product })[];
+  lines: SaleLine[];
 };
 
 type ComprobanteCfg = { title?: string; showSku?: boolean };
