@@ -18,12 +18,14 @@ export function getCloudApiBase(): string {
 }
 
 const envApiBase = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") || "";
+const productionApiBase = "https://api-iota-ten-28.vercel.app";
+const defaultApiBase = envApiBase || productionApiBase;
 
 const base = () => {
   if (getConnectionMode() === "cloud") {
-    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || envApiBase;
+    return localStorage.getItem("pf_cloud_api_base") || localStorage.getItem("pf_api_base") || defaultApiBase;
   }
-  return localStorage.getItem("pf_api_base") || envApiBase;
+  return localStorage.getItem("pf_api_base") || defaultApiBase;
 };
 
 export function setApiBase(url: string) {
