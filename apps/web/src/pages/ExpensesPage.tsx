@@ -1,6 +1,6 @@
 import { Receipt, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
@@ -14,6 +14,8 @@ type ExpenseBookRow = {
   name: string;
   categories: { id: string; name: string }[];
 };
+
+type CashSessionStatus = { id: string } | null;
 
 const CATEGORIES = [
   { value: "Servicios públicos", label: "Servicios públicos" },
@@ -51,6 +53,7 @@ function startEndOfTodayISO() {
 
 export function ExpensesPage() {
   const { token, user, organization } = useAuth();
+  const navigate = useNavigate();
   const canView =
     user?.role === "admin" ||
     hasPermission(user, PERMISSION_KEYS.EXPENSES_VIEW);
@@ -75,6 +78,8 @@ export function ExpensesPage() {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [cashSessionChecked, setCashSessionChecked] = useState(false);
+  const [cashSessionOpen, setCashSessionOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !canView) return;
@@ -117,9 +122,36 @@ export function ExpensesPage() {
     void loadBooks();
   }, [loadBooks]);
 
+  const refreshCashSession = useCallback(async () => {
+    if (!token || !canRegister) {
+      setCashSessionChecked(true);
+      return;
+    }
+    setCashSessionChecked(false);
+    try {
+      const session = await apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token });
+      setCashSessionOpen(Boolean(session));
+    } catch {
+      setCashSessionOpen(false);
+    } finally {
+      setCashSessionChecked(true);
+    }
+  }, [token, canRegister]);
+
+  useEffect(() => {
+    void refreshCashSession();
+  }, [refreshCashSession]);
+
+  const cashRequiredBlocked = canRegister && cashSessionChecked && !cashSessionOpen;
+  const cashRequiredLoading = canRegister && !cashSessionChecked;
+
   async function submit() {
     if (!token || !canRegister) return;
     setErr("");
+    if (cashRequiredLoading || cashRequiredBlocked) {
+      setErr("Abra una caja antes de registrar gastos.");
+      return;
+    }
     if (bookId && !expenseCategoryId) {
       setErr("Elija una categoría del libro administrativo.");
       return;
@@ -319,12 +351,35 @@ export function ExpensesPage() {
             <div>
               <h2>Registrar gasto</h2>
               <p>
-                El registro aparece en la consulta y puede reflejarse en caja si
-                corresponde.
+                El registro aparece en la consulta y queda reflejado en la caja abierta.
               </p>
             </div>
             <Receipt size={20} className="text-pf-primary" aria-hidden />
           </div>
+          {cashRequiredLoading || cashRequiredBlocked ? (
+            <div className="space-y-3 rounded-xl border border-pf-warning/40 bg-pf-warning-soft/40 p-4">
+              <div>
+                <p className="font-semibold text-pf-text">
+                  {cashRequiredLoading ? "Verificando caja abierta…" : "Caja requerida para registrar gastos"}
+                </p>
+                <p className="mt-1 text-sm text-pf-text-secondary">
+                  {cashRequiredLoading
+                    ? "Estamos revisando si hay una caja abierta antes de permitir el gasto."
+                    : "Todo gasto sale de caja, por eso necesita una caja abierta."}
+                </p>
+              </div>
+              {cashRequiredBlocked ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" onClick={() => navigate("/caja")}>
+                    Abrir caja
+                  </Button>
+                  <Button type="button" variant="secondary" onClick={() => void refreshCashSession()}>
+                    Ya abrí caja, verificar
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="pf-admin-form-grid">
             <Field label="Libro administrativo (opc.)">
               <Select
@@ -401,7 +456,7 @@ export function ExpensesPage() {
             type="button"
             className="min-h-[52px] w-full text-base shadow-lg sm:w-auto"
             onClick={() => void submit()}
-            disabled={busy}
+            disabled={busy || cashRequiredLoading || cashRequiredBlocked}
           >
             Guardar gasto
           </Button>

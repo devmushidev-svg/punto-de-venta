@@ -15,6 +15,10 @@ dist/
 *.db
 *.db-journal
 
+# PostgreSQL local portatil para desarrollo (PGlite)
+.pglite-dev/
+.pglite-*/
+
 # Logs / caches
 npm-debug.log*
 .pnpm-debug.log*

@@ -1,11 +1,11 @@
-import { CircleHelp, LogIn, Save, Settings2 } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { apiFetch, getApiBase, setApiBase } from "../api/client";
+import { useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { BrandLogo } from "../components/BrandLogo";
 import { AppAmbient } from "../components/AppAmbient";
-import { Button, Card, Field, Input, Modal } from "../components/ui";
+import { Button, Card, Field, Input } from "../components/ui";
 
 type OrgRow = { id: string; slug: string; name: string };
 
@@ -19,8 +19,6 @@ export function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [apiBaseDraft, setApiBaseDraft] = useState(() => getApiBase());
 
   useEffect(() => {
     if (!loading && token) navigate("/", { replace: true });
@@ -88,7 +86,7 @@ export function LoginPage() {
               required={orgs.length > 0}
             >
               {orgs.length === 0 ? (
-                <option value="">Sin empresas (ejecute seed)</option>
+                <option value="">Sin empresas configuradas</option>
               ) : (
                 <>
                   <option value="">Seleccione empresa…</option>
@@ -103,9 +101,10 @@ export function LoginPage() {
           </Field>
           {orgs.find((o) => o.id === orgId)?.slug === "demo" ? (
             <p className="text-xs text-pf-muted leading-relaxed -mt-1">
-              Base <strong className="text-pf-text-secondary">demo</strong> (tras <code className="rounded bg-pf-surface px-1 text-[11px]">npm run db:seed</code>
-              ): <strong className="text-pf-text-secondary">ADMIN</strong> / <strong className="text-pf-text-secondary">admin</strong> o{" "}
-              <strong className="text-pf-text-secondary">CAJERO</strong> / <strong className="text-pf-text-secondary">cajero</strong> — mismo espíritu que el manual Smart POS.
+              Base <strong className="text-pf-text-secondary">demo</strong>:{" "}
+              <strong className="text-pf-text-secondary">ADMIN</strong> / <strong className="text-pf-text-secondary">admin</strong> o{" "}
+              <strong className="text-pf-text-secondary">CAJERO</strong> / <strong className="text-pf-text-secondary">cajero</strong> o{" "}
+              <strong className="text-pf-text-secondary">USUARIO</strong> / <strong className="text-pf-text-secondary">usuario</strong> — mismo espíritu que el manual Smart POS.
             </p>
           ) : null}
           <Field label="Usuario">
@@ -142,61 +141,7 @@ export function LoginPage() {
             {busy ? "Entrando…" : "Iniciar sesión"}
           </Button>
         </form>
-        <div className="mt-4 flex flex-col items-center gap-2">
-          <Link
-            to="/ayuda-publica"
-            className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-pf-primary-hover underline-offset-2 hover:underline"
-          >
-            <CircleHelp className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-            Ayuda / FAQ (sin iniciar sesión)
-          </Link>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center gap-1.5 text-sm text-pf-muted underline-offset-2 hover:text-pf-primary-hover hover:underline"
-            onClick={() => {
-              setApiBaseDraft(getApiBase());
-              setSettingsOpen(true);
-            }}
-          >
-            <Settings2 className="h-4 w-4 shrink-0 opacity-80" strokeWidth={2} aria-hidden />
-            Ajustes avanzados (URL del API)
-          </button>
-        </div>
       </Card>
-
-      <Modal
-        open={settingsOpen}
-        title="Ajustes avanzados"
-        onClose={() => setSettingsOpen(false)}
-        wide
-      >
-        <p className="mb-3 text-sm text-pf-muted">
-          Si el API no corre en el mismo origen, indica la URL base (sin barra final), por ejemplo{" "}
-          <code className="rounded bg-pf-primary-soft px-1">http://localhost:3001</code>
-        </p>
-        <Field label="URL base del API">
-          <Input
-            value={apiBaseDraft}
-            onChange={(e) => setApiBaseDraft(e.target.value)}
-            placeholder="Vacío = mismo servidor (proxy Vite)"
-          />
-        </Field>
-        <div className="mt-4 flex flex-wrap gap-2 justify-end">
-          <Button variant="secondary" type="button" onClick={() => setSettingsOpen(false)}>
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              setApiBase(apiBaseDraft);
-              setSettingsOpen(false);
-            }}
-          >
-            <Save className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-            Guardar
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }

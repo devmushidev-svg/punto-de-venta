@@ -233,11 +233,13 @@ function SidebarNav({
   salesWorkflow,
   onNavigate,
   onSaleDoc,
+  onNewSale,
 }: {
   expanded: boolean;
   salesWorkflow: SalesWorkflow;
   onNavigate?: () => void;
   onSaleDoc: boolean;
+  onNewSale: () => void;
 }) {
   const { user } = useAuth();
   const sections = sectionsFor(salesWorkflow)
@@ -246,10 +248,12 @@ function SidebarNav({
 
   return (
     <nav className="flex flex-col gap-5" aria-label="Navegación principal">
-      <NavLink
-        to={NEW_SALE.to}
-        end
-        onClick={onNavigate}
+      <button
+        type="button"
+        onClick={() => {
+          onNewSale();
+          onNavigate?.();
+        }}
         title={expanded ? undefined : NEW_SALE.label}
         aria-current={onSaleDoc ? "page" : undefined}
         className={`flex min-h-11 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
@@ -262,7 +266,7 @@ function SidebarNav({
       >
         <PlusCircle className="h-[18px] w-[18px] shrink-0" strokeWidth={2} aria-hidden />
         {expanded ? <span className="truncate">{NEW_SALE.label}</span> : <span className="sr-only">{NEW_SALE.label}</span>}
-      </NavLink>
+      </button>
 
       <div className="flex flex-col gap-0.5">
         {PRIMARY_ITEMS.map((item) => (
@@ -402,6 +406,27 @@ function saleDocumentTabLabel(pathname: string): string {
   return "Venta";
 }
 
+type SaleDocTab = { path: string; label: string };
+
+function isNewSaleTabPath(path: string): boolean {
+  return path === "/venta" || path.startsWith("/venta?");
+}
+
+function makeNewSaleTabPath(): string {
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return `/venta?tab=${id}`;
+}
+
+function saleDraftStorageKeyFor(path: string): string | null {
+  if (!path.startsWith("/venta")) return null;
+  const query = path.split("?")[1] ?? "";
+  const tab = new URLSearchParams(query).get("tab") || "default";
+  return `pf-sale-draft:${tab}`;
+}
+
 export function AppShell({ children }: { children?: ReactNode }) {
   const { token, user, organization, branch, device, logout } = useAuth();
   const location = useLocation();
@@ -415,7 +440,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const buildVersion = import.meta.env.VITE_APP_BUILD?.trim() || "";
   const [saleToolbarSlot, setSaleToolbarSlot] = useState<ReactNode>(null);
   const [salesListTabOpen, setSalesListTabOpen] = useState(false);
-  const [saleDocTabOpen, setSaleDocTabOpen] = useState(false);
+  const [saleDocTabs, setSaleDocTabs] = useState<SaleDocTab[]>([]);
+  const [newSaleConfirmOpen, setNewSaleConfirmOpen] = useState(false);
   const [salesWorkflow, setSalesWorkflow] = useState<SalesWorkflow>("mixed");
   const [syncStatus, setSyncStatus] = useState<{
     pendingEvents: number;
@@ -467,8 +493,16 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
   useEffect(() => {
     if (isSalesListPath(location.pathname)) setSalesListTabOpen(true);
-    if (isSaleDocPath(location.pathname)) setSaleDocTabOpen(true);
-  }, [location.pathname]);
+    if (isSaleDocPath(location.pathname)) {
+      const path = `${location.pathname}${location.search}`;
+      setSaleDocTabs((prev) => {
+        if (prev.some((t) => t.path === path)) return prev;
+        const baseLabel = saleDocumentTabLabel(location.pathname);
+        const label = location.pathname === "/venta" ? `Venta ${prev.length + 1}` : baseLabel;
+        return [...prev, { path, label }];
+      });
+    }
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -487,6 +521,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const saleDoc = isSaleDocumentPath(location.pathname);
   const onSalesList = isSalesListPath(location.pathname);
   const onSaleDoc = isSaleDocPath(location.pathname);
+  const currentPath = `${location.pathname}${location.search}`;
+  const activeNewSalePath =
+    saleDocTabs.find((tab) => tab.path === currentPath && isNewSaleTabPath(tab.path))?.path ??
+    saleDocTabs.find((tab) => isNewSaleTabPath(tab.path))?.path ??
+    null;
 
   useEffect(() => {
     if (!saleDoc) setSaleToolbarSlot(null);
@@ -524,6 +563,24 @@ export function AppShell({ children }: { children?: ReactNode }) {
   function doLogout() {
     logout();
     navigate("/login");
+  }
+
+  function openNewSale() {
+    if (activeNewSalePath) {
+      setNewSaleConfirmOpen(true);
+      return;
+    }
+    navigate(NEW_SALE.to);
+  }
+
+  function redirectToActiveSale() {
+    if (activeNewSalePath) navigate(activeNewSalePath);
+    setNewSaleConfirmOpen(false);
+  }
+
+  function createAnotherSale() {
+    navigate(makeNewSaleTabPath());
+    setNewSaleConfirmOpen(false);
   }
 
   const syncLabel = syncStatus
@@ -566,21 +623,34 @@ export function AppShell({ children }: { children?: ReactNode }) {
           onOpen={() => navigate("/ventas")}
           onClose={() => {
             setSalesListTabOpen(false);
-            if (onSalesList) navigate(saleDocTabOpen ? "/venta" : "/");
+            if (onSalesList) navigate(saleDocTabs[0]?.path ?? "/");
           }}
         />
       ) : null}
-      {saleDocTabOpen ? (
+      {saleDocTabs.map((tab, index) => (
         <OpenDocChip
-          label={onSaleDoc ? saleDocumentTabLabel(location.pathname) : "Venta"}
-          active={onSaleDoc}
-          onOpen={() => navigate("/venta")}
+          key={tab.path}
+          label={tab.label}
+          active={tab.path === currentPath}
+          onOpen={() => navigate(tab.path)}
           onClose={() => {
-            setSaleDocTabOpen(false);
-            if (onSaleDoc) navigate(salesListTabOpen ? "/ventas" : "/");
+            const storageKey = saleDraftStorageKeyFor(tab.path);
+            if (storageKey) {
+              try {
+                sessionStorage.removeItem(storageKey);
+              } catch {
+                /* sin almacenamiento disponible */
+              }
+            }
+            setSaleDocTabs((prev) => prev.filter((t) => t.path !== tab.path));
+            if (tab.path === currentPath) {
+              const remaining = saleDocTabs.filter((t) => t.path !== tab.path);
+              const fallback = remaining[index - 1]?.path ?? remaining[index]?.path;
+              navigate(fallback ?? (salesListTabOpen ? "/ventas" : "/"));
+            }
           }}
         />
-      ) : null}
+      ))}
     </>
   );
 
@@ -605,7 +675,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 [scrollbar-width:thin]">
-            <SidebarNav expanded={sidebarExpanded} salesWorkflow={salesWorkflow} onSaleDoc={onSaleDoc} />
+            <SidebarNav expanded={sidebarExpanded} salesWorkflow={salesWorkflow} onSaleDoc={onSaleDoc} onNewSale={openNewSale} />
           </div>
 
           <div className="shrink-0 border-t border-[color:var(--pf-sidebar-border)] p-2">
@@ -728,7 +798,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3">
-                <SidebarNav expanded salesWorkflow={salesWorkflow} onNavigate={() => setMenuOpen(false)} onSaleDoc={onSaleDoc} />
+                <SidebarNav expanded salesWorkflow={salesWorkflow} onNavigate={() => setMenuOpen(false)} onSaleDoc={onSaleDoc} onNewSale={openNewSale} />
               </div>
               <div className="shrink-0 space-y-2 border-t border-[color:var(--pf-sidebar-border)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <p className="truncate text-xs text-pf-muted">{user?.displayName}</p>
@@ -761,6 +831,32 @@ export function AppShell({ children }: { children?: ReactNode }) {
               <Button type="button" className="mt-4 w-full min-h-11" disabled={lockBusy} onClick={() => void unlockScreen()}>
                 {lockBusy ? "Verificando…" : "Desbloquear"}
               </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {newSaleConfirmOpen ? (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[color:var(--pf-modal-scrim-from)] px-4 print:hidden">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="new-sale-confirm-title"
+              className="w-full max-w-md rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface-elevated p-5 shadow-[var(--pf-shadow-warm-xl)]"
+            >
+              <p id="new-sale-confirm-title" className="text-base font-bold text-pf-text">
+                Ya existe una venta activa
+              </p>
+              <p className="mt-2 text-sm leading-6 text-pf-muted">
+                ¿Quieres redirigirte a esta venta o crear una nueva?
+              </p>
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button type="button" variant="secondary" className="min-h-11" onClick={redirectToActiveSale}>
+                  Ir a venta activa
+                </Button>
+                <Button type="button" className="min-h-11" onClick={createAnotherSale}>
+                  Crear nueva
+                </Button>
+              </div>
             </div>
           </div>
         ) : null}

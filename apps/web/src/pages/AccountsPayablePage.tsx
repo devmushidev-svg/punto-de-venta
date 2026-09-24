@@ -1,6 +1,6 @@
 import { Search, Wallet } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Input } from "../components/ui";
@@ -20,8 +20,11 @@ type Row = {
   purchaseDate: string;
 };
 
+type CashSessionStatus = { id: string } | null;
+
 export function AccountsPayablePage() {
   const { token, user, organization } = useAuth();
+  const navigate = useNavigate();
   const sym = organization?.currencySymbol ?? "L";
   const [rows, setRows] = useState<Row[]>([]);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
@@ -29,7 +32,8 @@ export function AccountsPayablePage() {
   const [surNotes, setSurNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
-  const [registerInCash, setRegisterInCash] = useState(false);
+  const [cashSessionChecked, setCashSessionChecked] = useState(false);
+  const [cashSessionOpen, setCashSessionOpen] = useState(false);
   const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
@@ -42,9 +46,29 @@ export function AccountsPayablePage() {
     }
   }, [token]);
 
+  const refreshCashSession = useCallback(async () => {
+    if (!token) return;
+    setCashSessionChecked(false);
+    try {
+      const session = await apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token });
+      setCashSessionOpen(Boolean(session));
+    } catch {
+      setCashSessionOpen(false);
+    } finally {
+      setCashSessionChecked(true);
+    }
+  }, [token]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    void refreshCashSession();
+  }, [refreshCashSession]);
+
+  const cashRequiredBlocked = cashSessionChecked && !cashSessionOpen;
+  const cashRequiredLoading = !cashSessionChecked;
 
   const filteredRows = rows.filter((r) => {
     const q = query.trim().toLocaleLowerCase();
@@ -59,6 +83,10 @@ export function AccountsPayablePage() {
 
   async function pay(purchaseId: string) {
     if (!token) return;
+    if (cashRequiredLoading || cashRequiredBlocked) {
+      setErr("Abra una caja antes de registrar pagos a proveedores.");
+      return;
+    }
     const raw = amounts[purchaseId] ?? "";
     const amount = Number(raw);
     if (!amount || amount <= 0) {
@@ -70,7 +98,7 @@ export function AccountsPayablePage() {
     try {
       await apiFetch(`/api/accounts/payable/${purchaseId}/pay`, {
         method: "POST",
-        body: JSON.stringify({ amount, registerCashMovement: registerInCash }),
+        body: JSON.stringify({ amount }),
         token,
       });
       setAmounts((a) => ({ ...a, [purchaseId]: "" }));
@@ -140,15 +168,30 @@ export function AccountsPayablePage() {
         </p>
       ) : null}
 
-      <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-pf-text-secondary touch-manipulation">
-        <input
-          type="checkbox"
-          className="h-4 w-4 rounded border-pf-border"
-          checked={registerInCash}
-          onChange={(e) => setRegisterInCash(e.target.checked)}
-        />
-        Registrar pagos en el diario de caja (egreso; si hay turno abierto)
-      </label>
+      {cashRequiredLoading || cashRequiredBlocked ? (
+        <section className="space-y-3 rounded-xl border border-pf-warning/40 bg-pf-warning-soft/40 p-4">
+          <div>
+            <p className="font-semibold text-pf-text">
+              {cashRequiredLoading ? "Verificando caja abierta…" : "Caja requerida para pagar proveedores"}
+            </p>
+            <p className="mt-1 text-sm text-pf-text-secondary">
+              {cashRequiredLoading
+                ? "Estamos revisando si hay una caja abierta antes de permitir pagos."
+                : "Todo pago a proveedor sale de caja, por eso necesita una caja abierta."}
+            </p>
+          </div>
+          {cashRequiredBlocked ? (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => navigate("/caja")}>
+                Abrir caja
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => void refreshCashSession()}>
+                Ya abrí caja, verificar
+              </Button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="pf-admin-surface">
         <div className="pf-admin-surface-head">
@@ -250,7 +293,7 @@ export function AccountsPayablePage() {
                       type="button"
                       variant="secondary"
                       className="min-h-12 shrink-0 px-4"
-                      disabled={busy === `pay:${r.purchaseId}`}
+                      disabled={busy === `pay:${r.purchaseId}` || cashRequiredLoading || cashRequiredBlocked}
                       onClick={() => pay(r.purchaseId)}
                     >
                       <Wallet
@@ -366,7 +409,7 @@ export function AccountsPayablePage() {
                           type="button"
                           variant="secondary"
                           className="min-h-11 px-3 py-2 text-xs sm:min-h-9 sm:px-2 sm:py-1"
-                          disabled={busy === `pay:${r.purchaseId}`}
+                          disabled={busy === `pay:${r.purchaseId}` || cashRequiredLoading || cashRequiredBlocked}
                           onClick={() => pay(r.purchaseId)}
                         >
                           <Wallet

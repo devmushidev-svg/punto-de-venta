@@ -10,9 +10,12 @@ import { prisma } from "./lib/prisma.js";
 import { signToken, verifyToken, verifyPassword, hashPassword } from "./lib/auth.js";
 import {
   clearLoginFailures,
+  clearLoginKeyFailures,
   clientIpFromHeaders,
   isLoginBlocked,
+  isLoginKeyBlocked,
   registerLoginFailure,
+  registerLoginKeyFailure,
 } from "./lib/loginRateLimit.js";
 import type { JwtPayload } from "./lib/auth.js";
 import {
@@ -20,6 +23,7 @@ import {
   isImmediateSaleTerm,
   normalizeSaleTerms,
   resolveSalePaid,
+  SALE_TERMS_VALUES,
 } from "./lib/saleTerms.js";
 import {
   assertKitSaleStock,
@@ -67,6 +71,7 @@ import {
 import { replaceFullOrganizationFromBackup } from "./lib/backupReplaceFull.js";
 import { buildCashCloseReportHtml } from "./lib/cashCloseReportHtml.js";
 import { buildStockTransferPrintHtml } from "./lib/stockTransferPrintHtml.js";
+import { seedDemoData } from "./lib/demoSeeder.js";
 
 const PRODUCT_TYPES = ["PRODUCTO", "SERVICIO", "INSUMO", "KIT"] as const;
 
@@ -197,6 +202,27 @@ app.use("*", async (c, next) => {
 
 app.get("/health", (c) => c.json({ ok: true }));
 
+let demoSeedPromise: Promise<void> | null = null;
+
+function shouldAutoSeedDemoOnEmpty(): boolean {
+  const raw = process.env.AUTO_SEED_DEMO_ON_EMPTY?.trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "no") return false;
+  if (raw === "1" || raw === "true" || raw === "yes") return true;
+  return process.env.NODE_ENV !== "production";
+}
+
+async function ensureDemoSeedWhenEmpty(): Promise<boolean> {
+  if (!shouldAutoSeedDemoOnEmpty()) return false;
+  const count = await prisma.organization.count();
+  if (count > 0) return false;
+
+  demoSeedPromise ??= seedDemoData(prisma).finally(() => {
+    demoSeedPromise = null;
+  });
+  await demoSeedPromise;
+  return true;
+}
+
 app.get("/uploads/logos/:file", async (c) => {
   const file = c.req.param("file");
   if (!/^[a-zA-Z0-9._-]+$/.test(file)) return c.json({ error: "Nombre inválido" }, 400);
@@ -282,6 +308,7 @@ app.post("/admin/bootstrap-org", async (c) => {
 });
 
 app.get("/auth/organizations", async (c) => {
+  await ensureDemoSeedWhenEmpty();
   const orgs = await prisma.organization.findMany({
     select: { id: true, slug: true, name: true },
     orderBy: { name: "asc" },
@@ -289,50 +316,80 @@ app.get("/auth/organizations", async (c) => {
   return c.json(orgs);
 });
 
+const LOGIN_USERNAME_RE = /^[A-Z0-9._@-]{1,64}$/;
+const LOGIN_GENERIC_ERROR = "Usuario o contraseña inválidos";
+const LOGIN_DUMMY_HASH = "$2a$10$7HcxKQf4J7wAJ3ImNmLk3uYkUmNSWHWVrHbWKw0JQxmtr8jKnFH2S"; // "invalid-login"
+
+function normalizeLoginText(value: unknown, maxLength: number): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, maxLength);
+}
+
+function loginSubjectKey(ip: string, orgId: string, username: string): string {
+  return `login:${ip}:${orgId}:${username}`;
+}
+
 app.post("/auth/login", async (c) => {
   const loginIp = clientIpFromHeaders((name) => c.req.header(name));
   if (isLoginBlocked(loginIp)) {
     return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
   }
 
-  const body = await c.req.json<{
+  let body: {
     organizationSlug?: string;
     organizationId?: string;
-    username: string;
-    password: string;
-  }>();
-  const username = body.username?.trim().toUpperCase();
-  const password = body.password ?? "";
-  if (!username || !password) {
-    return c.json({ error: "Usuario y contraseña requeridos" }, 400);
+    username?: string;
+    password?: string;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: LOGIN_GENERIC_ERROR }, 400);
+  }
+  const username = normalizeLoginText(body.username, 64).toUpperCase();
+  const password = typeof body.password === "string" ? body.password.slice(0, 256) : "";
+  const organizationIdInput = normalizeLoginText(body.organizationId, 80);
+  const organizationSlugInput = normalizeLoginText(body.organizationSlug, 80).toLowerCase();
+  if (!username || !password || !LOGIN_USERNAME_RE.test(username)) {
+    registerLoginFailure(loginIp);
+    return c.json({ error: LOGIN_GENERIC_ERROR }, 401);
   }
 
-  let orgId = body.organizationId;
-  if (!orgId && body.organizationSlug) {
+  let orgId = organizationIdInput;
+  if (!orgId && organizationSlugInput) {
     const org = await prisma.organization.findUnique({
-      where: { slug: body.organizationSlug.trim().toLowerCase() },
+      where: { slug: organizationSlugInput },
     });
-    orgId = org?.id;
+    orgId = org?.id ?? "";
   }
   if (!orgId) {
+    await ensureDemoSeedWhenEmpty();
     const first = await prisma.organization.findFirst();
-    if (!first) return c.json({ error: "No hay empresas registradas" }, 400);
+    if (!first) return c.json({ error: LOGIN_GENERIC_ERROR }, 401);
     orgId = first.id;
+  }
+
+  const subjectKey = loginSubjectKey(loginIp, orgId, username);
+  if (isLoginKeyBlocked(subjectKey)) {
+    return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
   }
 
   const user = await prisma.user.findFirst({
     where: { organizationId: orgId, username, active: true },
     include: { organization: true },
   });
-  if (!user || !(await verifyPassword(password, user.passwordHash))) {
-    const nowLocked = registerLoginFailure(loginIp);
-    if (nowLocked) {
+  const passwordOk = await verifyPassword(password, user?.passwordHash ?? LOGIN_DUMMY_HASH);
+  if (!user || !passwordOk) {
+    const ipLocked = registerLoginFailure(loginIp);
+    const subjectLocked = registerLoginKeyFailure(subjectKey);
+    if (ipLocked || subjectLocked) {
       return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
     }
-    return c.json({ error: "Credenciales inválidas" }, 401);
+    return c.json({ error: LOGIN_GENERIC_ERROR }, 401);
   }
 
   clearLoginFailures(loginIp);
+  clearLoginKeyFailures(subjectKey);
 
   const localContext = await ensureDefaultBranchDevice(user.organizationId);
   const effectivePermissions = effectivePermissionList(user.role, user.permissionsJson);
@@ -1071,6 +1128,12 @@ api.post("/products", requireAdmin, async (c) => {
     return c.json({ error: "Un kit debe incluir al menos un producto (tipo PRODUCTO)" }, 400);
   }
   const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  const productSettings = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId }, select: { generalJson: true } });
+  const productGeneral = JSON.parse(productSettings?.generalJson || "{}") as Record<string, unknown>;
+  const productPosBehavior = productGeneral.posBehavior as Record<string, unknown> | undefined;
+  const defaultTaxPercent = typeof productPosBehavior?.defaultTaxPercent === "number"
+    ? Math.min(100, Math.max(0, productPosBehavior.defaultTaxPercent))
+    : 15;
   try {
     const p = await prisma.$transaction(async (tx) => {
       const row = await tx.product.create({
@@ -1086,7 +1149,7 @@ api.post("/products", requireAdmin, async (c) => {
           price3: body.price3,
           price4: body.price4,
           cost: body.cost ?? 0,
-          taxPercent: body.taxPercent ?? 0,
+          taxPercent: body.taxPercent ?? defaultTaxPercent,
           taxName: body.taxName ?? "ISV",
           stock: productType === "KIT" ? 0 : body.stock ?? 0,
           minStock: body.minStock ?? 0,
@@ -1410,6 +1473,26 @@ function assertSarRangeValidUntil(invParsed: Record<string, unknown>, saleDate: 
   if (saleDate.getTime() > limit.getTime()) throw new Error("SAR_AUTH_EXPIRED");
 }
 
+async function requireOpenCashSession(
+  db: Prisma.TransactionClient,
+  orgId: string,
+  userId: string,
+  requestedSessionId?: string | null,
+  allowAnyOpenForAdmin = false,
+) {
+  const session = await db.cashSession.findFirst({
+    where: requestedSessionId && allowAnyOpenForAdmin
+      ? { id: requestedSessionId, organizationId: orgId, closedAt: null }
+      : { organizationId: orgId, userId, closedAt: null },
+  });
+  if (!session) throw new Error("CASH_SESSION_REQUIRED");
+  return session;
+}
+
+function isAdminJwt(jwt: JwtPayload) {
+  return jwt.role === "admin";
+}
+
 api.post("/sales", async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{
@@ -1423,9 +1506,13 @@ api.post("/sales", async (c) => {
     saleDate?: string;
     /** Clave de idempotencia para ventas reenviadas tras estar offline. */
     clientRef?: string;
+    cashSessionId?: string | null;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  if (body.lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) {
+    return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
+  }
 
   const saleInclude = {
     lines: { include: { product: true } },
@@ -1444,19 +1531,35 @@ api.post("/sales", async (c) => {
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
   /** Apartarse del precio de catalogo o aplicar descuento exige permiso; admin siempre puede. */
-  const canOverride =
-    jwt.role === "admin" || (jwt.perms?.includes(PERMISSION_KEYS.SALES_PRICE_OVERRIDE) ?? false);
+  const canOverride = jwt.role === "admin";
   const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  const stPos = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+  const genPos = JSON.parse(stPos?.generalJson || "{}") as Record<string, unknown>;
+  const posBeh = genPos.posBehavior as Record<string, unknown> | undefined;
+  const allowOversell = posBeh?.warnOutOfStock === true;
+  const configuredSaleTerms =
+    Array.isArray(posBeh?.allowedSaleTerms) && posBeh.allowedSaleTerms.length > 0
+      ? posBeh.allowedSaleTerms.map((term) => normalizeSaleTerms(String(term))).filter((term) => (SALE_TERMS_VALUES as readonly string[]).includes(term))
+      : [...SALE_TERMS_VALUES];
+  const allowedSaleTerms = [...new Set(["CONTADO", ...configuredSaleTerms])];
+  const creditRequiresCustomer = posBeh?.creditRequiresCustomer !== false;
+  const creditRequiresInitialPayment = posBeh?.creditRequiresInitialPayment === true;
+  if (!allowedSaleTerms.includes(terms)) {
+    return c.json({ error: "Este tipo de venta no está permitido en configuración" }, 400);
+  }
 
   if (isCreditSaleTerm(terms)) {
     const cid = typeof body.customerId === "string" ? body.customerId.trim() : "";
-    if (!cid) {
+    if (creditRequiresCustomer && !cid) {
       return c.json({ error: "Las ventas a crédito requieren un cliente registrado" }, 400);
     }
-    const cust = await prisma.customer.findFirst({
+    const cust = cid ? await prisma.customer.findFirst({
       where: { id: cid, organizationId: jwt.orgId },
-    });
-    if (!cust) return c.json({ error: "Cliente no encontrado" }, 400);
+    }) : null;
+    if (creditRequiresCustomer && !cust) return c.json({ error: "Cliente no encontrado" }, 400);
+    if (creditRequiresInitialPayment && !(Number(body.paid) > 0)) {
+      return c.json({ error: "Esta empresa exige un abono inicial para las ventas a plazo" }, 400);
+    }
   }
 
   try {
@@ -1465,12 +1568,8 @@ api.post("/sales", async (c) => {
     let tax = 0;
     const saleLines: { productId: string; qty: number; unitPrice: number; discountPercent: number; taxPercent: number; lineTotal: number }[] = [];
 
-    const stPos = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
-    const genPos = JSON.parse(stPos?.generalJson || "{}") as Record<string, unknown>;
-    const posBeh = genPos.posBehavior as Record<string, unknown> | undefined;
-    const allowOversell = posBeh?.warnOutOfStock === true;
-
     for (const line of body.lines) {
+      if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new Error("INVALID_QTY");
       const product = await tx.product.findFirst({
         where: { id: line.productId, organizationId: jwt.orgId },
       });
@@ -1508,6 +1607,17 @@ api.post("/sales", async (c) => {
 
     const total = subtotal + tax;
     const paid = resolveSalePaid(total, terms, body.paid);
+    let cashSessionId: string | null = null;
+    if (paid > 0) {
+      const cashSession = await requireOpenCashSession(
+        tx,
+        jwt.orgId,
+        jwt.sub,
+        body.cashSessionId,
+        isAdminJwt(jwt),
+      );
+      cashSessionId = cashSession.id;
+    }
 
     const stSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
     const invParsed = JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>;
@@ -1582,6 +1692,7 @@ api.post("/sales", async (c) => {
         tax,
         total,
         paid,
+        cashSessionId,
         saleDate: saleDateResolved,
         clientRef,
         syncStatus: "PENDING",
@@ -1621,9 +1732,11 @@ api.post("/sales", async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
+    if (msg === "INVALID_QTY") return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
     if (msg === "PRICE_OVERRIDE_FORBIDDEN")
       return c.json({ error: "No tiene permiso para vender a un precio distinto del catalogo ni aplicar descuentos." }, 403);
     if (msg === "INSUFFICIENT_STOCK") return c.json({ error: "Stock insuficiente" }, 400);
+    if (msg === "CASH_SESSION_REQUIRED") return c.json({ error: "Abra una caja antes de registrar ventas o abonos con pago." }, 400);
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se venden en POS" }, 400);
@@ -1789,23 +1902,57 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
     priceTier?: number;
     paid?: number;
     saleDate?: string;
+    adminPassword?: string;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
   if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  if (body.lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) {
+    return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
+  }
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
   const saleDatePatch = parseClientSaleDate(body.saleDate);
+  const stPosPatch = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+  const genPosPatch = JSON.parse(stPosPatch?.generalJson || "{}") as Record<string, unknown>;
+  const posBehPatch = genPosPatch.posBehavior as Record<string, unknown> | undefined;
+  const configuredSaleTermsPatch =
+    Array.isArray(posBehPatch?.allowedSaleTerms) && posBehPatch.allowedSaleTerms.length > 0
+      ? posBehPatch.allowedSaleTerms
+          .map((term) => normalizeSaleTerms(String(term)))
+          .filter((term) => (SALE_TERMS_VALUES as readonly string[]).includes(term))
+      : [...SALE_TERMS_VALUES];
+  const allowedSaleTermsPatch = [...new Set(["CONTADO", ...configuredSaleTermsPatch])];
+  const requireAdminPasswordForSaleChanges = posBehPatch?.requireAdminPasswordForSaleChanges !== false;
+  if (requireAdminPasswordForSaleChanges) {
+    const admins = await prisma.user.findMany({ where: { organizationId: jwt.orgId, role: "admin", active: true }, select: { passwordHash: true } });
+    let passwordOk = false;
+    for (const admin of admins) {
+      if (body.adminPassword && (await verifyPassword(body.adminPassword, admin.passwordHash))) {
+        passwordOk = true;
+        break;
+      }
+    }
+    if (!passwordOk) return c.json({ error: "Se requiere la contraseña de un administrador para editar la factura" }, 403);
+  }
+  const creditRequiresCustomerPatch = posBehPatch?.creditRequiresCustomer !== false;
+  const creditRequiresInitialPaymentPatch = posBehPatch?.creditRequiresInitialPayment === true;
+  if (!allowedSaleTermsPatch.includes(terms)) {
+    return c.json({ error: "Este tipo de venta no está permitido en configuración" }, 400);
+  }
 
   if (isCreditSaleTerm(terms)) {
     const cid = typeof body.customerId === "string" ? body.customerId.trim() : "";
-    if (!cid) {
+    if (creditRequiresCustomerPatch && !cid) {
       return c.json({ error: "Las ventas a crédito requieren un cliente registrado" }, 400);
     }
-    const cust = await prisma.customer.findFirst({
+    const cust = cid ? await prisma.customer.findFirst({
       where: { id: cid, organizationId: jwt.orgId },
-    });
-    if (!cust) return c.json({ error: "Cliente no encontrado" }, 400);
+    }) : null;
+    if (creditRequiresCustomerPatch && !cust) return c.json({ error: "Cliente no encontrado" }, 400);
+    if (creditRequiresInitialPaymentPatch && !(Number(body.paid) > 0)) {
+      return c.json({ error: "Esta empresa exige un abono inicial para las ventas a plazo" }, 400);
+    }
   }
 
   try {
@@ -1821,6 +1968,7 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       const genRetain = JSON.parse(stRetainSet?.generalJson || "{}") as Record<string, unknown>;
       const posRetain = genRetain.posBehavior as Record<string, unknown> | undefined;
       const retainInventoryOnSaleEdit = posRetain?.retainInventoryOnSaleEdit === true;
+      const allowOversell = posRetain?.warnOutOfStock === true;
 
       if (!retainInventoryOnSaleEdit) {
         for (const oldLine of existing.lines) {
@@ -1840,6 +1988,7 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       }[] = [];
 
       for (const line of body.lines) {
+        if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new Error("INVALID_QTY");
         const product = await tx.product.findFirst({
           where: { id: line.productId, organizationId: jwt.orgId },
         });
@@ -1848,8 +1997,8 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         const isService = product.productType === "SERVICIO";
         const isKit = product.productType === "KIT";
         if (isKit) {
-          await assertKitSaleStock(tx, product.id, line.qty);
-        } else if (!isService && product.stock < line.qty) {
+          if (!allowOversell) await assertKitSaleStock(tx, product.id, line.qty);
+        } else if (!isService && product.stock < line.qty && !allowOversell) {
           throw new Error("INSUFFICIENT_STOCK");
         }
         const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, priceTier);
@@ -1933,6 +2082,7 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       return c.json({ error: "No se puede editar una venta con recargos en cuentas por cobrar" }, 400);
     }
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
+    if (msg === "INVALID_QTY") return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
     if (msg === "INSUFFICIENT_STOCK") return c.json({ error: "Stock insuficiente" }, 400);
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
@@ -1958,11 +2108,20 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
 api.delete("/sales/:id", requirePermission(PERMISSION_KEYS.SALES_DELETE), async (c) => {
   const jwt = c.get("jwt");
   const saleId = c.req.param("id");
-  const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }));
+  const body = await c.req.json<{ reason?: string; adminPassword?: string }>().catch(() => ({ reason: undefined, adminPassword: undefined }));
   const reason = (body.reason ?? "").trim();
   if (reason.length < 4) {
     return c.json({ error: "Indique el motivo de la eliminación (mínimo 4 caracteres)." }, 400);
   }
+  const admins = await prisma.user.findMany({ where: { organizationId: jwt.orgId, role: "admin", active: true }, select: { passwordHash: true } });
+  let adminPasswordOk = false;
+  for (const admin of admins) {
+    if (body.adminPassword && (await verifyPassword(body.adminPassword, admin.passwordHash))) {
+      adminPasswordOk = true;
+      break;
+    }
+  }
+  if (!adminPasswordOk) return c.json({ error: "Se requiere la contraseña de un administrador para cancelar la factura" }, 403);
 
   try {
     const resultado = await prisma.$transaction(async (tx) => {
@@ -1971,6 +2130,12 @@ api.delete("/sales/:id", requirePermission(PERMISSION_KEYS.SALES_DELETE), async 
         include: { lines: true, receivableSurcharges: true },
       });
       if (!venta) throw new Error("SALE_NOT_FOUND");
+      const saleSettings = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId }, select: { generalJson: true } });
+      const saleGeneral = JSON.parse(saleSettings?.generalJson || "{}") as Record<string, unknown>;
+      const salePosBehavior = saleGeneral.posBehavior as Record<string, unknown> | undefined;
+      if (salePosBehavior?.returnsRequireInvoice !== false && !venta.invoiceNumber) {
+        throw new Error("RETURN_REQUIRES_INVOICE");
+      }
       if (venta.receivableSurcharges.length > 0) throw new Error("SALE_HAS_SURCHARGES");
 
       for (const linea of venta.lines) {
@@ -2070,6 +2235,7 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
     let paid = body.paid ?? (terms === "CONTADO" ? total : 0);
     if (paid > total) paid = total;
     if (terms === "CONTADO" && paid < total) paid = total;
+    if (paid > 0) await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
 
     const p = await tx.purchase.create({
       data: {
@@ -2105,6 +2271,8 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
     if (msg === "KIT_NOT_PURCHASABLE") {
       return c.json({ error: "Un combo (KIT) no se ingresa por compra; use los productos componentes." }, 400);
     }
+    if (msg === "RETURN_REQUIRES_INVOICE") return c.json({ error: "La devolución requiere una factura con número de documento" }, 400);
+    if (msg === "CASH_SESSION_REQUIRED") return c.json({ error: "Abra una caja antes de registrar compras pagadas." }, 400);
     throw e;
   }
 });
@@ -2140,6 +2308,22 @@ api.post("/cash-sessions/open", async (c) => {
     },
   });
   return c.json(session, 201);
+});
+
+// El administrador puede elegir en qué caja abierta registrar un cobro.
+// Los demás usuarios solo reciben su propio turno.
+api.get("/cash-sessions/open", async (c) => {
+  const jwt = c.get("jwt");
+  const sessions = await prisma.cashSession.findMany({
+    where: {
+      organizationId: jwt.orgId,
+      closedAt: null,
+      ...(isAdminJwt(jwt) ? {} : { userId: jwt.sub }),
+    },
+    include: { user: { select: { id: true, displayName: true, username: true } } },
+    orderBy: { openedAt: "asc" },
+  });
+  return c.json(sessions);
 });
 
 api.get("/cash-sessions/current", async (c) => {
@@ -2226,8 +2410,10 @@ async function buildCashDiaryForSession(
   const sales = await prisma.sale.findMany({
     where: {
       organizationId: orgId,
-      userId,
-      saleDate: { gte: session.openedAt, lte: end },
+      OR: [
+        { cashSessionId: session.id },
+        { cashSessionId: null, userId, saleDate: { gte: session.openedAt, lte: end } },
+      ],
     },
     select: { id: true, total: true, paid: true, terms: true, saleDate: true, invoiceNumber: true },
     orderBy: { saleDate: "asc" },
@@ -2536,6 +2722,20 @@ api.post("/auth/verify-password", async (c) => {
   return c.json({ ok: true });
 });
 
+api.post("/auth/verify-admin-password", async (c) => {
+  const jwt = c.get("jwt");
+  const body = await c.req.json<{ password?: string }>();
+  const password = typeof body.password === "string" ? body.password : "";
+  const admins = await prisma.user.findMany({
+    where: { organizationId: jwt.orgId, role: "admin", active: true },
+    select: { passwordHash: true },
+  });
+  for (const admin of admins) {
+    if (password && (await verifyPassword(password, admin.passwordHash))) return c.json({ ok: true });
+  }
+  return c.json({ ok: false }, 401);
+});
+
 /** Fecha local YYYY-MM-DD. toISOString() agruparia en UTC y moveria las ventas
  *  de la tarde al dia siguiente. */
 function ymdLocal(d: Date) {
@@ -2773,31 +2973,32 @@ api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.A
   const surchargesTotal = sale.receivableSurcharges.reduce((a, x) => a + x.amount, 0);
   const balance = sale.total + surchargesTotal - sale.paid;
   if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
+  try {
   const updated = await prisma.$transaction(async (tx) => {
+    const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
     const u = await tx.sale.update({
       where: { id: saleId },
       data: { paid: { increment: amount } },
     });
-    if (body.registerCashMovement) {
-      const sess = await tx.cashSession.findFirst({
-        where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
-      });
-      if (sess) {
-        await tx.cashMovement.create({
-          data: {
-            organizationId: jwt.orgId,
-            sessionId: sess.id,
-            userId: jwt.sub,
-            category: "PAGO_ABONO",
-            amount,
-            note: `Abono CxC ${sale.invoiceNumber ?? saleId}`,
-          },
-        });
-      }
-    }
+    await tx.cashMovement.create({
+      data: {
+        organizationId: jwt.orgId,
+        sessionId: sess.id,
+        userId: jwt.sub,
+        category: "PAGO_ABONO",
+        amount,
+        note: `Abono CxC ${sale.invoiceNumber ?? saleId}`,
+      },
+    });
     return u;
   });
   return c.json(updated);
+  } catch (e) {
+    if (e instanceof Error && e.message === "CASH_SESSION_REQUIRED") {
+      return c.json({ error: "Abra una caja antes de registrar abonos de cuentas por cobrar." }, 400);
+    }
+    throw e;
+  }
 });
 
 api.get("/accounts/payable", requirePermission(PERMISSION_KEYS.ACCOUNTS_PAYABLE), async (c) => {
@@ -2856,31 +3057,32 @@ api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.
   const surchargesTotal = purchase.payableSurcharges.reduce((a, x) => a + x.amount, 0);
   const balance = purchase.total + surchargesTotal - purchase.paid;
   if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
+  try {
   const updated = await prisma.$transaction(async (tx) => {
+    const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
     const u = await tx.purchase.update({
       where: { id: purchaseId },
       data: { paid: { increment: amount } },
     });
-    if (body.registerCashMovement) {
-      const sess = await tx.cashSession.findFirst({
-        where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
-      });
-      if (sess) {
-        await tx.cashMovement.create({
-          data: {
-            organizationId: jwt.orgId,
-            sessionId: sess.id,
-            userId: jwt.sub,
-            category: "GASTO",
-            amount,
-            note: `Pago CxP compra ${purchase.reference ?? purchaseId}`,
-          },
-        });
-      }
-    }
+    await tx.cashMovement.create({
+      data: {
+        organizationId: jwt.orgId,
+        sessionId: sess.id,
+        userId: jwt.sub,
+        category: "GASTO",
+        amount,
+        note: `Pago CxP compra ${purchase.reference ?? purchaseId}`,
+      },
+    });
     return u;
   });
   return c.json(updated);
+  } catch (e) {
+    if (e instanceof Error && e.message === "CASH_SESSION_REQUIRED") {
+      return c.json({ error: "Abra una caja antes de registrar pagos de cuentas por pagar." }, 400);
+    }
+    throw e;
+  }
 });
 
 api.get("/quotes", async (c) => {
@@ -3914,20 +4116,30 @@ api.post("/expenses", requireAdmin, async (c) => {
   }
   const amount = Number(body.amount);
   if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
-  const row = await prisma.expense.create({
-    data: {
-      organizationId: jwt.orgId,
-      userId: jwt.sub,
-      category: categoryName,
-      amount,
-      expenseDate: body.expenseDate ? new Date(body.expenseDate) : new Date(),
-      notes: body.notes?.trim() || null,
-      bookId,
-      categoryId,
-    },
-    include: expenseInclude,
-  });
-  return c.json(row, 201);
+  try {
+    const row = await prisma.$transaction(async (tx) => {
+      await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
+      return tx.expense.create({
+        data: {
+          organizationId: jwt.orgId,
+          userId: jwt.sub,
+          category: categoryName,
+          amount,
+          expenseDate: body.expenseDate ? new Date(body.expenseDate) : new Date(),
+          notes: body.notes?.trim() || null,
+          bookId,
+          categoryId,
+        },
+        include: expenseInclude,
+      });
+    });
+    return c.json(row, 201);
+  } catch (e) {
+    if (e instanceof Error && e.message === "CASH_SESSION_REQUIRED") {
+      return c.json({ error: "Abra una caja antes de registrar gastos." }, 400);
+    }
+    throw e;
+  }
 });
 
 type PayrollLineBody = {

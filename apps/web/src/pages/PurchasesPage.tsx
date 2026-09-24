@@ -1,5 +1,6 @@
 import { ClipboardCheck, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Select } from "../components/ui";
@@ -29,6 +30,8 @@ type PurchaseRow = {
   }[];
 };
 
+type CashSessionStatus = { id: string } | null;
+
 /** Que trajo la compra, en palabras. Un conteo de items no dice nada. */
 function contentSummary(lines: PurchaseRow["lines"]): string {
   if (!lines?.length) return "Sin productos";
@@ -49,6 +52,7 @@ function termsLabel(terms: string): string {
 
 export function PurchasesPage() {
   const { token, organization, user } = useAuth();
+  const navigate = useNavigate();
   const canRecord = hasPermission(user, PERMISSION_KEYS.PURCHASES_RECORD);
   const sym = organization?.currencySymbol ?? "L";
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -61,6 +65,8 @@ export function PurchasesPage() {
   const [err, setErr] = useState("");
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
   const [listLoading, setListLoading] = useState(true);
+  const [cashSessionChecked, setCashSessionChecked] = useState(false);
+  const [cashSessionOpen, setCashSessionOpen] = useState(false);
 
   const loadPurchases = useCallback(async () => {
     if (!token) return;
@@ -86,6 +92,26 @@ export function PurchasesPage() {
       if (s[0]) setSupplierId(s[0].id);
     });
   }, [token, canRecord]);
+
+  const refreshCashSession = useCallback(async () => {
+    if (!token || !canRecord) {
+      setCashSessionChecked(true);
+      return;
+    }
+    setCashSessionChecked(false);
+    try {
+      const session = await apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token });
+      setCashSessionOpen(Boolean(session));
+    } catch {
+      setCashSessionOpen(false);
+    } finally {
+      setCashSessionChecked(true);
+    }
+  }, [token, canRecord]);
+
+  useEffect(() => {
+    void refreshCashSession();
+  }, [refreshCashSession]);
 
   const runSearch = useCallback(async () => {
     if (!token || !canRecord || !search.trim()) {
@@ -155,9 +181,17 @@ export function PurchasesPage() {
     return { spent, owed, owedCount };
   }, [purchases]);
 
+  const purchaseNeedsCash = terms === "CONTADO";
+  const cashRequiredBlocked = canRecord && purchaseNeedsCash && cashSessionChecked && !cashSessionOpen;
+  const cashRequiredLoading = canRecord && purchaseNeedsCash && !cashSessionChecked;
+
   async function submit() {
     if (!token || lines.length === 0) return;
     setErr("");
+    if (cashRequiredLoading || cashRequiredBlocked) {
+      setErr("Abra una caja antes de registrar compras de contado.");
+      return;
+    }
     setBusy(true);
     try {
       await apiFetch("/api/purchases", {
@@ -416,6 +450,31 @@ export function PurchasesPage() {
               </Select>
             </Field>
 
+            {cashRequiredLoading || cashRequiredBlocked ? (
+              <div className="space-y-3 rounded-[var(--radius-pf)] border border-pf-warning/40 bg-pf-warning-soft/40 p-3">
+                <div>
+                  <p className="text-sm font-semibold text-pf-text">
+                    {cashRequiredLoading ? "Verificando caja abierta…" : "Caja requerida para compra de contado"}
+                  </p>
+                  <p className="mt-1 text-xs text-pf-text-secondary">
+                    {cashRequiredLoading
+                      ? "Estamos revisando si hay una caja abierta antes de permitir esta compra."
+                      : "Una compra de contado sale de caja. Si no se paga ahora, cambie la condición a crédito."}
+                  </p>
+                </div>
+                {cashRequiredBlocked ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" onClick={() => navigate("/caja")}>
+                      Abrir caja
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => void refreshCashSession()}>
+                      Ya abrí caja, verificar
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="rounded-[var(--radius-pf)] border border-pf-border bg-pf-surface p-3 text-sm">
               <div className="flex justify-between text-pf-text-tertiary">
                 <span>Subtotal</span>
@@ -441,7 +500,7 @@ export function PurchasesPage() {
               type="button"
               className="min-h-12 w-full"
               onClick={submit}
-              disabled={busy || lines.length === 0}
+              disabled={busy || lines.length === 0 || cashRequiredLoading || cashRequiredBlocked}
             >
               <ClipboardCheck className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               {busy ? "Guardando…" : "Registrar compra"}

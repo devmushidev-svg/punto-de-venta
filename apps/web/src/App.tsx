@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { AppShell } from "./layouts/AppShell";
 import { SalesHubLayout } from "./layouts/SalesHubLayout";
@@ -46,6 +46,11 @@ function RouteFallback() {
       Cargando vista…
     </div>
   );
+}
+
+function NewSaleRoute() {
+  const location = useLocation();
+  return <NewSalePage key={`${location.pathname}${location.search}`} />;
 }
 
 function Protected({ children }: { children: ReactNode }) {
@@ -106,7 +111,7 @@ export default function App() {
       >
         <Route index element={<DashboardPage />} />
         <Route path="productos" element={<ProductsPage />} />
-        <Route path="venta" element={<NewSalePage />} />
+        <Route path="venta" element={<NewSaleRoute />} />
         <Route path="venta/buscar-producto" element={<SaleProductSearchPage />} />
         <Route
           path="ventas/:id/editar"

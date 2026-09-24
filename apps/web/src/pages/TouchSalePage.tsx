@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
@@ -52,11 +52,14 @@ type Line = {
 };
 
 type Toast = { message: string; kind: "success" | "print" };
+type CashSessionStatus = { id: string } | null;
+type CashSessionOption = { id: string; user: { displayName: string; username: string } };
 
 
 export function TouchSalePage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
+  const navigate = useNavigate();
   const sym = organization?.currencySymbol ?? "L";
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState("");
@@ -90,12 +93,64 @@ export function TouchSalePage() {
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [posBehavior, setPosBehavior] = useState<PosBehavior>(DEFAULT_POS_BEHAVIOR);
+  const [cashSessionChecked, setCashSessionChecked] = useState(false);
+  const [cashSessionOpen, setCashSessionOpen] = useState(false);
+  const [cashSessions, setCashSessions] = useState<CashSessionOption[]>([]);
+  const [cashSessionId, setCashSessionId] = useState("");
+  const cashRequiredBlocked = cashSessionChecked && !cashSessionOpen;
+  const cashRequiredLoading = !cashSessionChecked;
+
+  const refreshCashSession = useCallback(() => {
+    if (!token) {
+      setCashSessionChecked(true);
+      setCashSessionOpen(false);
+      return;
+    }
+    setCashSessionChecked(false);
+    const request = user?.role === "admin"
+      ? apiFetch<CashSessionOption[]>("/api/cash-sessions/open", { token }).then((sessions) => {
+          setCashSessions(sessions);
+          setCashSessionId((current) => sessions.some((s) => s.id === current) ? current : sessions[0]?.id ?? "");
+          setCashSessionOpen(sessions.length > 0);
+        })
+      : apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token })
+          .then((session) => {
+            setCashSessions([]);
+            setCashSessionId(session?.id ?? "");
+            setCashSessionOpen(Boolean(session));
+          });
+    request
+      .catch(() => setCashSessionOpen(false))
+      .finally(() => setCashSessionChecked(true));
+  }, [token, user?.role]);
+
+  const openAdminCashSession = useCallback(async () => {
+    if (!token || user?.role !== "admin") return;
+    setErr("");
+    try {
+      await apiFetch("/api/cash-sessions/open", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ openingCash: 0 }),
+      });
+      refreshCashSession();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo abrir la caja administrativa.");
+    }
+  }, [refreshCashSession, token, user?.role]);
 
   const showToast = useCallback((message: string, kind: Toast["kind"]) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, kind });
     toastTimerRef.current = setTimeout(() => setToast(null), 3500);
   }, []);
+
+  const loadPosBehavior = useCallback(() => {
+    if (!token) return;
+    apiFetch<{ general: { posBehavior?: unknown } }>("/api/settings", { token }).then((s) => {
+      setPosBehavior(parsePosBehavior(s.general?.posBehavior));
+    });
+  }, [token]);
 
   function applyCustomer(c: Customer) {
     setCustomerId(c.id);
@@ -135,15 +190,22 @@ export function TouchSalePage() {
         setCustomerTaxId("");
       }
     });
-    apiFetch<{ general: { posBehavior?: unknown } }>("/api/settings", { token }).then((s) => {
-      setPosBehavior(parsePosBehavior(s.general?.posBehavior));
-    });
+    loadPosBehavior();
     // Los favoritos son de cada usuario, no de la empresa.
     apiFetch<{ productIds: string[] }>("/api/settings/touch-favorites", { token })
       .then((r) => setFavIds(r.productIds.filter((x) => typeof x === "string")))
       .catch(() => setFavIds([]));
     apiFetch<Product[]>("/api/products?touch=1&forPos=1", { token }).then(setProducts).catch(() => setProducts([]));
-  }, [token]);
+  }, [loadPosBehavior, token]);
+
+  useEffect(() => {
+    window.addEventListener("pf-settings-saved", loadPosBehavior);
+    return () => window.removeEventListener("pf-settings-saved", loadPosBehavior);
+  }, [loadPosBehavior]);
+
+  useEffect(() => {
+    refreshCashSession();
+  }, [refreshCashSession]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -157,18 +219,58 @@ export function TouchSalePage() {
     );
   }, [products, search]);
 
+  const allowedSaleTermOptions = useMemo(() => {
+    const allowed = new Set(posBehavior.allowedSaleTerms);
+    return SALE_TERMS_OPTIONS.filter((option) => allowed.has(option.value));
+  }, [posBehavior.allowedSaleTerms]);
+
+  useEffect(() => {
+    if (allowedSaleTermOptions.length === 0) return;
+    if (!allowedSaleTermOptions.some((option) => option.value === terms)) {
+      setTerms(allowedSaleTermOptions[0].value);
+    }
+  }, [allowedSaleTermOptions, terms]);
+
   const favorites = useMemo(() => {
     const set = new Set(favIds);
     return products.filter((p) => set.has(p.id));
   }, [products, favIds]);
 
+  const qtyByProductId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const line of lines) {
+      if (line.qty > 0) map.set(line.productId, line.qty);
+    }
+    return map;
+  }, [lines]);
+
   function addProduct(p: Product) {
     setErr("");
+    if (cashRequiredBlocked || cashRequiredLoading) {
+      setErr("Abra una caja antes de agregar productos a una venta.");
+      return;
+    }
     if (!p.active || p.productType === "INSUMO") return;
     setLines((prev) => {
       const i = prev.findIndex((l) => l.productId === p.id);
-      if (i >= 0) return prev;
-      const qty = defaultQtyForNewLine(p);
+      const qty = defaultQtyForNewLine(p, { allowOutOfStock: posBehavior.warnOutOfStock });
+      if (i >= 0) {
+        const current = prev[i];
+        const nextQty = current.qty + qty;
+        if (!posBehavior.warnOutOfStock && tracksStock(current.product) && nextQty > current.product.stock) {
+          queueMicrotask(() =>
+            setErr(`«${current.product.name}»: máximo ${current.product.stock} en existencia.`)
+          );
+          return prev;
+        }
+        const next = [...prev];
+        next[i] = {
+          ...current,
+          qty: nextQty,
+          unitPrice: resolveProductUnitPrice(current.product, nextQty, priceTier),
+        };
+        return next;
+      }
       return [
         ...prev,
         {
@@ -179,6 +281,26 @@ export function TouchSalePage() {
           discountPercent: 0,
         },
       ];
+    });
+  }
+
+  function removeOneProduct(productId: string) {
+    setErr("");
+    setLines((prev) => {
+      const i = prev.findIndex((l) => l.productId === productId);
+      if (i < 0) return prev;
+      const line = prev[i];
+      const step = line.product.esGranel ? 0.1 : 1;
+      const nextQtyRaw = line.qty - step;
+      const nextQty = line.product.esGranel ? Math.round(nextQtyRaw * 1000) / 1000 : Math.round(nextQtyRaw);
+      if (nextQty <= 0) return prev.filter((_, index) => index !== i);
+      const next = [...prev];
+      next[i] = {
+        ...line,
+        qty: nextQty,
+        unitPrice: resolveProductUnitPrice(line.product, nextQty, priceTier),
+      };
+      return next;
     });
   }
 
@@ -261,9 +383,21 @@ export function TouchSalePage() {
 
   function openCheckout(mode: "save" | "print") {
     if (!token || lines.length === 0) return;
+    if (cashRequiredBlocked || cashRequiredLoading) {
+      setErr("Abra una caja antes de cobrar esta venta.");
+      return;
+    }
     setErr("");
     if (!lines.some((l) => l.qty > 0)) {
       setErr("Indique una cantidad mayor que cero en al menos una línea.");
+      return;
+    }
+    if (isCreditSaleTerm(terms) && posBehavior.creditRequiresInitialPayment && !(Number(paid) > 0)) {
+      setErr("Esta empresa exige un abono inicial para las ventas a plazo.");
+      return;
+    }
+    if (!posBehavior.allowedSaleTerms.includes(terms)) {
+      setErr("Este tipo de venta no está permitido en configuración.");
       return;
     }
     if (isCreditSaleTerm(terms) && !customerId.trim()) {
@@ -330,6 +464,7 @@ export function TouchSalePage() {
         priceTier,
         notes: notes.trim() || undefined,
         sellerName: sellerName.trim() || undefined,
+        cashSessionId: cashSessionId || undefined,
         paid: isCreditSaleTerm(terms) ? Number(paid) || 0 : undefined,
         saleDate: documentSaleDate.toISOString(),
         lines: lines
@@ -351,6 +486,12 @@ export function TouchSalePage() {
       } else if (checkoutMode === "print") {
         showToast("Factura guardada. Aparecerá el cuadro de impresión.", "print");
         printSaleTicketInHiddenFrame(res.sale.id);
+      } else if (!isCreditSaleTerm(terms) && posBehavior.immediateSaleDocument === "comprobante") {
+        showToast("Factura guardada correctamente", "success");
+        navigate(`/ventas/${res.sale.id}/comprobante`);
+      } else if (!isCreditSaleTerm(terms) && posBehavior.immediateSaleDocument === "ticket") {
+        showToast("Factura guardada correctamente", "success");
+        navigate(`/ventas/${res.sale.id}/ticket${posBehavior.autoPrintImmediateSale ? "?print=1" : ""}`);
       } else {
         showToast("Factura guardada correctamente", "success");
       }
@@ -360,7 +501,7 @@ export function TouchSalePage() {
       setNotes("");
       setSellerName(user?.displayName?.trim() || user?.username?.trim() || "");
       setDocumentSaleDate(new Date());
-      setTerms("CONTADO");
+      setTerms(allowedSaleTermOptions[0]?.value ?? "CONTADO");
       setErr("");
 
       if (token) {
@@ -395,7 +536,7 @@ export function TouchSalePage() {
             onChange={(e) => setTerms(e.target.value)}
             className="w-full min-w-0"
           >
-            {SALE_TERMS_OPTIONS.map((o) => (
+            {allowedSaleTermOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -664,7 +805,7 @@ export function TouchSalePage() {
           shortcut="F5"
           title="Cobrar y guardar la venta"
           onClick={() => openCheckout("save")}
-          disabled={busy || !hasBillableLines}
+          disabled={busy || !hasBillableLines || cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarButton
           icon={Printer}
@@ -672,7 +813,7 @@ export function TouchSalePage() {
           shortcut="F8"
           title="Cobrar, guardar e imprimir el ticket"
           onClick={() => openCheckout("print")}
-          disabled={busy || !hasBillableLines}
+          disabled={busy || !hasBillableLines || cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarSeparator />
         <ToolbarButton
@@ -681,6 +822,7 @@ export function TouchSalePage() {
           shortcut="F4"
           title="Ir al buscador de productos"
           onClick={() => searchInputRef.current?.focus()}
+          disabled={cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarButton
           icon={Trash2}
@@ -688,7 +830,7 @@ export function TouchSalePage() {
           shortcut="F10"
           title="Eliminar la última línea"
           onClick={removeLastLine}
-          disabled={!lines.length}
+          disabled={!lines.length || cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarButton
           tone="danger"
@@ -697,11 +839,11 @@ export function TouchSalePage() {
           shortcut="F11"
           title="Vaciar el carrito"
           onClick={clearLines}
-          disabled={!lines.length}
+          disabled={!lines.length || cashRequiredBlocked || cashRequiredLoading}
         />
       </>
     ),
-    [busy, hasBillableLines, lines.length, clearLines, removeLastLine]
+    [busy, cashRequiredBlocked, cashRequiredLoading, hasBillableLines, lines.length, clearLines, removeLastLine]
   );
 
   useLayoutEffect(() => {
@@ -732,6 +874,46 @@ export function TouchSalePage() {
         </div>
       )}
 
+      {cashRequiredLoading ? (
+        <div className="rounded-xl border border-pf-border bg-pf-surface-elevated p-6 text-center shadow-sm">
+          <p className="text-sm font-bold text-pf-text">Verificando caja abierta…</p>
+          <p className="mt-1 text-sm text-pf-muted">Un momento antes de iniciar la venta táctil.</p>
+        </div>
+      ) : cashRequiredBlocked ? (
+        <div className="rounded-xl border border-pf-warning-soft bg-pf-warning-soft p-6 shadow-sm">
+          <div className="mx-auto max-w-xl text-center">
+            <p className="text-lg font-black text-pf-text">Caja requerida</p>
+            <p className="mt-2 text-sm leading-6 text-pf-text-secondary">
+              Para usar venta táctil debe haber una caja abierta. Así cada entrada o salida de dinero queda registrada en una caja.
+            </p>
+            <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+              {user?.role === "admin" && (
+                <Button type="button" className="min-h-12" onClick={() => void openAdminCashSession()}>
+                  Usar una caja administrativa
+                </Button>
+              )}
+              <Button type="button" className="min-h-12" onClick={() => navigate("/caja")}>
+                {user?.role === "admin" ? "Ver y controlar otras cajas" : "Abrir caja"}
+              </Button>
+              <Button type="button" variant="secondary" className="min-h-12" onClick={refreshCashSession}>
+                Ya abrí caja, verificar
+              </Button>
+            </div>
+            {err && <p className="mt-3 text-sm font-semibold text-pf-danger" role="alert">{err}</p>}
+          </div>
+        </div>
+      ) : null}
+
+      {cashRequiredLoading || cashRequiredBlocked ? null : (
+      <>
+      {user?.role === "admin" && cashSessions.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-pf-border bg-white px-3 py-2 text-sm">
+          <span className="font-semibold text-pf-text">Registrar en caja:</span>
+          <Select value={cashSessionId} onChange={(e) => setCashSessionId(e.target.value)} className="min-w-[14rem]">
+            {cashSessions.map((session) => <option key={session.id} value={session.id}>{session.user.displayName} (@{session.user.username})</option>)}
+          </Select>
+        </div>
+      )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
         {/* Catalogo de productos */}
         <div className="min-w-0 space-y-3">
@@ -769,22 +951,42 @@ export function TouchSalePage() {
               <div className="flex gap-2.5 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
                 {favorites.map((p) => {
                   const outOfStock = posBehavior.showStockWhileSelling && tracksStock(p) && p.stock <= 0;
+                  const cartQty = qtyByProductId.get(p.id) ?? 0;
                   return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => addProduct(p)}
-                      className={`min-h-[80px] min-w-[140px] shrink-0 rounded-[var(--radius-pf)] border p-3 text-left transition-colors touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
-                        outOfStock
-                          ? "border-pf-danger-soft bg-pf-danger-soft"
-                          : "border-[color:var(--pf-primary-mid)] bg-pf-primary-soft hover:bg-pf-surface-elevated"
-                      }`}
-                    >
-                      <span className="block line-clamp-2 text-sm font-semibold text-pf-text">{p.name}</span>
-                      <span className="mt-1 block text-xs font-bold tabular-nums text-pf-text">
-                        {formatMoney(sym, resolveProductUnitPrice(p, 1, priceTier))}
-                      </span>
-                    </button>
+                    <div key={p.id} className="relative min-w-[150px] shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => addProduct(p)}
+                        className={`min-h-[92px] w-full rounded-[var(--radius-pf)] border p-3 pr-11 text-left transition-colors touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
+                          outOfStock
+                            ? "border-pf-danger-soft bg-pf-danger-soft"
+                            : cartQty > 0
+                              ? "border-[color:var(--pf-primary-mid)] bg-pf-primary-soft shadow-[inset_0_0_0_1px_var(--pf-primary-mid)]"
+                              : "border-[color:var(--pf-primary-mid)] bg-pf-primary-soft hover:bg-pf-surface-elevated"
+                        }`}
+                      >
+                        <span className="block line-clamp-2 text-sm font-semibold text-pf-text">{p.name}</span>
+                        <span className="mt-1 block text-xs font-bold tabular-nums text-pf-text">
+                          {formatMoney(sym, resolveProductUnitPrice(p, 1, priceTier))}
+                        </span>
+                      </button>
+                      {cartQty > 0 ? (
+                        <>
+                          <span className="absolute right-2 top-2 flex min-h-7 min-w-7 items-center justify-center rounded-full bg-pf-primary px-2 text-xs font-bold tabular-nums text-[color:var(--pf-primary-foreground)] shadow-sm">
+                            {cartQty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeOneProduct(p.id)}
+                            aria-label={`Quitar uno de ${p.name}`}
+                            title="Quitar uno"
+                            className="absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-lg border border-pf-border bg-pf-surface-elevated text-pf-danger shadow-sm transition-colors hover:bg-pf-danger-soft touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+                          >
+                            <Minus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>
@@ -795,15 +997,18 @@ export function TouchSalePage() {
             {filtered.map((p) => {
               const outOfStock = posBehavior.showStockWhileSelling && tracksStock(p) && p.stock <= 0;
               const isFav = favIds.includes(p.id);
+              const cartQty = qtyByProductId.get(p.id) ?? 0;
               return (
                 <div key={p.id} className="relative">
                   <button
                     type="button"
                     onClick={() => addProduct(p)}
-                    className={`flex min-h-[104px] w-full flex-col rounded-[var(--radius-pf)] border p-3 pr-10 text-left transition-colors touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
+                    className={`flex min-h-[116px] w-full flex-col rounded-[var(--radius-pf)] border p-3 pr-11 text-left transition-colors touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)] ${
                       outOfStock
                         ? "border-pf-danger-soft bg-pf-danger-soft"
-                        : "border-pf-border bg-pf-surface-elevated hover:border-[color:var(--pf-primary-mid)] hover:bg-pf-surface"
+                        : cartQty > 0
+                          ? "border-[color:var(--pf-primary-mid)] bg-pf-primary-soft shadow-[inset_0_0_0_1px_var(--pf-primary-mid)]"
+                          : "border-pf-border bg-pf-surface-elevated hover:border-[color:var(--pf-primary-mid)] hover:bg-pf-surface"
                     }`}
                   >
                     <span className="line-clamp-2 text-sm font-semibold leading-snug text-pf-text">{p.name}</span>
@@ -817,7 +1022,23 @@ export function TouchSalePage() {
                     <span className="mt-auto block pt-2 text-base font-bold tabular-nums text-pf-text">
                       {formatMoney(sym, resolveProductUnitPrice(p, 1, priceTier))}
                     </span>
+                    {cartQty > 0 ? (
+                      <span className="mt-1 inline-flex w-fit items-center rounded-full bg-pf-primary px-2 py-0.5 text-xs font-bold tabular-nums text-[color:var(--pf-primary-foreground)]">
+                        En carrito: {cartQty}
+                      </span>
+                    ) : null}
                   </button>
+                  {cartQty > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeOneProduct(p.id)}
+                      aria-label={`Quitar uno de ${p.name}`}
+                      title="Quitar uno"
+                      className="absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-lg border border-pf-border bg-pf-surface-elevated text-pf-danger shadow-sm transition-colors hover:bg-pf-danger-soft touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-primary-mid)]"
+                    >
+                      <Minus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => toggleFavorite(p.id)}
@@ -893,6 +1114,8 @@ export function TouchSalePage() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* Datos del documento: fuera del carrito para no tapar el total */}

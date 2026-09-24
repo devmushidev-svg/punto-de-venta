@@ -11,6 +11,8 @@ export const SALE_TERMS_OPTIONS = [
   { value: "60 DIAS", label: "60 días" },
 ] as const;
 
+export const SALE_TERMS_VALUES = SALE_TERMS_OPTIONS.map((o) => o.value);
+
 export function isCreditSaleTerm(terms: string): boolean {
   const t = terms
     .trim()

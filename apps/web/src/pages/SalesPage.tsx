@@ -76,6 +76,7 @@ export function SalesPage() {
   const [audit, setAudit] = useState<DeletedSale[] | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [deleteErr, setDeleteErr] = useState("");
   const [deleting, setDeleting] = useState(false);
 
@@ -291,6 +292,10 @@ export function SalesPage() {
                 </option>
               ))}
             </Select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-pf-muted">Contraseña de administrador</span>
+            <Input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="Confirmar autorización" />
           </label>
           <label className="min-w-[130px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
             Términos
@@ -611,7 +616,7 @@ export function SalesPage() {
           <Button
             type="button"
             variant="danger"
-            disabled={deleteReason.trim().length < 4 || deleting || !selectedSaleId}
+            disabled={deleteReason.trim().length < 4 || adminPassword.length === 0 || deleting || !selectedSaleId}
             onClick={async () => {
               if (!selectedSaleId || !token) return;
               setDeleting(true);
@@ -619,11 +624,12 @@ export function SalesPage() {
               try {
                 await apiFetch(`/api/sales/${selectedSaleId}`, {
                   method: "DELETE",
-                  body: JSON.stringify({ reason: deleteReason.trim() }),
+                  body: JSON.stringify({ reason: deleteReason.trim(), adminPassword }),
                   token,
                 });
                 setDeleteOpen(false);
                 setSelectedSaleId(null);
+                setAdminPassword("");
                 void load();
               } catch (e) {
                 setDeleteErr(e instanceof Error ? e.message : "No se pudo eliminar la venta.");

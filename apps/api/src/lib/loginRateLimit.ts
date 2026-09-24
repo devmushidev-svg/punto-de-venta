@@ -9,10 +9,10 @@ function maxFails(): number {
 
 const failureTimestamps = new Map<string, number[]>();
 
-function prune(ip: string): number[] {
+function prune(key: string): number[] {
   const now = Date.now();
-  const arr = (failureTimestamps.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-  failureTimestamps.set(ip, arr);
+  const arr = (failureTimestamps.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  failureTimestamps.set(key, arr);
   return arr;
 }
 
@@ -32,6 +32,10 @@ export function isLoginBlocked(ip: string): boolean {
   return prune(ip).length >= maxFails();
 }
 
+export function isLoginKeyBlocked(key: string): boolean {
+  return prune(key).length >= maxFails();
+}
+
 /** Tras credenciales inválidas; devuelve true si ya está bloqueado para esta petición. */
 export function registerLoginFailure(ip: string): boolean {
   const arr = prune(ip);
@@ -40,6 +44,17 @@ export function registerLoginFailure(ip: string): boolean {
   return arr.length >= maxFails();
 }
 
+export function registerLoginKeyFailure(key: string): boolean {
+  const arr = prune(key);
+  arr.push(Date.now());
+  failureTimestamps.set(key, arr);
+  return arr.length >= maxFails();
+}
+
 export function clearLoginFailures(ip: string): void {
   failureTimestamps.delete(ip);
+}
+
+export function clearLoginKeyFailures(key: string): void {
+  failureTimestamps.delete(key);
 }

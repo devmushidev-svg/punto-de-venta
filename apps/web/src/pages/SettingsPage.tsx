@@ -21,6 +21,7 @@ import {
   parsePosBehavior,
   type PosBehavior,
 } from "../lib/posBehavior";
+import { SALE_TERMS_OPTIONS } from "../lib/saleTerms";
 
 type Tab = "apariencia" | "ticket" | "sync" | "avanzado";
 
@@ -77,13 +78,15 @@ function normalizeSalesWorkflow(v: unknown): SalesWorkflow {
 }
 
 
-function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+function Toggle({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
-    <label className="flex cursor-pointer items-center gap-3 touch-manipulation">
+    <label className={`flex items-center gap-3 touch-manipulation ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-disabled={disabled}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
           checked
@@ -504,13 +507,111 @@ export function SettingsPage() {
                 <Toggle
                   checked={posBehavior.warnOutOfStock}
                   onChange={(v) => setPosBehavior({ ...posBehavior, warnOutOfStock: v })}
-                  label="Permitir vender sin stock suficiente (advertencia; inventario puede quedar negativo)"
+                  label="Permitir vender aunque exceda la existencia (el inventario puede quedar negativo)"
                 />
                 <Toggle
                   checked={posBehavior.barcodeAddsLineDirectly}
                   onChange={(v) => setPosBehavior({ ...posBehavior, barcodeAddsLineDirectly: v })}
                   label="Código de barras agrega línea directamente (si está apagado, abre el catálogo al escanear)"
                 />
+                <Field label="Después de escanear un código de barras">
+                  <Select
+                    value={posBehavior.barcodeFocusAfterAdd}
+                    onChange={(e) =>
+                      setPosBehavior({
+                        ...posBehavior,
+                        barcodeFocusAfterAdd: e.target.value === "qty" ? "qty" : "quickAdd",
+                      })
+                    }
+                    className="w-full max-w-md"
+                    disabled={!posBehavior.barcodeAddsLineDirectly}
+                  >
+                    <option value="quickAdd">Rápido: volver a Agregar productos</option>
+                    <option value="qty">Normal: pasar a cantidad del producto</option>
+                  </Select>
+                </Field>
+                <div className="space-y-2 rounded-xl border border-pf-border bg-pf-surface-elevated p-3">
+                  <p className="text-sm font-bold text-pf-text">Tipos de venta permitidos</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {SALE_TERMS_OPTIONS.map((option) => {
+                      const checked = posBehavior.allowedSaleTerms.includes(option.value);
+                      return (
+                        <Toggle
+                          key={option.value}
+                          checked={checked}
+                          onChange={(v) => {
+                            const next = v
+                              ? [...new Set([...posBehavior.allowedSaleTerms, option.value])]
+                              : posBehavior.allowedSaleTerms.filter((term) => term !== option.value);
+                            setPosBehavior({
+                              ...posBehavior,
+                              allowedSaleTerms: next.length > 0 ? next : [option.value],
+                            });
+                          }}
+                          disabled={option.value === "CONTADO"}
+                          label={option.label}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-2 rounded-xl border border-pf-border bg-pf-surface-elevated p-3">
+                  <p className="text-sm font-bold text-pf-text">Reglas de ventas</p>
+                  <Toggle
+                    checked={posBehavior.creditRequiresCustomer}
+                    onChange={(v) => setPosBehavior({ ...posBehavior, creditRequiresCustomer: v })}
+                    label="Exigir cliente registrado para ventas a crédito"
+                  />
+                  <Toggle
+                    checked={posBehavior.creditRequiresInitialPayment}
+                    onChange={(v) => setPosBehavior({ ...posBehavior, creditRequiresInitialPayment: v })}
+                    label="Exigir abono inicial en ventas a plazo"
+                  />
+                  <Toggle
+                    checked={posBehavior.requireAdminPasswordForSaleChanges}
+                    onChange={(v) => setPosBehavior({ ...posBehavior, requireAdminPasswordForSaleChanges: v })}
+                    label="Pedir contraseña de administrador para editar o cancelar facturas"
+                  />
+                  <Toggle
+                    checked={posBehavior.returnsRequireInvoice}
+                    onChange={(v) => setPosBehavior({ ...posBehavior, returnsRequireInvoice: v })}
+                    label="Permitir devoluciones solo con factura"
+                  />
+                  <Toggle
+                    checked={posBehavior.autoPrintImmediateSale}
+                    onChange={(v) => setPosBehavior({ ...posBehavior, autoPrintImmediateSale: v })}
+                    label="Imprimir automáticamente ventas inmediatas cuando se use ticket"
+                  />
+                  <Field label="Impuesto predeterminado para productos nuevos (%)">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={posBehavior.defaultTaxPercent}
+                      onChange={(e) => setPosBehavior({ ...posBehavior, defaultTaxPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
+                      className="w-full max-w-xs"
+                    />
+                  </Field>
+                  <p className="text-xs text-pf-muted">Honduras queda configurado inicialmente con 15%. No se aplica retroactivamente a productos existentes.</p>
+                </div>
+                <Field label="Al guardar una venta de contado / inmediata">
+                  <Select
+                    value={posBehavior.immediateSaleDocument}
+                    onChange={(e) =>
+                      setPosBehavior({
+                        ...posBehavior,
+                        immediateSaleDocument:
+                          e.target.value === "ticket" || e.target.value === "none" ? e.target.value : "comprobante",
+                      })
+                    }
+                    className="w-full max-w-md"
+                  >
+                    <option value="comprobante">Abrir factura carta / comprobante</option>
+                    <option value="ticket">Abrir ticket térmico</option>
+                    <option value="none">Solo guardar, no abrir documento</option>
+                  </Select>
+                </Field>
                 <Toggle
                   checked={posBehavior.showStockWhileSelling}
                   onChange={(v) => setPosBehavior({ ...posBehavior, showStockWhileSelling: v })}

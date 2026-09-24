@@ -23,7 +23,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { submitSale, isOfflineError } from "../lib/offlineSales";
 import { useAuth } from "../auth/AuthContext";
@@ -50,7 +50,6 @@ import {
   type PosBehavior,
 } from "../lib/posBehavior";
 import { resolveProductUnitPrice } from "../lib/volumePrice";
-import { hasPermission, PERMISSION_KEYS } from "../lib/permissions";
 import type { Customer, Product, Sale, Supplier } from "../types";
 
 function roundMoney2(n: number): number {
@@ -75,6 +74,32 @@ type CustomerCatalogModal =
 const SALE_LINE_FIELDS = ["qty", "price", "disc"] as const;
 type SaleLineField = (typeof SALE_LINE_FIELDS)[number];
 
+type SaleDraft = {
+  customerId: string;
+  customerName: string;
+  customerAddress: string;
+  customerPhone: string;
+  customerTaxId: string;
+  priceTier: number;
+  terms: string;
+  paid: string;
+  notes: string;
+  sellerName: string;
+  documentSaleDate: string;
+  lines: Line[];
+  selectedLineIndex: number | null;
+};
+
+type SaveSaleOptions = {
+  destination?: "ticket" | "comprobante";
+  autoPrintTicket?: boolean;
+  termsOverride?: string;
+  paidOverride?: number;
+};
+
+type CashSessionStatus = { id: string } | null;
+type CashSessionOption = { id: string; user: { displayName: string; username: string } };
+
 /** Campos del encabezado para navegar con flechas (cuadrícula visual). */
 type SaleHeaderArrowField =
   | "invoice"
@@ -85,8 +110,7 @@ type SaleHeaderArrowField =
   | "phone"
   | "taxId"
   | "notes"
-  | "priceTier"
-  | "paid";
+  | "priceTier";
 
 type SaleHeaderArrowDest = SaleHeaderArrowField | "quickAdd";
 
@@ -130,7 +154,6 @@ function shouldMoveFromTextInput(
 function headerArrowNeighbor(
   from: SaleHeaderArrowField,
   dir: ArrowDir,
-  credit: boolean,
 ): SaleHeaderArrowDest | null {
   switch (from) {
     case "invoice":
@@ -182,13 +205,7 @@ function headerArrowNeighbor(
     case "priceTier":
       if (dir === "left") return "taxId";
       if (dir === "up") return "notes";
-      if (dir === "down") return credit ? "paid" : "quickAdd";
-      return null;
-    case "paid":
-      if (dir === "up") return "priceTier";
-      if (dir === "left") return "taxId";
       if (dir === "down") return "quickAdd";
-      if (dir === "right") return "quickAdd";
       return null;
     default:
       return null;
@@ -206,6 +223,25 @@ function computeLineTotal(l: Line): number {
   return l.unitPrice * l.qty * (1 - l.discountPercent / 100);
 }
 
+function saleLineQtyError(l: Line, posBehavior: PosBehavior): string | null {
+  if (!Number.isFinite(l.qty) || l.qty <= 0) {
+    return `«${l.product.name}»: indique una cantidad mayor que cero.`;
+  }
+  if (!posBehavior.warnOutOfStock && tracksStock(l.product) && l.qty > l.product.stock) {
+    return l.product.stock <= 0
+      ? `«${l.product.name}» no tiene existencia disponible.`
+      : `«${l.product.name}»: pide ${l.qty}, pero solo hay ${l.product.stock}.`;
+  }
+  return null;
+}
+
+function saleLineQtyErrorDetail(lines: Line[], posBehavior: PosBehavior): string {
+  return lines
+    .map((line) => saleLineQtyError(line, posBehavior))
+    .filter((msg): msg is string => Boolean(msg))
+    .join("; ");
+}
+
 function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax: number } {
   if (!Number.isFinite(taxPercent) || taxPercent <= 0) return { net: gross, tax: 0 };
   const tax = gross * (taxPercent / (100 + taxPercent));
@@ -214,6 +250,13 @@ function splitTaxIncluded(gross: number, taxPercent: number): { net: number; tax
 
 function normProductLookup(s: string | null | undefined): string {
   return (s ?? "").trim().toLowerCase();
+}
+
+function parseOptionalAmount(raw: string): number {
+  const t = raw.trim();
+  if (!t) return 0;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : Number.NaN;
 }
 
 /** Valor para input `datetime-local` en hora local. */
@@ -231,11 +274,17 @@ export function NewSalePage() {
   const setSaleToolbar = useSaleDocumentToolbarSetter();
   const { token, organization, user } = useAuth();
   const admin = user?.role === "admin";
-  const canOverridePrice = hasPermission(user, PERMISSION_KEYS.SALES_PRICE_OVERRIDE);
+  const canOverridePrice = user?.role === "admin";
   const { id: editSaleId } = useParams();
   const isEditMode = Boolean(editSaleId);
   const sym = organization?.currencySymbol ?? "L";
   const navigate = useNavigate();
+  const location = useLocation();
+  const saleDraftStorageKey = useMemo(() => {
+    if (isEditMode) return null;
+    const tab = new URLSearchParams(location.search).get("tab") || "default";
+    return `pf-sale-draft:${tab}`;
+  }, [isEditMode, location.search]);
   /** Id del cliente en BD (p. ej. consumidor final); no se muestra lista, solo se usa al guardar. */
   const [customerId, setCustomerId] = useState<string>("");
   const [customerName, setCustomerName] = useState("");
@@ -278,6 +327,8 @@ export function NewSalePage() {
   const [productSearchRows, setProductSearchRows] = useState<Product[]>([]);
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [productSearchErr, setProductSearchErr] = useState("");
+  const productCacheRef = useRef<Map<string, Product>>(new Map());
+  const productLookupCacheRef = useRef<Map<string, string>>(new Map());
   const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(
     null,
   );
@@ -296,10 +347,11 @@ export function NewSalePage() {
   );
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutAmountReceived, setCheckoutAmountReceived] = useState("");
-  const [checkoutOpts, setCheckoutOpts] = useState<{
-    destination: "ticket" | "comprobante";
-    autoPrintTicket?: boolean;
-  }>({ destination: "ticket" });
+  const [checkoutOpts, setCheckoutOpts] = useState<SaveSaleOptions>({
+    destination: "ticket",
+  });
+  const [creditFullPaymentConfirmOpen, setCreditFullPaymentConfirmOpen] =
+    useState(false);
   const checkoutAmountInputRef = useRef<HTMLInputElement | null>(null);
   /** Fecha/hora del documento (nueva venta editable; en editar venta viene del API). */
   const [documentSaleDate, setDocumentSaleDate] = useState(() => new Date());
@@ -311,11 +363,12 @@ export function NewSalePage() {
   const quickAddInputRef = useRef<HTMLInputElement | null>(null);
   /** Evita un segundo Enter (lector) mientras el primero aún procesa; el estado `quickAddBusy` llega tarde en el mismo tick. */
   const quickAddBusyRef = useRef(false);
-  /** Tras agregar línea por código o catálogo: enfocar cantidad cuando el DOM ya tiene la fila (evita que el foco se quede en «código»). */
+  /** Tras agregar línea, decide si el flujo vuelve al código o pasa a editar cantidad. */
   const pendingLineFieldFocusRef = useRef<{
     lineIndex: number;
     field: SaleLineField;
   } | null>(null);
+  const pendingQuickAddFocusRef = useRef(false);
   const saleTermsRef = useRef<HTMLSelectElement | null>(null);
   const saleCustomerRef = useRef<HTMLInputElement | null>(null);
   const saleAddressRef = useRef<HTMLInputElement | null>(null);
@@ -323,7 +376,6 @@ export function NewSalePage() {
   const saleTaxIdRef = useRef<HTMLInputElement | null>(null);
   const saleNotesRef = useRef<HTMLInputElement | null>(null);
   const salePriceTierRef = useRef<HTMLSelectElement | null>(null);
-  const salePaidRef = useRef<HTMLInputElement | null>(null);
   const saleInvoiceRef = useRef<HTMLInputElement | null>(null);
   const saleFechaRef = useRef<HTMLDivElement | null>(null);
   const [customerPickHighlight, setCustomerPickHighlight] = useState(0);
@@ -332,8 +384,81 @@ export function NewSalePage() {
   const pickLinePanelRef = useRef<HTMLDivElement | null>(null);
   const [posBehavior, setPosBehavior] =
     useState<PosBehavior>(DEFAULT_POS_BEHAVIOR);
+  const saleDraftReadyRef = useRef(false);
+  const [cashSessionChecked, setCashSessionChecked] = useState(false);
+  const [cashSessionOpen, setCashSessionOpen] = useState(false);
+  const [cashSessions, setCashSessions] = useState<CashSessionOption[]>([]);
+  const [cashSessionId, setCashSessionId] = useState("");
+  const cashRequiredBlocked = !isEditMode && cashSessionChecked && !cashSessionOpen;
+  const cashRequiredLoading = !isEditMode && !cashSessionChecked;
+
+  const refreshCashSession = useCallback(() => {
+    if (!token || isEditMode) {
+      setCashSessionChecked(true);
+      setCashSessionOpen(true);
+      return;
+    }
+    setCashSessionChecked(false);
+    const request = admin
+      ? apiFetch<CashSessionOption[]>("/api/cash-sessions/open", { token }).then((sessions) => {
+          setCashSessions(sessions);
+          setCashSessionId((current) => sessions.some((s) => s.id === current) ? current : sessions[0]?.id ?? "");
+          setCashSessionOpen(sessions.length > 0);
+        })
+      : apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token })
+          .then((session) => {
+            setCashSessions([]);
+            setCashSessionId(session?.id ?? "");
+            setCashSessionOpen(Boolean(session));
+          });
+    request
+      .catch(() => setCashSessionOpen(false))
+      .finally(() => setCashSessionChecked(true));
+  }, [admin, isEditMode, token]);
+
+  const openAdminCashSession = useCallback(async () => {
+    if (!token || !admin) return;
+    setErr("");
+    try {
+      await apiFetch("/api/cash-sessions/open", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ openingCash: 0 }),
+      });
+      refreshCashSession();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo abrir la caja administrativa.");
+    }
+  }, [admin, refreshCashSession, token]);
+
+  const allowedSaleTermOptions = useMemo(() => {
+    const allowed = new Set(posBehavior.allowedSaleTerms);
+    return SALE_TERMS_OPTIONS.filter((option) => allowed.has(option.value));
+  }, [posBehavior.allowedSaleTerms]);
 
   useEffect(() => {
+    if (allowedSaleTermOptions.length === 0) return;
+    if (!allowedSaleTermOptions.some((option) => option.value === terms)) {
+      setTerms(allowedSaleTermOptions[0].value);
+    }
+  }, [allowedSaleTermOptions, terms]);
+
+  const rememberProduct = useCallback((p: Product) => {
+    productCacheRef.current.set(p.id, p);
+    for (const key of [p.sku, p.barcode, p.quickCode]) {
+      const normalized = normProductLookup(key);
+      if (normalized) productLookupCacheRef.current.set(normalized, p.id);
+    }
+  }, []);
+
+  const rememberProducts = useCallback(
+    (list: Product[]) => {
+      for (const p of list) rememberProduct(p);
+    },
+    [rememberProduct],
+  );
+
+  const loadPosBehavior = useCallback(() => {
     if (!token) return;
     apiFetch<{ general?: { posBehavior?: unknown } }>("/api/settings", {
       token,
@@ -341,6 +466,28 @@ export function NewSalePage() {
       .then((s) => setPosBehavior(parsePosBehavior(s.general?.posBehavior)))
       .catch(() => setPosBehavior(DEFAULT_POS_BEHAVIOR));
   }, [token]);
+
+  useEffect(() => {
+    loadPosBehavior();
+    window.addEventListener("pf-settings-saved", loadPosBehavior);
+    return () => window.removeEventListener("pf-settings-saved", loadPosBehavior);
+  }, [loadPosBehavior]);
+
+  useEffect(() => {
+    refreshCashSession();
+  }, [refreshCashSession]);
+
+  useEffect(() => {
+    if (!token || isEditMode) return;
+    const id = window.setTimeout(() => {
+      apiFetch<Product[]>("/api/products?touch=1&forPos=1&limit=120", { token })
+        .then(rememberProducts)
+        .catch(() => {
+          /* precarga opcional */
+        });
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [isEditMode, rememberProducts, token]);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 640px)");
@@ -359,6 +506,7 @@ export function NewSalePage() {
   useEffect(() => {
     if (!token) return;
     if (isEditMode) return;
+    saleDraftReadyRef.current = false;
     setLoadedInvoiceNumber(null);
     apiFetch<Customer[]>("/api/customers", { token }).then((list) => {
       setCustomerPickList(list);
@@ -376,8 +524,33 @@ export function NewSalePage() {
         setCustomerPhone("");
         setCustomerTaxId("");
       }
+      if (saleDraftStorageKey) {
+        try {
+          const raw = sessionStorage.getItem(saleDraftStorageKey);
+          const draft = raw ? (JSON.parse(raw) as SaleDraft) : null;
+          if (draft) {
+            setCustomerId(draft.customerId);
+            setCustomerName(draft.customerName);
+            setCustomerAddress(draft.customerAddress);
+            setCustomerPhone(draft.customerPhone);
+            setCustomerTaxId(draft.customerTaxId);
+            setPriceTier(draft.priceTier);
+            priceTierRef.current = draft.priceTier;
+            setTerms(draft.terms);
+            setPaid(draft.paid);
+            setNotes(draft.notes);
+            setSellerName(draft.sellerName);
+            setDocumentSaleDate(new Date(draft.documentSaleDate));
+            setLines(draft.lines);
+            setSelectedLineIndex(draft.selectedLineIndex);
+          }
+        } catch {
+          /* borrador inválido: se ignora */
+        }
+      }
+      saleDraftReadyRef.current = true;
     });
-  }, [token, isEditMode]);
+  }, [token, isEditMode, saleDraftStorageKey]);
 
   useEffect(() => {
     if (!token || !isEditMode || !editSaleId) return;
@@ -426,23 +599,82 @@ export function NewSalePage() {
       .finally(() => setLoadingSale(false));
   }, [token, isEditMode, editSaleId, user?.displayName, user?.username]);
 
-  const addProductById = useCallback(
-    async (productId: string) => {
-      if (!token) return;
-      try {
-        const p = await apiFetch<Product>(`/api/products/${productId}`, {
-          token,
-        });
-        if (!p.active || p.productType === "INSUMO") return;
+  useEffect(() => {
+    if (!saleDraftStorageKey || !saleDraftReadyRef.current) return;
+    const draft: SaleDraft = {
+      customerId,
+      customerName,
+      customerAddress,
+      customerPhone,
+      customerTaxId,
+      priceTier,
+      terms,
+      paid,
+      notes,
+      sellerName,
+      documentSaleDate: documentSaleDate.toISOString(),
+      lines,
+      selectedLineIndex,
+    };
+    try {
+      sessionStorage.setItem(saleDraftStorageKey, JSON.stringify(draft));
+    } catch {
+      /* sin almacenamiento disponible */
+    }
+  }, [
+    saleDraftStorageKey,
+    customerId,
+    customerName,
+    customerAddress,
+    customerPhone,
+    customerTaxId,
+    priceTier,
+    terms,
+    paid,
+    notes,
+    sellerName,
+    documentSaleDate,
+    lines,
+    selectedLineIndex,
+  ]);
 
-        const tier = priceTierRef.current;
-        let focusLineAfter: number | null = null;
+  const addProductToSale = useCallback(
+    (p: Product, opts?: { focusAfterAdd?: "qty" | "quickAdd" }) => {
+      if (cashRequiredBlocked || cashRequiredLoading) {
+        setErr("Abra una caja antes de agregar productos a una venta.");
+        return;
+      }
+      if (!p.active || p.productType === "INSUMO") return;
+      rememberProduct(p);
+
+      const tier = priceTierRef.current;
+      const focusAfterAdd = opts?.focusAfterAdd ?? "qty";
+      let focusLineAfter: number | null = null;
+      let lineErr = "";
+      const queueFocus = (lineIndex: number) => {
+        if (focusAfterAdd === "quickAdd") {
+          pendingQuickAddFocusRef.current = true;
+          pendingLineFieldFocusRef.current = null;
+          return;
+        }
+        pendingQuickAddFocusRef.current = false;
+        pendingLineFieldFocusRef.current = { lineIndex, field: "qty" };
+      };
+      flushSync(() => {
         setLines((prev) => {
           const i = prev.findIndex((l) => l.productId === p.id);
           if (i >= 0) {
             focusLineAfter = i;
+            queueFocus(i);
             const next = [...prev];
-            const qty = next[i].qty + 1;
+            let qty = next[i].qty + 1;
+            if (!posBehavior.warnOutOfStock && tracksStock(p) && qty > p.stock) {
+              lineErr =
+                p.stock <= 0
+                  ? `«${p.name}» no tiene existencia disponible.`
+                  : `«${p.name}»: no puede vender más de ${p.stock} (existencia).`;
+              qty = next[i].qty;
+            }
             next[i] = {
               ...next[i],
               product: p,
@@ -452,8 +684,13 @@ export function NewSalePage() {
             return next;
           }
 
-          focusLineAfter = prev.length;
-          const qty = defaultQtyForNewLine(p);
+          const idx = prev.length;
+          focusLineAfter = idx;
+          queueFocus(idx);
+          const qty = defaultQtyForNewLine(p, { allowOutOfStock: posBehavior.warnOutOfStock });
+          if (!posBehavior.warnOutOfStock && tracksStock(p) && qty <= 0) {
+            lineErr = `«${p.name}» no tiene existencia disponible.`;
+          }
           return [
             ...prev,
             {
@@ -467,17 +704,32 @@ export function NewSalePage() {
           ];
         });
         if (focusLineAfter !== null) {
-          pendingLineFieldFocusRef.current = {
-            lineIndex: focusLineAfter,
-            field: "qty",
-          };
           setSelectedLineIndex(focusLineAfter);
         }
+      });
+      setErr(lineErr);
+    },
+    [cashRequiredBlocked, cashRequiredLoading, posBehavior.warnOutOfStock, rememberProduct],
+  );
+
+  const addProductById = useCallback(
+    async (productId: string) => {
+      const cached = productCacheRef.current.get(productId);
+      if (cached) {
+        addProductToSale(cached);
+        return;
+      }
+      if (!token) return;
+      try {
+        const p = await apiFetch<Product>(`/api/products/${productId}`, {
+          token,
+        });
+        addProductToSale(p);
       } catch {
         /* ignorar */
       }
     },
-    [token],
+    [addProductToSale, token],
   );
 
   const openProductSearchModal = useCallback(
@@ -522,6 +774,20 @@ export function NewSalePage() {
     }
     setPickLineForEditOpen(true);
   }, [admin, lines, selectedLineIndex]);
+
+  const openProductEditorFromLine = useCallback(
+    (lineIndex: number) => {
+      if (!admin) {
+        setErr("Solo un administrador puede editar productos desde la venta.");
+        return;
+      }
+      const line = lines[lineIndex];
+      if (!line) return;
+      setSelectedLineIndex(lineIndex);
+      setCatalogModal({ kind: "edit", productId: line.productId });
+    },
+    [admin, lines],
+  );
 
   const applyCustomer = useCallback((c: Customer) => {
     setCustomerId(c.id);
@@ -592,6 +858,7 @@ export function NewSalePage() {
           `/api/products?${params.toString()}`,
           { token },
         );
+        rememberProducts(data);
         setProductSearchRows(
           data.filter((p) => p.active && p.productType !== "INSUMO"),
         );
@@ -611,6 +878,7 @@ export function NewSalePage() {
     productSearchQ,
     productSupplierId,
     productInStockOnly,
+    rememberProducts,
   ]);
 
   const filteredPickCustomers = useMemo(() => {
@@ -808,9 +1076,6 @@ export function NewSalePage() {
       case "priceTier":
         salePriceTierRef.current?.focus();
         break;
-      case "paid":
-        salePaidRef.current?.focus();
-        break;
       default:
         break;
     }
@@ -837,10 +1102,7 @@ export function NewSalePage() {
         }
       }
 
-      const credit = isCreditSaleTerm(terms);
-      if (from === "paid" && !credit) return false;
-
-      const next = headerArrowNeighbor(from, dir, credit);
+      const next = headerArrowNeighbor(from, dir);
       if (!next) return false;
       e.preventDefault();
       focusHeaderArrowTarget(next);
@@ -852,7 +1114,7 @@ export function NewSalePage() {
   const handleSaleHeaderInputKeyDown = useCallback(
     (
       e: ReactKeyboardEvent<HTMLInputElement>,
-      field: "customer" | "address" | "phone" | "taxId" | "notes" | "paid",
+      field: "customer" | "address" | "phone" | "taxId" | "notes",
     ) => {
       if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -862,7 +1124,6 @@ export function NewSalePage() {
         phone: () => saleTaxIdRef.current?.focus(),
         taxId: () => saleNotesRef.current?.focus(),
         notes: () => salePriceTierRef.current?.focus(),
-        paid: () => quickAddInputRef.current?.focus(),
       };
       const prev: Record<typeof field, () => void> = {
         customer: () => saleTermsRef.current?.focus(),
@@ -870,7 +1131,6 @@ export function NewSalePage() {
         phone: () => saleAddressRef.current?.focus(),
         taxId: () => salePhoneRef.current?.focus(),
         notes: () => saleTaxIdRef.current?.focus(),
-        paid: () => salePriceTierRef.current?.focus(),
       };
       if (e.shiftKey) {
         e.preventDefault();
@@ -901,7 +1161,6 @@ export function NewSalePage() {
       if (e.key === "ArrowUp" && e.altKey) {
         e.preventDefault();
         if (lineIndex > 0) focusSaleLineField(lineIndex - 1, field);
-        else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
         else salePriceTierRef.current?.focus();
         return;
       }
@@ -918,7 +1177,6 @@ export function NewSalePage() {
         e.stopPropagation();
         if (fi > 0) focusSaleLineField(lineIndex, SALE_LINE_FIELDS[fi - 1]);
         else if (lineIndex > 0) focusSaleLineField(lineIndex - 1, "disc");
-        else if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
         else salePriceTierRef.current?.focus();
         return;
       }
@@ -955,8 +1213,7 @@ export function NewSalePage() {
         saleNotesRef.current?.focus();
         return;
       }
-      if (isCreditSaleTerm(terms)) salePaidRef.current?.focus();
-      else if (lines.length > 0) focusSaleLineField(0, "qty");
+      if (lines.length > 0) focusSaleLineField(0, "qty");
       else quickAddInputRef.current?.focus();
     },
     [tryHeaderArrowNav, terms, lines.length, focusSaleLineField],
@@ -980,11 +1237,29 @@ export function NewSalePage() {
     setQuickAddBusy(true);
     let focusLineAfter: number | null = null;
     try {
+      const key = raw.toLowerCase();
+      const cachedId = productLookupCacheRef.current.get(key);
+      const cached = cachedId ? productCacheRef.current.get(cachedId) : undefined;
+      if (cached && cached.active && cached.productType !== "INSUMO") {
+        if (!posBehavior.barcodeAddsLineDirectly) {
+          setQuickAddCode("");
+          setQuickAddErr("");
+          quickAddBusyRef.current = false;
+          setQuickAddBusy(false);
+          setProductSearchQ(raw);
+          setProductSearchOpen(true);
+          return;
+        }
+        addProductToSale(cached, { focusAfterAdd: posBehavior.barcodeFocusAfterAdd });
+        focusLineAfter = 0;
+        setQuickAddCode("");
+        return;
+      }
       const list = await apiFetch<Product[]>(
         `/api/products?q=${encodeURIComponent(raw)}&touch=1&forPos=1&limit=120`,
         { token },
       );
-      const key = raw.toLowerCase();
+      rememberProducts(list);
       const exact = list.find(
         (p) =>
           normProductLookup(p.sku) === key ||
@@ -1015,45 +1290,10 @@ export function NewSalePage() {
         setProductSearchOpen(true);
         return;
       }
-      const tier = priceTierRef.current;
-      /* Commit síncrono: la fila existe y useLayoutEffect enfoca cantidad antes de otro Enter del lector. */
-      flushSync(() => {
-        setLines((prev) => {
-          const i = prev.findIndex((l) => l.productId === exact.id);
-          if (i >= 0) {
-            focusLineAfter = i;
-            pendingLineFieldFocusRef.current = { lineIndex: i, field: "qty" };
-            const next = [...prev];
-            const qty = next[i].qty + 1;
-            next[i] = {
-              ...next[i],
-              product: exact,
-              qty,
-              unitPrice: resolveProductUnitPrice(exact, qty, tier),
-            };
-            return next;
-          }
-          const idx = prev.length;
-          focusLineAfter = idx;
-          pendingLineFieldFocusRef.current = { lineIndex: idx, field: "qty" };
-          const qty = defaultQtyForNewLine(exact);
-          return [
-            ...prev,
-            {
-              lineKey: newLineKey(),
-              productId: exact.id,
-              product: exact,
-              qty,
-              unitPrice: resolveProductUnitPrice(exact, qty, tier),
-              discountPercent: 0,
-            },
-          ];
-        });
-        if (focusLineAfter !== null) {
-          setSelectedLineIndex(focusLineAfter);
-        }
-        setQuickAddCode("");
-      });
+      rememberProduct(exact);
+      addProductToSale(exact, { focusAfterAdd: posBehavior.barcodeFocusAfterAdd });
+      focusLineAfter = 0;
+      setQuickAddCode("");
     } catch {
       setQuickAddErr("No se pudo buscar el producto.");
     } finally {
@@ -1069,7 +1309,15 @@ export function NewSalePage() {
         }, 0);
       }
     }
-  }, [token, quickAddCode, posBehavior.barcodeAddsLineDirectly]);
+  }, [
+    addProductToSale,
+    rememberProduct,
+    rememberProducts,
+    token,
+    quickAddCode,
+    posBehavior.barcodeAddsLineDirectly,
+    posBehavior.barcodeFocusAfterAdd,
+  ]);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -1150,7 +1398,10 @@ export function NewSalePage() {
     };
   }, [lines, posBehavior.roundTotals]);
 
-  const hasBillableLines = useMemo(() => lines.some((l) => l.qty > 0), [lines]);
+  const canSubmitSaleLines = useMemo(
+    () => lines.length > 0 && lines.every((l) => saleLineQtyError(l, posBehavior) === null),
+    [lines, posBehavior],
+  );
 
   const stockIssueCount = useMemo(
     () =>
@@ -1159,37 +1410,58 @@ export function NewSalePage() {
     [lines],
   );
 
+  const validateInitialPayment = useCallback((raw = paid): number | null => {
+    const amount = parseOptionalAmount(raw);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setErr("El abono inicial debe ser un monto válido.");
+      return null;
+    }
+    if (amount > totals.total) {
+      setErr(
+        `El abono inicial (${formatMoney(sym, amount)}) no puede ser mayor que el total de la factura (${formatMoney(sym, totals.total)}).`,
+      );
+      return null;
+    }
+    if (posBehavior.creditRequiresInitialPayment && amount <= 0) {
+      setErr("Esta empresa exige un abono inicial para las ventas a plazo.");
+      return null;
+    }
+    return amount;
+  }, [paid, sym, totals.total]);
+
   const saveSale = useCallback(
-    async (opts?: {
-      destination?: "ticket" | "comprobante";
-      autoPrintTicket?: boolean;
-    }) => {
+    async (opts?: SaveSaleOptions) => {
       if (!token || lines.length === 0) return;
-      setErr("");
-      if (!lines.some((l) => l.qty > 0)) {
-        setErr(
-          "Indique una cantidad mayor que cero en al menos una línea antes de guardar.",
-        );
+      if (cashRequiredBlocked || cashRequiredLoading) {
+        setErr("Abra una caja antes de cobrar o guardar esta venta.");
         return;
       }
-      if (isCreditSaleTerm(terms) && !customerId.trim()) {
+      const saleTerms = opts?.termsOverride ?? terms;
+      setErr("");
+      const adminPassword = isEditMode && posBehavior.requireAdminPasswordForSaleChanges
+        ? window.prompt("Ingrese la contraseña de un administrador para editar esta factura") ?? ""
+        : undefined;
+      if (isEditMode && posBehavior.requireAdminPasswordForSaleChanges && !adminPassword) {
+        setErr("La edición fue cancelada: se necesita autorización de administrador.");
+        return;
+      }
+      if (!posBehavior.allowedSaleTerms.includes(saleTerms)) {
+        setErr("Este tipo de venta no está permitido en configuración.");
+        return;
+      }
+      const qtyErrorDetail = saleLineQtyErrorDetail(lines, posBehavior);
+      if (qtyErrorDetail) {
+        setErr(`Revise las cantidades antes de guardar: ${qtyErrorDetail}`);
+        return;
+      }
+      if (isCreditSaleTerm(saleTerms) && !customerId.trim()) {
         setErr("Las ventas a crédito requieren un cliente registrado.");
         return;
       }
-      const stockProblems = lines.filter(
-        (l) => tracksStock(l.product) && l.qty > l.product.stock,
-      );
-      if (stockProblems.length > 0 && !posBehavior.warnOutOfStock) {
-        const detail = stockProblems
-          .map((l) =>
-            l.product.stock <= 0
-              ? `«${l.product.name}» sin existencia`
-              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`,
-          )
-          .join("; ");
-        setErr(`No se puede guardar: existencia insuficiente — ${detail}.`);
-        return;
-      }
+      const initialPayment = isCreditSaleTerm(saleTerms)
+        ? opts?.paidOverride ?? validateInitialPayment()
+        : 0;
+      if (initialPayment === null) return;
       setBusy(true);
       try {
         if (customerId.trim()) {
@@ -1211,14 +1483,15 @@ export function NewSalePage() {
         }
         const body = {
           customerId: customerId || null,
-          terms,
+          terms: saleTerms,
           priceTier,
           notes: notes.trim() || undefined,
           sellerName: sellerName.trim() || undefined,
-          paid: isCreditSaleTerm(terms) ? Number(paid) || 0 : undefined,
+          ...(adminPassword ? { adminPassword } : {}),
+          cashSessionId: cashSessionId || undefined,
+          paid: isCreditSaleTerm(saleTerms) ? initialPayment : undefined,
           saleDate: documentSaleDate.toISOString(),
           lines: lines
-            .filter((l) => l.qty > 0)
             .map((l) => ({
               productId: l.productId,
               qty: l.qty,
@@ -1261,11 +1534,25 @@ export function NewSalePage() {
             "print",
           );
           printSaleTicketInHiddenFrame(sale.id);
+        } else if (!isCreditSaleTerm(saleTerms) && posBehavior.immediateSaleDocument === "comprobante") {
+          showToast("Factura guardada correctamente", "success");
+          navigate(`/ventas/${sale.id}/comprobante`);
+        } else if (!isCreditSaleTerm(saleTerms) && posBehavior.immediateSaleDocument === "ticket") {
+          showToast("Factura guardada correctamente", "success");
+          navigate(`/ventas/${sale.id}/ticket${posBehavior.autoPrintImmediateSale ? "?print=1" : ""}`);
         } else {
           showToast("Factura guardada correctamente", "success");
         }
 
         if (!isEditMode) {
+          if (saleDraftStorageKey) {
+            try {
+              sessionStorage.removeItem(saleDraftStorageKey);
+            } catch {
+              /* sin almacenamiento disponible */
+            }
+            saleDraftReadyRef.current = false;
+          }
           setLines([]);
           setSelectedLineIndex(null);
           setNotes("");
@@ -1273,12 +1560,13 @@ export function NewSalePage() {
             user?.displayName?.trim() || user?.username?.trim() || "",
           );
           setPaid("");
-          setTerms("CONTADO");
+          setTerms(allowedSaleTermOptions[0]?.value ?? "CONTADO");
           setQuickAddCode("");
           setQuickAddErr("");
           setErr("");
           setLoadedInvoiceNumber(null);
           setDocumentSaleDate(new Date());
+          saleDraftReadyRef.current = true;
 
           if (token) {
             apiFetch<Customer[]>("/api/customers", { token })
@@ -1304,6 +1592,8 @@ export function NewSalePage() {
     },
     [
       token,
+      cashRequiredBlocked,
+      cashRequiredLoading,
       lines,
       customerId,
       customerName,
@@ -1322,8 +1612,11 @@ export function NewSalePage() {
       showToast,
       user?.displayName,
       user?.username,
-      posBehavior.warnOutOfStock,
       canOverridePrice,
+      allowedSaleTermOptions,
+      posBehavior,
+      saleDraftStorageKey,
+      validateInitialPayment,
     ],
   );
 
@@ -1333,38 +1626,64 @@ export function NewSalePage() {
       autoPrintTicket?: boolean;
     }) => {
       if (!token || lines.length === 0) return;
+      if (cashRequiredBlocked || cashRequiredLoading) {
+        setErr("Abra una caja antes de cobrar esta venta.");
+        return;
+      }
       setErr("");
-      if (!lines.some((l) => l.qty > 0)) {
-        setErr(
-          "Indique una cantidad mayor que cero en al menos una línea antes de cobrar.",
-        );
+      const qtyErrorDetail = saleLineQtyErrorDetail(lines, posBehavior);
+      if (qtyErrorDetail) {
+        setErr(`Revise las cantidades antes de cobrar: ${qtyErrorDetail}`);
         return;
       }
       if (isCreditSaleTerm(terms) && !customerId.trim()) {
         setErr("Las ventas a crédito requieren un cliente registrado.");
         return;
       }
-      const stockProblems = lines.filter(
-        (l) => tracksStock(l.product) && l.qty > l.product.stock,
-      );
-      if (stockProblems.length > 0 && !posBehavior.warnOutOfStock) {
-        const detail = stockProblems
-          .map((l) =>
-            l.product.stock <= 0
-              ? `«${l.product.name}» sin existencia`
-              : `«${l.product.name}» (pide ${l.qty}, exist. ${l.product.stock})`,
-          )
-          .join("; ");
-        setErr(`No se puede guardar: existencia insuficiente — ${detail}.`);
-        return;
-      }
       setCheckoutOpts(opts);
-      setCheckoutAmountReceived("");
+      setCheckoutAmountReceived(isCreditSaleTerm(terms) ? paid.trim() : "");
       setCheckoutOpen(true);
       setTimeout(() => checkoutAmountInputRef.current?.focus(), 80);
     },
-    [token, lines, terms, customerId, posBehavior.warnOutOfStock],
+    [
+      token,
+      cashRequiredBlocked,
+      cashRequiredLoading,
+      lines,
+      terms,
+      customerId,
+      posBehavior,
+      paid,
+    ],
   );
+
+  const confirmCheckout = useCallback(() => {
+    const received = Number(checkoutAmountReceived);
+    if (!Number.isFinite(received) || received < 0) {
+      setErr("Ingrese una cantidad recibida válida.");
+      return;
+    }
+    if (received < totals.total) {
+      setErr(
+        `Cantidad recibida insuficiente: faltan ${formatMoney(sym, totals.total - received)} para completar la factura.`,
+      );
+      return;
+    }
+    setCheckoutOpen(false);
+    void saveSale(checkoutOpts);
+  }, [checkoutAmountReceived, checkoutOpts, saveSale, sym, totals.total]);
+
+  const confirmCreditCheckout = useCallback(() => {
+    const amount = validateInitialPayment(checkoutAmountReceived);
+    if (amount === null) return;
+    if (amount === totals.total && totals.total > 0) {
+      setCreditFullPaymentConfirmOpen(true);
+      return;
+    }
+    setPaid(amount > 0 ? String(amount) : "");
+    setCheckoutOpen(false);
+    void saveSale({ ...checkoutOpts, paidOverride: amount });
+  }, [checkoutAmountReceived, checkoutOpts, saveSale, totals.total, validateInitialPayment]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1377,6 +1696,7 @@ export function NewSalePage() {
       // mientras el cajero escanea o edita una línea. También bloqueamos la
       // acción nativa del navegador cuando el evento todavía es cancelable.
       if (isSaleCommand) e.preventDefault();
+      if ((cashRequiredBlocked || cashRequiredLoading) && isSaleCommand) return;
 
       // Atajos alternativos para Chrome/Edge, que pueden reservar F4/F5.
       if (commandKey && e.key.toLowerCase() === "k") {
@@ -1438,6 +1758,8 @@ export function NewSalePage() {
   }, [
     admin,
     busy,
+    cashRequiredBlocked,
+    cashRequiredLoading,
     loadingSale,
     lines.length,
     terms,
@@ -1471,7 +1793,7 @@ export function NewSalePage() {
           shortcut="F5 / Ctrl+Enter"
           title={isEditMode ? "Guardar cambios (F5 o Ctrl+Enter)" : "Guardar venta (F5 o Ctrl+Enter)"}
           onClick={() => openCheckout({ destination: "ticket" })}
-          disabled={busy || !hasBillableLines || loadingSale}
+          disabled={busy || !canSubmitSaleLines || loadingSale || cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarButton
           icon={Printer}
@@ -1481,7 +1803,7 @@ export function NewSalePage() {
           onClick={() =>
             openCheckout({ destination: "ticket", autoPrintTicket: true })
           }
-          disabled={busy || !hasBillableLines || loadingSale}
+          disabled={busy || !canSubmitSaleLines || loadingSale || cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarSeparator />
         <ToolbarButton
@@ -1498,6 +1820,7 @@ export function NewSalePage() {
           shortcut="F4 / Ctrl+K"
           title="Buscar productos (F4 o Ctrl+K)"
           onClick={openProductSearchModal}
+          disabled={cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarSeparator />
         <ToolbarButton
@@ -1507,6 +1830,7 @@ export function NewSalePage() {
           shortcut="F9"
           title="Enfocar el campo Código / barras / rápido para agregar un producto (no copia la fila seleccionada)"
           onClick={insertRowAfterSelection}
+          disabled={cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarButton
           tone="danger"
@@ -1516,7 +1840,7 @@ export function NewSalePage() {
           shortcut="F10"
           title="Eliminar la fila seleccionada o la última (F10)"
           onClick={deleteSelectedOrLastRow}
-          disabled={lines.length === 0}
+          disabled={lines.length === 0 || cashRequiredBlocked || cashRequiredLoading}
         />
         <ToolbarSeparator />
         <ToolbarMenu
@@ -1525,26 +1849,28 @@ export function NewSalePage() {
               icon: FileText,
               label: "Guardar y abrir factura carta",
               onClick: () => openCheckout({ destination: "comprobante" }),
-              disabled: busy || !hasBillableLines || loadingSale,
+              disabled: busy || !canSubmitSaleLines || loadingSale || cashRequiredBlocked || cashRequiredLoading,
             },
             {
               icon: Search,
               label: "Buscar productos",
               shortcut: "F4 / Ctrl+K",
               onClick: openProductSearchModal,
+              disabled: cashRequiredBlocked || cashRequiredLoading,
             },
             {
               icon: Plus,
               label: "Agregar producto por código",
               shortcut: "F9",
               onClick: insertRowAfterSelection,
+              disabled: cashRequiredBlocked || cashRequiredLoading,
             },
             {
               icon: X,
               label: "Eliminar fila seleccionada",
               shortcut: "F10",
               onClick: deleteSelectedOrLastRow,
-              disabled: lines.length === 0,
+              disabled: lines.length === 0 || cashRequiredBlocked || cashRequiredLoading,
               danger: true,
             },
             {
@@ -1587,10 +1913,12 @@ export function NewSalePage() {
     [
       admin,
       busy,
+      cashRequiredBlocked,
+      cashRequiredLoading,
       clearLines,
       customerId,
       deleteSelectedOrLastRow,
-      hasBillableLines,
+      canSubmitSaleLines,
       insertRowAfterSelection,
       isEditMode,
       lines.length,
@@ -1603,6 +1931,17 @@ export function NewSalePage() {
   );
 
   useLayoutEffect(() => {
+    if (pendingQuickAddFocusRef.current) {
+      pendingQuickAddFocusRef.current = false;
+      quickAddBusyRef.current = false;
+      setQuickAddBusy(false);
+      const el = quickAddInputRef.current;
+      if (el && !el.disabled) {
+        el.focus({ preventScroll: true });
+        el.select();
+      }
+      return;
+    }
     const p = pendingLineFieldFocusRef.current;
     if (!p) return;
     pendingLineFieldFocusRef.current = null;
@@ -1660,7 +1999,45 @@ export function NewSalePage() {
           </div>
         </div>
       )}
+      {cashRequiredLoading ? (
+        <div className="rounded-xl border border-pf-border bg-pf-surface-elevated p-6 text-center shadow-sm">
+          <p className="text-sm font-bold text-pf-text">Verificando caja abierta…</p>
+          <p className="mt-1 text-sm text-pf-muted">Un momento antes de iniciar la venta.</p>
+        </div>
+      ) : cashRequiredBlocked ? (
+        <div className="rounded-xl border border-pf-warning-soft bg-pf-warning-soft p-6 shadow-sm">
+          <div className="mx-auto max-w-xl text-center">
+            <p className="text-lg font-black text-pf-text">Caja requerida</p>
+            <p className="mt-2 text-sm leading-6 text-pf-text-secondary">
+              Para vender, cobrar o recibir abonos debe haber una caja abierta. Así cada entrada o salida de dinero queda registrada en una caja.
+            </p>
+            <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+              {admin && (
+                <Button type="button" className="min-h-12" onClick={() => void openAdminCashSession()}>
+                  Usar una caja administrativa
+                </Button>
+              )}
+              <Button type="button" className="min-h-12" onClick={() => navigate("/caja")}>
+                {admin ? "Ver y controlar otras cajas" : "Abrir caja"}
+              </Button>
+              <Button type="button" variant="secondary" className="min-h-12" onClick={refreshCashSession}>
+                Ya abrí caja, verificar
+              </Button>
+            </div>
+            {err && <p className="mt-3 text-sm font-semibold text-pf-danger" role="alert">{err}</p>}
+          </div>
+        </div>
+      ) : null}
+      {cashRequiredLoading || cashRequiredBlocked ? null : (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
+        {admin && cashSessions.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-pf-border bg-white px-3 py-2 text-sm">
+            <span className="font-semibold text-pf-text">Registrar en caja:</span>
+            <Select value={cashSessionId} onChange={(e) => setCashSessionId(e.target.value)} className="min-w-[14rem]">
+              {cashSessions.map((session) => <option key={session.id} value={session.id}>{session.user.displayName} (@{session.user.username})</option>)}
+            </Select>
+          </div>
+        )}
         <div className="pf-sale-grid-shell">
           <div className="pf-sale-doc-header">
             <h1 className="pf-doc-section-title pf-doc-section-title-compact px-2 sm:px-2.5">
@@ -1701,7 +2078,7 @@ export function NewSalePage() {
                       onKeyDown={handleSaleTermsKeyDown}
                       className="w-full min-w-0 shrink-0 !h-auto !max-h-none !min-h-[2.375rem]"
                     >
-                      {SALE_TERMS_OPTIONS.map((o) => (
+                      {allowedSaleTermOptions.map((o) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>
@@ -2024,28 +2401,10 @@ export function NewSalePage() {
               </div>
 
               {isCreditSaleTerm(terms) ? (
-                <div className="mt-1.5 grid gap-1 border-t border-pf-border/60 pt-1.5 sm:grid-cols-2 sm:items-end lg:grid-cols-3">
-                  <p className="text-[10px] text-pf-muted sm:col-span-2 lg:col-span-1">
-                    Cliente obligatorio para crédito.
+                <div className="mt-1.5 border-t border-pf-border/60 pt-1.5">
+                  <p className="rounded-lg bg-pf-primary-soft/40 px-2.5 py-1.5 text-[10px] font-medium text-pf-muted">
+                    Cliente obligatorio para crédito. El abono inicial se pedirá al cobrar.
                   </p>
-                  <Field
-                    label="Abono inicial (opcional)"
-                    className="sm:max-w-xs lg:max-w-none"
-                    compact
-                  >
-                    <Input
-                      ref={salePaidRef}
-                      type="number"
-                      step="any"
-                      value={paid}
-                      onChange={(e) => setPaid(e.target.value)}
-                      className="!h-7 !min-h-[28px] px-1.5 py-0 text-xs"
-                      onKeyDown={(e) => {
-                        if (tryHeaderArrowNav(e, "paid")) return;
-                        handleSaleHeaderInputKeyDown(e, "paid");
-                      }}
-                    />
-                  </Field>
                 </div>
               ) : null}
             </div>
@@ -2078,8 +2437,6 @@ export function NewSalePage() {
                     e.preventDefault();
                     if (lines.length > 0)
                       focusSaleLineField(lines.length - 1, "qty");
-                    else if (isCreditSaleTerm(terms))
-                      salePaidRef.current?.focus();
                     else salePriceTierRef.current?.focus();
                     return;
                   }
@@ -2093,7 +2450,7 @@ export function NewSalePage() {
                 }}
                 placeholder="Código, barras o código rápido"
                 readOnly={quickAddBusy}
-                disabled={loadingSale || !token}
+                disabled={loadingSale || !token || cashRequiredBlocked || cashRequiredLoading}
                 autoComplete="off"
                 className="min-h-10 min-w-0 flex-1 font-mono text-sm read-only:bg-pf-surface-muted"
                 aria-label="Agregar producto por código"
@@ -2136,6 +2493,7 @@ export function NewSalePage() {
                 <article
                   key={l.lineKey}
                   onClick={() => setSelectedLineIndex(i)}
+                  onDoubleClick={() => openProductEditorFromLine(i)}
                   className={`p-3 transition-colors ${
                     selectedLineIndex === i
                       ? "bg-pf-primary-soft/45 shadow-[inset_3px_0_0_0_var(--pf-primary-mid)]"
@@ -2203,8 +2561,8 @@ export function NewSalePage() {
                             : l.qty;
 
                           if (
-                            tracksStock(l.product) &&
-                            !posBehavior.warnOutOfStock
+                            !posBehavior.warnOutOfStock &&
+                            tracksStock(l.product)
                           ) {
                             const cap = l.product.stock;
                             if (!l.product.esGranel) qty = Math.round(qty);
@@ -2329,6 +2687,7 @@ export function NewSalePage() {
                 <tr
                   key={l.lineKey}
                   onClick={() => setSelectedLineIndex(i)}
+                  onDoubleClick={() => openProductEditorFromLine(i)}
                   className={`pf-table-row cursor-pointer transition hover:bg-pf-surface ${
                     selectedLineIndex === i
                       ? "bg-[linear-gradient(to_right,var(--pf-row-selected-from),var(--pf-row-selected-to))]"
@@ -2376,6 +2735,7 @@ export function NewSalePage() {
                   <td
                     className="px-3 py-2 text-right"
                     onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
                   >
                     <Input
                       type="number"
@@ -2393,8 +2753,8 @@ export function NewSalePage() {
                           : l.qty;
 
                         if (
-                          tracksStock(l.product) &&
-                          !posBehavior.warnOutOfStock
+                          !posBehavior.warnOutOfStock &&
+                          tracksStock(l.product)
                         ) {
                           const cap = l.product.stock;
                           if (!l.product.esGranel) qty = Math.round(qty);
@@ -2435,6 +2795,7 @@ export function NewSalePage() {
                   <td
                     className="px-3 py-2 text-right"
                     onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
                   >
                     <Input
                       type="number"
@@ -2464,6 +2825,7 @@ export function NewSalePage() {
                   <td
                     className="px-3 py-2 text-right"
                     onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
                   >
                     <Input
                       type="number"
@@ -2499,6 +2861,7 @@ export function NewSalePage() {
                   <td
                     className="px-2 py-2"
                     onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
                   >
                     <button
                       type="button"
@@ -2553,25 +2916,17 @@ export function NewSalePage() {
 
         {stockIssueCount > 0 && (
           <div
-            className={`mt-2 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${
-              posBehavior.warnOutOfStock
-                ? "border-pf-warning-soft/80 bg-pf-warning-soft/90"
-                : "border-pf-danger/40 bg-pf-danger-soft/30"
-            }`}
+            className="mt-2 flex items-start gap-2 rounded-xl border border-pf-danger/40 bg-pf-danger-soft/30 px-4 py-3 text-sm"
           >
             <AlertTriangle
-              className={`mt-0.5 h-4 w-4 shrink-0 ${posBehavior.warnOutOfStock ? "text-pf-warning" : "text-pf-danger"}`}
+              className="mt-0.5 h-4 w-4 shrink-0 text-pf-danger"
             />
             <p
-              className={`font-medium ${posBehavior.warnOutOfStock ? "text-pf-warning" : "text-pf-danger"}`}
+              className="font-medium text-pf-danger"
             >
-              {posBehavior.warnOutOfStock
-                ? stockIssueCount === 1
-                  ? "1 producto excede la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo)."
-                  : `${stockIssueCount} productos exceden la existencia registrada. Puede guardar igualmente (inventario puede quedar negativo).`
-                : stockIssueCount === 1
-                  ? "1 producto excede la existencia disponible. Ajuste la cantidad para poder guardar."
-                  : `${stockIssueCount} productos exceden la existencia disponible. Ajuste las cantidades para poder guardar.`}
+              {stockIssueCount === 1
+                ? "1 producto excede la existencia disponible. Ajuste la cantidad para poder guardar."
+                : `${stockIssueCount} productos exceden la existencia disponible. Ajuste las cantidades para poder guardar.`}
             </p>
           </div>
         )}
@@ -2739,7 +3094,7 @@ export function NewSalePage() {
                     e.preventDefault();
                     const p = productSearchRows[productSearchHighlight];
                     if (!p) return;
-                    void addProductById(p.id);
+                    addProductToSale(p);
                     setProductSearchOpen(false);
                   }
                 }}
@@ -2844,7 +3199,7 @@ export function NewSalePage() {
                         }`}
                         onClick={() => {
                           setProductSearchHighlight(idx);
-                          void addProductById(p.id);
+                          addProductToSale(p);
                           setProductSearchOpen(false);
                         }}
                       >
@@ -2974,15 +3329,20 @@ export function NewSalePage() {
 
         <Modal
           open={checkoutOpen}
-          title="Cobrar Factura"
-          onClose={() => setCheckoutOpen(false)}
+          title={isCreditSaleTerm(terms) ? "Abono inicial" : "Cobrar Factura"}
+          onClose={() => {
+            setCheckoutOpen(false);
+            setErr("");
+          }}
           maxWidthClass="sm:max-w-md"
         >
           {(() => {
+            const creditCheckout = isCreditSaleTerm(terms);
             const total = totals.total;
             const received = Number(checkoutAmountReceived) || 0;
             const cambio = Math.max(0, received - total);
             const saldo = Math.max(0, total - received);
+            const excede = Math.max(0, received - total);
             return (
               <div className="space-y-4">
                 <div className="space-y-3">
@@ -3000,7 +3360,7 @@ export function NewSalePage() {
                       htmlFor="checkout-amount"
                       className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary"
                     >
-                      Cantidad
+                      {creditCheckout ? "Abono" : "Cantidad"}
                     </label>
                     <Input
                       ref={checkoutAmountInputRef}
@@ -3010,15 +3370,16 @@ export function NewSalePage() {
                       min={0}
                       className="max-w-[180px] text-right text-xl font-bold"
                       value={checkoutAmountReceived}
-                      onChange={(e) =>
-                        setCheckoutAmountReceived(e.target.value)
-                      }
+                      onChange={(e) => {
+                        setCheckoutAmountReceived(e.target.value);
+                        setErr("");
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
                           if (!busy) {
-                            setCheckoutOpen(false);
-                            void saveSale(checkoutOpts);
+                            if (creditCheckout) confirmCreditCheckout();
+                            else confirmCheckout();
                           }
                         }
                       }}
@@ -3027,22 +3388,24 @@ export function NewSalePage() {
                     />
                   </div>
 
-                  <div
-                    className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
-                      cambio > 0
-                        ? "border-pf-success-soft bg-pf-success-soft"
-                        : "border-pf-border bg-pf-surface-elevated"
-                    }`}
-                  >
-                    <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">
-                      Cambio
-                    </span>
-                    <span
-                      className={`text-xl font-black tabular-nums ${cambio > 0 ? "text-pf-success" : "text-pf-text-tertiary"}`}
+                  {creditCheckout ? null : (
+                    <div
+                      className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
+                        cambio > 0
+                          ? "border-pf-success-soft bg-pf-success-soft"
+                          : "border-pf-border bg-pf-surface-elevated"
+                      }`}
                     >
-                      {formatMoney(sym, cambio)}
-                    </span>
-                  </div>
+                      <span className="text-sm font-bold uppercase tracking-wide text-pf-text-tertiary">
+                        Cambio
+                      </span>
+                      <span
+                        className={`text-xl font-black tabular-nums ${cambio > 0 ? "text-pf-success" : "text-pf-text-tertiary"}`}
+                      >
+                        {formatMoney(sym, cambio)}
+                      </span>
+                    </div>
+                  )}
 
                   <div
                     className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${
@@ -3060,6 +3423,18 @@ export function NewSalePage() {
                       {formatMoney(sym, saldo)}
                     </span>
                   </div>
+
+                  {creditCheckout && received === total && total > 0 ? (
+                    <p className="rounded-xl border border-pf-info-soft bg-pf-info-soft px-3 py-2 text-sm font-medium text-pf-info">
+                      El abono cubre todo el total. Puedes cambiar esta factura a contado antes de guardarla.
+                    </p>
+                  ) : null}
+
+                  {creditCheckout && excede > 0 ? (
+                    <p className="rounded-xl border border-pf-danger-soft bg-pf-danger-soft px-3 py-2 text-sm font-medium text-pf-danger">
+                      El abono excede el total por {formatMoney(sym, excede)}.
+                    </p>
+                  ) : null}
                 </div>
 
                 {err ? (
@@ -3069,17 +3444,14 @@ export function NewSalePage() {
                 <Button
                   type="button"
                   className="w-full min-h-12 gap-3 text-base"
-                  onClick={() => {
-                    setCheckoutOpen(false);
-                    void saveSale(checkoutOpts);
-                  }}
+                  onClick={creditCheckout ? confirmCreditCheckout : confirmCheckout}
                   disabled={busy}
                 >
                   <CheckCircle2
                     className="h-5 w-5 shrink-0"
                     strokeWidth={2.5}
                   />
-                  {busy ? "Guardando…" : "Cobrar Factura"}
+                  {busy ? "Guardando…" : creditCheckout ? "Guardar con abono" : "Cobrar Factura"}
                 </Button>
 
                 {checkoutOpts.autoPrintTicket && (
@@ -3093,7 +3465,59 @@ export function NewSalePage() {
             );
           })()}
         </Modal>
+
+        <Modal
+          open={creditFullPaymentConfirmOpen}
+          title="Abono igual al total"
+          onClose={() => setCreditFullPaymentConfirmOpen(false)}
+          maxWidthClass="sm:max-w-md"
+        >
+          <div className="space-y-4">
+            <p className="text-sm leading-6 text-pf-text-secondary">
+              El abono inicial cubre el total completo de la factura. ¿Quieres cambiar el tipo de factura a contado?
+            </p>
+            <div className="rounded-xl border border-pf-border bg-pf-surface-elevated px-4 py-3">
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <span className="font-bold uppercase tracking-wide text-pf-text-tertiary">Total</span>
+                <span className="text-lg font-black tabular-nums text-pf-text">{formatMoney(sym, totals.total)}</span>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-12"
+                disabled={busy}
+                onClick={() => {
+                  const amount = totals.total;
+                  setPaid(String(amount));
+                  setCreditFullPaymentConfirmOpen(false);
+                  setCheckoutOpen(false);
+                  void saveSale({ ...checkoutOpts, paidOverride: amount });
+                }}
+              >
+                Mantener plazo
+              </Button>
+              <Button
+                type="button"
+                className="min-h-12"
+                disabled={busy || !posBehavior.allowedSaleTerms.includes("CONTADO")}
+                onClick={() => {
+                  if (!posBehavior.allowedSaleTerms.includes("CONTADO")) return;
+                  setPaid("");
+                  setTerms("CONTADO");
+                  setCreditFullPaymentConfirmOpen(false);
+                  setCheckoutOpen(false);
+                  void saveSale({ ...checkoutOpts, termsOverride: "CONTADO" });
+                }}
+              >
+                {posBehavior.allowedSaleTerms.includes("CONTADO") ? "Cambiar a contado" : "Contado desactivado"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       </div>
+      )}
     </div>
   );
 }

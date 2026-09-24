@@ -1,6 +1,6 @@
 import { AlertTriangle, Coins, Plus, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Input, Modal } from "../components/ui";
@@ -19,6 +19,8 @@ type Row = {
   saleDate: string;
   dueDate: string | null;
 };
+
+type CashSessionStatus = { id: string } | null;
 
 const DAY_MS = 86_400_000;
 
@@ -48,13 +50,15 @@ function dueLabel(days: number | null): { text: string; tone: "danger" | "warnin
 
 export function AccountsReceivablePage() {
   const { token, user, organization } = useAuth();
+  const navigate = useNavigate();
   const sym = organization?.currencySymbol ?? "L";
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
-  const [registerInCash, setRegisterInCash] = useState(false);
+  const [cashSessionChecked, setCashSessionChecked] = useState(false);
+  const [cashSessionOpen, setCashSessionOpen] = useState(false);
 
   const [payFor, setPayFor] = useState<Row | null>(null);
   const [payAmount, setPayAmount] = useState("");
@@ -75,9 +79,29 @@ export function AccountsReceivablePage() {
     }
   }, [token]);
 
+  const refreshCashSession = useCallback(async () => {
+    if (!token) return;
+    setCashSessionChecked(false);
+    try {
+      const session = await apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token });
+      setCashSessionOpen(Boolean(session));
+    } catch {
+      setCashSessionOpen(false);
+    } finally {
+      setCashSessionChecked(true);
+    }
+  }, [token]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    void refreshCashSession();
+  }, [refreshCashSession]);
+
+  const cashRequiredBlocked = cashSessionChecked && !cashSessionOpen;
+  const cashRequiredLoading = !cashSessionChecked;
 
   /** Lo primero que se cobra es lo mas atrasado. */
   const sorted = useMemo(() => {
@@ -115,6 +139,10 @@ export function AccountsReceivablePage() {
   }, [rows]);
 
   function openPay(row: Row) {
+    if (cashRequiredLoading || cashRequiredBlocked) {
+      setErr("Abra una caja antes de registrar abonos.");
+      return;
+    }
     setPayFor(row);
     setPayAmount("");
     setSurOpen(false);
@@ -125,6 +153,10 @@ export function AccountsReceivablePage() {
 
   async function pay() {
     if (!token || !payFor) return;
+    if (cashRequiredLoading || cashRequiredBlocked) {
+      setErr("Abra una caja antes de registrar abonos.");
+      return;
+    }
     const amount = Number(payAmount);
     if (!amount || amount <= 0) {
       setErr("Indique un monto válido.");
@@ -135,7 +167,7 @@ export function AccountsReceivablePage() {
     try {
       await apiFetch(`/api/accounts/receivable/${payFor.saleId}/pay`, {
         method: "POST",
-        body: JSON.stringify({ amount, registerCashMovement: registerInCash }),
+        body: JSON.stringify({ amount }),
         token,
       });
       setPayFor(null);
@@ -225,17 +257,33 @@ export function AccountsReceivablePage() {
               className="!pl-9"
             />
           </div>
-          <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm text-pf-text-secondary">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-pf-border accent-[color:var(--pf-primary)]"
-              checked={registerInCash}
-              onChange={(e) => setRegisterInCash(e.target.checked)}
-            />
-            Registrar los abonos en el diario de caja
-          </label>
         </div>
       </Card>
+
+      {cashRequiredLoading || cashRequiredBlocked ? (
+        <Card className="space-y-3 border-pf-warning/40 bg-pf-warning-soft/40 p-4">
+          <div>
+            <p className="font-semibold text-pf-text">
+              {cashRequiredLoading ? "Verificando caja abierta…" : "Caja requerida para registrar abonos"}
+            </p>
+            <p className="mt-1 text-sm text-pf-text-secondary">
+              {cashRequiredLoading
+                ? "Estamos revisando si hay una caja abierta antes de permitir cobros."
+                : "Todo abono de cliente mueve dinero, por eso debe quedar en una caja abierta."}
+            </p>
+          </div>
+          {cashRequiredBlocked ? (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => navigate("/caja")}>
+                Abrir caja
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => void refreshCashSession()}>
+                Ya abrí caja, verificar
+              </Button>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Card className="overflow-hidden p-0">
         {loading ? (
@@ -308,6 +356,7 @@ export function AccountsReceivablePage() {
                     type="button"
                     variant="secondary"
                     className="min-h-12 w-full"
+                    disabled={cashRequiredLoading || cashRequiredBlocked}
                     onClick={() => openPay(r)}
                   >
                     <Coins className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
@@ -366,7 +415,13 @@ export function AccountsReceivablePage() {
                         {formatMoney(sym, r.balance)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">
-                        <Button type="button" variant="secondary" className="min-h-9" onClick={() => openPay(r)}>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="min-h-9"
+                          disabled={cashRequiredLoading || cashRequiredBlocked}
+                          onClick={() => openPay(r)}
+                        >
                           <Coins className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
                           Abonar
                         </Button>
@@ -440,11 +495,9 @@ export function AccountsReceivablePage() {
               Abonar el saldo completo ({formatMoney(sym, payFor.balance)})
             </button>
 
-            {registerInCash ? (
-              <p className="text-xs text-pf-text-tertiary">
-                El abono quedará registrado en el diario de caja del turno abierto.
-              </p>
-            ) : null}
+            <p className="text-xs text-pf-text-tertiary">
+              El abono quedará registrado en la caja abierta.
+            </p>
 
             {err ? (
               <p className="rounded-[var(--radius-pf)] border border-pf-danger-soft bg-pf-danger-soft px-3 py-2 text-sm font-medium text-pf-danger">
@@ -452,7 +505,12 @@ export function AccountsReceivablePage() {
               </p>
             ) : null}
 
-            <Button type="button" className="min-h-12 w-full" disabled={busy != null} onClick={() => void pay()}>
+            <Button
+              type="button"
+              className="min-h-12 w-full"
+              disabled={busy != null || cashRequiredLoading || cashRequiredBlocked}
+              onClick={() => void pay()}
+            >
               <Coins className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               {busy === "pay" ? "Registrando…" : "Registrar abono"}
             </Button>

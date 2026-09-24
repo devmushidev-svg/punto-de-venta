@@ -910,7 +910,7 @@ function CashHistory({
       )}
       {admin && (
         <details className="cash-details">
-          <summary>Todos los turnos abiertos en esta fecha</summary>
+          <summary>Todas las cajas de la empresa en esta fecha</summary>
           {summaryError ? (
             <p className="cash-error">
               No se pudo cargar el resumen general. Use Actualizar para

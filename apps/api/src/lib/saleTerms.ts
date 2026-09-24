@@ -14,6 +14,8 @@ export function normalizeSaleTerms(raw: string): string {
 
 export const CREDIT_SALE_TERMS_EXACT = ["CREDITO", "15 DIAS", "30 DIAS", "45 DIAS", "60 DIAS"] as const;
 
+export const SALE_TERMS_VALUES = ["CONTADO", "TARJETA", "EFECTIVO", ...CREDIT_SALE_TERMS_EXACT] as const;
+
 export function isCreditSaleTerm(terms: string): boolean {
   const t = normalizeSaleTerms(terms);
   if ((CREDIT_SALE_TERMS_EXACT as readonly string[]).includes(t)) return true;
