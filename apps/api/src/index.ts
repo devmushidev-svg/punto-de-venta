@@ -1473,6 +1473,12 @@ function assertSarRangeValidUntil(invParsed: Record<string, unknown>, saleDate: 
   if (saleDate.getTime() > limit.getTime()) throw new Error("SAR_AUTH_EXPIRED");
 }
 
+function currentDayStart(): Date {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 async function requireOpenCashSession(
   db: Prisma.TransactionClient,
   orgId: string,
@@ -1482,8 +1488,8 @@ async function requireOpenCashSession(
 ) {
   const session = await db.cashSession.findFirst({
     where: requestedSessionId && allowAnyOpenForAdmin
-      ? { id: requestedSessionId, organizationId: orgId, closedAt: null }
-      : { organizationId: orgId, userId, closedAt: null },
+      ? { id: requestedSessionId, organizationId: orgId, closedAt: null, openedAt: { gte: currentDayStart() } }
+      : { organizationId: orgId, userId, closedAt: null, openedAt: { gte: currentDayStart() } },
   });
   if (!session) throw new Error("CASH_SESSION_REQUIRED");
   return session;
@@ -2298,7 +2304,19 @@ api.post("/cash-sessions/open", async (c) => {
   const open = await prisma.cashSession.findFirst({
     where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
   });
-  if (open) return c.json({ error: "Ya tiene caja abierta", session: open }, 400);
+  if (open && open.openedAt < currentDayStart()) {
+    const yesterdayEnd = new Date(currentDayStart().getTime() - 1);
+    const diary = await buildCashDiaryForSession(jwt.orgId, jwt.sub, open, yesterdayEnd);
+    await prisma.cashSession.update({
+      where: { id: open.id },
+      data: {
+        closedAt: yesterdayEnd,
+        expectedCash: diary.efectivoCajaSugerido,
+        closingCash: diary.efectivoCajaSugerido,
+        notes: open.notes ? `${open.notes}\nCierre automático por cambio de día.` : "Cierre automático por cambio de día.",
+      },
+    });
+  } else if (open) return c.json({ error: "Ya tiene caja abierta", session: open }, 400);
   const body = await c.req.json<{ openingCash?: number }>();
   const session = await prisma.cashSession.create({
     data: {
@@ -2318,6 +2336,7 @@ api.get("/cash-sessions/open", async (c) => {
     where: {
       organizationId: jwt.orgId,
       closedAt: null,
+      openedAt: { gte: currentDayStart() },
       ...(isAdminJwt(jwt) ? {} : { userId: jwt.sub }),
     },
     include: { user: { select: { id: true, displayName: true, username: true } } },
@@ -2329,7 +2348,7 @@ api.get("/cash-sessions/open", async (c) => {
 api.get("/cash-sessions/current", async (c) => {
   const jwt = c.get("jwt");
   const session = await prisma.cashSession.findFirst({
-    where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
+    where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null, openedAt: { gte: currentDayStart() } },
   });
   return c.json(session);
 });
@@ -2505,7 +2524,7 @@ async function buildCashDiaryForSession(
 api.get("/cash-sessions/current/diary", async (c) => {
   const jwt = c.get("jwt");
   const session = await prisma.cashSession.findFirst({
-    where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
+    where: { organizationId: jwt.orgId, userId: jwt.sub, closedAt: null, openedAt: { gte: currentDayStart() } },
   });
   if (!session) {
     return c.json(emptyCashDiary());
