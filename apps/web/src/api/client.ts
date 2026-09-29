@@ -42,6 +42,13 @@ export function apiUrl(path: string): string {
   return path;
 }
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { token?: string | null } = {}
@@ -69,7 +76,7 @@ export async function apiFetch<T>(
       localStorage.removeItem("pf_token");
       window.dispatchEvent(new Event("pf-auth-stale"));
     }
-    throw new Error(err);
+    throw new ApiError(err, res.status);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

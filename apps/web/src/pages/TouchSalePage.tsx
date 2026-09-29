@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
+import { loadSaleCashSessions, openSaleCashSession, type CashSessionOption } from "../lib/saleCashSessions";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
 import { Button, Field, Input, Modal, Select } from "../components/ui";
@@ -52,8 +53,6 @@ type Line = {
 };
 
 type Toast = { message: string; kind: "success" | "print" };
-type CashSessionStatus = { id: string } | null;
-type CashSessionOption = { id: string; user: { displayName: string; username: string } };
 
 
 export function TouchSalePage() {
@@ -97,47 +96,49 @@ export function TouchSalePage() {
   const [cashSessionOpen, setCashSessionOpen] = useState(false);
   const [cashSessions, setCashSessions] = useState<CashSessionOption[]>([]);
   const [cashSessionId, setCashSessionId] = useState("");
+  const [cashSessionError, setCashSessionError] = useState("");
+  const [openingCashSession, setOpeningCashSession] = useState(false);
   const cashRequiredBlocked = cashSessionChecked && !cashSessionOpen;
   const cashRequiredLoading = !cashSessionChecked;
 
-  const refreshCashSession = useCallback(() => {
-    if (!token) {
+  const refreshCashSession = useCallback(async () => {
+    if (!token || !user) {
       setCashSessionChecked(true);
       setCashSessionOpen(false);
       return;
     }
     setCashSessionChecked(false);
-    const request = user?.role === "admin"
-      ? apiFetch<CashSessionOption[]>("/api/cash-sessions/open", { token }).then((sessions) => {
-          setCashSessions(sessions);
-          setCashSessionId((current) => sessions.some((s) => s.id === current) ? current : sessions[0]?.id ?? "");
-          setCashSessionOpen(sessions.length > 0);
-        })
-      : apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token })
-          .then((session) => {
-            setCashSessions([]);
-            setCashSessionId(session?.id ?? "");
-            setCashSessionOpen(Boolean(session));
-          });
-    request
-      .catch(() => setCashSessionOpen(false))
-      .finally(() => setCashSessionChecked(true));
-  }, [token, user?.role]);
+    setCashSessionError("");
+    try {
+      const sessions = await loadSaleCashSessions(token, user);
+      setCashSessions(sessions);
+      setCashSessionId((current) => sessions.some((s) => s.id === current) ? current : sessions[0]?.id ?? "");
+      setCashSessionOpen(sessions.length > 0);
+    } catch (error) {
+      setCashSessionOpen(false);
+      setCashSessionError(error instanceof Error ? error.message : "Error de conexion");
+    } finally {
+      setCashSessionChecked(true);
+    }
+  }, [token, user]);
 
   const openAdminCashSession = useCallback(async () => {
-    if (!token || user?.role !== "admin") return;
+    if (!token || user?.role !== "admin" || openingCashSession) return;
     setErr("");
+    setOpeningCashSession(true);
     try {
-      await apiFetch("/api/cash-sessions/open", {
-        method: "POST",
-        token,
-        body: JSON.stringify({ openingCash: 0 }),
-      });
-      await refreshCashSession();
+      const sessions = await openSaleCashSession(token, user);
+      setCashSessions(sessions);
+      setCashSessionId(sessions[0].id);
+      setCashSessionOpen(true);
+      setCashSessionChecked(true);
+      setCashSessionError("");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "No se pudo abrir la caja administrativa.");
+    } finally {
+      setOpeningCashSession(false);
     }
-  }, [refreshCashSession, token, user?.role]);
+  }, [openingCashSession, token, user]);
 
   const showToast = useCallback((message: string, kind: Toast["kind"]) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -882,14 +883,14 @@ export function TouchSalePage() {
       ) : cashRequiredBlocked ? (
         <div className="rounded-xl border border-pf-warning-soft bg-pf-warning-soft p-6 shadow-sm">
           <div className="mx-auto max-w-xl text-center">
-            <p className="text-lg font-black text-pf-text">Caja requerida</p>
+            <p className="text-lg font-black text-pf-text">{cashSessionError ? "No se pudo verificar la caja" : "Caja requerida"}</p>
             <p className="mt-2 text-sm leading-6 text-pf-text-secondary">
-              Para usar venta táctil debe haber una caja abierta. Así cada entrada o salida de dinero queda registrada en una caja.
+              {cashSessionError ? `Intente verificar nuevamente. ${cashSessionError}` : "Para usar venta táctil debe haber una caja abierta. Así cada entrada o salida de dinero queda registrada en una caja."}
             </p>
             <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
-              {user?.role === "admin" && (
-                <Button type="button" className="min-h-12" onClick={() => void openAdminCashSession()}>
-                  Usar una caja administrativa
+              {user?.role === "admin" && !cashSessionError && (
+                <Button type="button" className="min-h-12" disabled={openingCashSession} onClick={() => void openAdminCashSession()}>
+                  {openingCashSession ? "Verificando caja…" : "Usar una caja administrativa"}
                 </Button>
               )}
               <Button type="button" className="min-h-12" onClick={() => navigate("/caja")}>

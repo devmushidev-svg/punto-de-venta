@@ -26,6 +26,7 @@ import {
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
+import { loadSaleCashSessions, openSaleCashSession, type CashSessionOption } from "../lib/saleCashSessions";
 import { submitSale, isOfflineError } from "../lib/offlineSales";
 import { useAuth } from "../auth/AuthContext";
 import { useSaleDocumentToolbarSetter } from "../layouts/SaleDocumentToolbarContext";
@@ -98,8 +99,6 @@ type SaveSaleOptions = {
   paidOverride?: number;
 };
 
-type CashSessionStatus = { id: string } | null;
-type CashSessionOption = { id: string; user: { displayName: string; username: string } };
 
 /** Campos del encabezado para navegar con flechas (cuadrícula visual). */
 type SaleHeaderArrowField =
@@ -394,47 +393,49 @@ export function NewSalePage() {
   const [cashSessionOpen, setCashSessionOpen] = useState(false);
   const [cashSessions, setCashSessions] = useState<CashSessionOption[]>([]);
   const [cashSessionId, setCashSessionId] = useState("");
+  const [cashSessionError, setCashSessionError] = useState("");
+  const [openingCashSession, setOpeningCashSession] = useState(false);
   const cashRequiredBlocked = !isEditMode && cashSessionChecked && !cashSessionOpen;
   const cashRequiredLoading = !isEditMode && !cashSessionChecked;
 
-  const refreshCashSession = useCallback(() => {
-    if (!token || isEditMode) {
+  const refreshCashSession = useCallback(async () => {
+    if (!token || !user || isEditMode) {
       setCashSessionChecked(true);
-      setCashSessionOpen(true);
+      setCashSessionOpen(isEditMode);
       return;
     }
     setCashSessionChecked(false);
-    const request = admin
-      ? apiFetch<CashSessionOption[]>("/api/cash-sessions/open", { token }).then((sessions) => {
-          setCashSessions(sessions);
-          setCashSessionId((current) => sessions.some((s) => s.id === current) ? current : sessions[0]?.id ?? "");
-          setCashSessionOpen(sessions.length > 0);
-        })
-      : apiFetch<CashSessionStatus>("/api/cash-sessions/current", { token })
-          .then((session) => {
-            setCashSessions([]);
-            setCashSessionId(session?.id ?? "");
-            setCashSessionOpen(Boolean(session));
-          });
-    request
-      .catch(() => setCashSessionOpen(false))
-      .finally(() => setCashSessionChecked(true));
-  }, [admin, isEditMode, token]);
+    setCashSessionError("");
+    try {
+      const sessions = await loadSaleCashSessions(token, user);
+      setCashSessions(sessions);
+      setCashSessionId((current) => sessions.some((s) => s.id === current) ? current : sessions[0]?.id ?? "");
+      setCashSessionOpen(sessions.length > 0);
+    } catch (error) {
+      setCashSessionOpen(false);
+      setCashSessionError(error instanceof Error ? error.message : "Error de conexion");
+    } finally {
+      setCashSessionChecked(true);
+    }
+  }, [isEditMode, token, user]);
 
   const openAdminCashSession = useCallback(async () => {
-    if (!token || !admin) return;
+    if (!token || !admin || !user || openingCashSession) return;
     setErr("");
+    setOpeningCashSession(true);
     try {
-      await apiFetch("/api/cash-sessions/open", {
-        method: "POST",
-        token,
-        body: JSON.stringify({ openingCash: 0 }),
-      });
-      await refreshCashSession();
+      const sessions = await openSaleCashSession(token, user);
+      setCashSessions(sessions);
+      setCashSessionId(sessions[0].id);
+      setCashSessionOpen(true);
+      setCashSessionChecked(true);
+      setCashSessionError("");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "No se pudo abrir la caja administrativa.");
+    } finally {
+      setOpeningCashSession(false);
     }
-  }, [admin, refreshCashSession, token]);
+  }, [admin, openingCashSession, token, user]);
 
   const allowedSaleTermOptions = useMemo(() => {
     const allowed = new Set(posBehavior.allowedSaleTerms);
@@ -2045,14 +2046,14 @@ export function NewSalePage() {
       ) : cashRequiredBlocked ? (
         <div className="rounded-xl border border-pf-warning-soft bg-pf-warning-soft p-6 shadow-sm">
           <div className="mx-auto max-w-xl text-center">
-            <p className="text-lg font-black text-pf-text">Caja requerida</p>
+            <p className="text-lg font-black text-pf-text">{cashSessionError ? "No se pudo verificar la caja" : "Caja requerida"}</p>
             <p className="mt-2 text-sm leading-6 text-pf-text-secondary">
-              Para vender, cobrar o recibir abonos debe haber una caja abierta. Así cada entrada o salida de dinero queda registrada en una caja.
+              {cashSessionError ? `Intente verificar nuevamente. ${cashSessionError}` : "Para vender, cobrar o recibir abonos debe haber una caja abierta. Así cada entrada o salida de dinero queda registrada en una caja."}
             </p>
             <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
-              {admin && (
-                <Button type="button" className="min-h-12" onClick={() => void openAdminCashSession()}>
-                  Usar una caja administrativa
+              {admin && !cashSessionError && (
+                <Button type="button" className="min-h-12" disabled={openingCashSession} onClick={() => void openAdminCashSession()}>
+                  {openingCashSession ? "Verificando caja…" : "Usar una caja administrativa"}
                 </Button>
               )}
               <Button type="button" className="min-h-12" onClick={() => navigate("/caja")}>
