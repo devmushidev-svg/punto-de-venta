@@ -1548,14 +1548,40 @@ body {
   }
 }
 
-/* Datos secundarios de una venta: presentes y accesibles en todo momento en
-   escritorio, plegables en móvil para llegar al buscador de productos antes. */
+/* Datos secundarios de una venta: plegables para que la grilla de productos
+   tenga prioridad visual y más espacio de trabajo. */
 .pf-sale-extra-details > summary {
+  display: flex;
+  min-height: 2.25rem;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: calc(var(--radius-pf) - 0.125rem);
+  padding-inline: 0.5rem;
+  color: var(--pf-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  list-style: none;
+}
+
+.pf-sale-extra-details > summary::-webkit-details-marker {
   display: none;
+}
+
+.pf-sale-extra-details > summary::after {
+  content: "+";
+  color: var(--pf-primary-hover);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.pf-sale-extra-details[open] > summary::after {
+  content: "−";
 }
 
 .pf-sale-extra-details-body {
   display: flex;
+  padding-top: 0.25rem;
 }
 
 @media (max-width: 639px) {
@@ -1575,52 +1601,4 @@ body {
     column-gap: 0.5rem;
   }
 
-  .pf-sale-extra-details {
-    border-top: 1px solid var(--pf-border-soft);
-    padding-top: 0.375rem;
-  }
-
-  .pf-sale-extra-details > summary {
-    display: flex;
-    min-height: 2.75rem;
-    cursor: pointer;
-    align-items: center;
-    justify-content: space-between;
-    border-radius: calc(var(--radius-pf) - 0.125rem);
-    padding-inline: 0.5rem;
-    color: var(--pf-text-secondary);
-    font-size: 0.75rem;
-    font-weight: 700;
-    list-style: none;
-  }
-
-  .pf-sale-extra-details > summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .pf-sale-extra-details > summary::after {
-    content: "+";
-    color: var(--pf-primary-hover);
-    font-size: 1rem;
-    line-height: 1;
-  }
-
-  .pf-sale-extra-details[open] > summary::after {
-    content: "−";
-  }
-
-  .pf-sale-extra-details-body {
-    display: none;
-    padding-top: 0.25rem;
-  }
-
-  .pf-sale-extra-details[open] > .pf-sale-extra-details-body {
-    display: flex;
-  }
-}
-
-@media (min-width: 640px) {
-  .pf-sale-extra-details:not([open]) > .pf-sale-extra-details-body {
-    display: flex;
-  }
 }

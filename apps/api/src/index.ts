@@ -1486,10 +1486,18 @@ async function requireOpenCashSession(
   requestedSessionId?: string | null,
   allowAnyOpenForAdmin = false,
 ) {
+  const dayScope = { closedAt: null, openedAt: { gte: currentDayStart() } };
   const session = await db.cashSession.findFirst({
-    where: requestedSessionId && allowAnyOpenForAdmin
-      ? { id: requestedSessionId, organizationId: orgId, closedAt: null, openedAt: { gte: currentDayStart() } }
-      : { organizationId: orgId, userId, closedAt: null, openedAt: { gte: currentDayStart() } },
+    // El administrador puede registrar movimientos en cualquier caja vigente
+    // de la empresa. Si la UI todavía no alcanzó a enviar el selector, usamos
+    // la primera caja abierta del día en vez de bloquear la venta.
+    where: allowAnyOpenForAdmin
+      ? {
+          organizationId: orgId,
+          ...dayScope,
+          ...(requestedSessionId ? { id: requestedSessionId } : {}),
+        }
+      : { organizationId: orgId, userId, ...dayScope },
   });
   if (!session) throw new Error("CASH_SESSION_REQUIRED");
   return session;
@@ -2241,7 +2249,7 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
     let paid = body.paid ?? (terms === "CONTADO" ? total : 0);
     if (paid > total) paid = total;
     if (terms === "CONTADO" && paid < total) paid = total;
-    if (paid > 0) await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
+    if (paid > 0) await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
 
     const p = await tx.purchase.create({
       data: {
@@ -2994,7 +3002,7 @@ api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.A
   if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
   try {
   const updated = await prisma.$transaction(async (tx) => {
-    const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
+    const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
     const u = await tx.sale.update({
       where: { id: saleId },
       data: { paid: { increment: amount } },
@@ -3078,7 +3086,7 @@ api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.
   if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
   try {
   const updated = await prisma.$transaction(async (tx) => {
-    const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
+    const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
     const u = await tx.purchase.update({
       where: { id: purchaseId },
       data: { paid: { increment: amount } },
@@ -4137,7 +4145,7 @@ api.post("/expenses", requireAdmin, async (c) => {
   if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   try {
     const row = await prisma.$transaction(async (tx) => {
-      await requireOpenCashSession(tx, jwt.orgId, jwt.sub);
+      await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
       return tx.expense.create({
         data: {
           organizationId: jwt.orgId,

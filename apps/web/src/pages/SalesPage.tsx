@@ -293,10 +293,6 @@ export function SalesPage() {
               ))}
             </Select>
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-pf-muted">Contraseña de administrador</span>
-            <Input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="Confirmar autorización" />
-          </label>
           <label className="min-w-[130px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-pf-muted">
             Términos
             <Select className="mt-1 min-h-10" value={termsFilter} onChange={(e) => setTermsFilter(e.target.value)}>
@@ -605,6 +601,18 @@ export function SalesPage() {
               placeholder="Ej.: factura duplicada por error del cajero"
               className="min-h-[80px]"
               maxLength={300}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-pf-muted">
+              Contraseña de administrador
+            </span>
+            <Input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="Ingrese la contraseña para autorizar"
+              autoComplete="current-password"
             />
           </label>
           {deleteErr ? <p className="text-sm text-pf-danger">{deleteErr}</p> : null}
