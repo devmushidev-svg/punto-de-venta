@@ -25,6 +25,8 @@ export default defineConfig({
         lang: "es",
         theme_color: "#fff7ed",
         background_color: "#fff7ed",
+        // Escritorio: sin barra de título del navegador; la cabecera propia ocupa ese espacio.
+        display_override: ["window-controls-overlay", "standalone"],
         display: "standalone",
         start_url: "/",
         scope: "/",

@@ -554,6 +554,35 @@ body {
   background-attachment: fixed;
 }
 
+/*
+ * PWA instalada en escritorio con la barra de título oculta (window-controls-overlay):
+ * la cabecera de la app hace de barra de título (arrastrable) y deja libre la esquina
+ * donde el sistema dibuja minimizar / maximizar / cerrar.
+ */
+@media (display-mode: window-controls-overlay) {
+  .pf-app-shell-header {
+    -webkit-app-region: drag;
+    app-region: drag;
+    padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  }
+  .pf-app-shell-header :is(a, button, input, select, textarea, [role="button"], [tabindex]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+  /* Pantallas sin cabecera (login, ayuda): franja invisible para poder mover la ventana. */
+  body:not(:has(.pf-app-shell-header))::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: env(titlebar-area-x, 0px);
+    width: env(titlebar-area-width, 100%);
+    height: env(titlebar-area-height, 0px);
+    z-index: 100;
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+}
+
 @media print {
   body {
     background: white !important;
