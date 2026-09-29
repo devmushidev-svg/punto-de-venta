@@ -430,7 +430,7 @@ export function NewSalePage() {
         token,
         body: JSON.stringify({ openingCash: 0 }),
       });
-      refreshCashSession();
+      await refreshCashSession();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "No se pudo abrir la caja administrativa.");
     }

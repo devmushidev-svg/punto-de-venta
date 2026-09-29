@@ -2324,7 +2324,12 @@ api.post("/cash-sessions/open", async (c) => {
         notes: open.notes ? `${open.notes}\nCierre automático por cambio de día.` : "Cierre automático por cambio de día.",
       },
     });
-  } else if (open) return c.json({ error: "Ya tiene caja abierta", session: open }, 400);
+  } else if (open) {
+    // Abrir caja es idempotente: evita que una doble pulsación o una
+    // verificación desde una venta deje al usuario bloqueado aunque la caja
+    // ya estuviera abierta.
+    return c.json(open);
+  }
   const body = await c.req.json<{ openingCash?: number }>();
   const session = await prisma.cashSession.create({
     data: {
