@@ -841,8 +841,13 @@ api.patch("/organizations/current", requireAdmin, async (c) => {
   ] as const;
   const data: Record<string, string> = {};
   for (const k of allowed) {
-    if (body[k] !== undefined) data[k] = String(body[k]);
+    if (body[k] === undefined) continue;
+    // Antes String(valor): un null quedaba guardado como el texto "null" y un 5 como "5".
+    if (body[k] !== null && typeof body[k] !== "string") return c.json({ error: `${k} debe ser texto` }, 400);
+    data[k] = typeof body[k] === "string" ? (body[k] as string).trim() : "";
   }
+  if (data.name !== undefined && !data.name) return c.json({ error: "El nombre de la empresa es obligatorio" }, 400);
+  if (data.currencySymbol !== undefined && !data.currencySymbol) return c.json({ error: "El símbolo de moneda es obligatorio" }, 400);
   const org = await prisma.organization.update({ where: { id: jwt.orgId }, data });
   return c.json(org);
 });
