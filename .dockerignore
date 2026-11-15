@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+**/.env
+.git
+.pglite-dev
+docker/local
+*.pdf
+docs/screenshots

@@ -1,0 +1,65 @@
+# Uso:  JWT_SECRET=$(openssl rand -base64 48) docker compose up --build
+# Web: http://localhost:4173   API: http://localhost:3001
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pos}
+      POSTGRES_DB: pos
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pos -d pos"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://pos:${POSTGRES_PASSWORD:-pos}@db:5432/pos
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET (openssl rand -base64 48)}
+      NODE_ENV: production
+      PORT: "3001"
+      TZ: America/Tegucigalpa
+      CORS_ORIGINS: http://localhost:4173
+      # Demo opcional: SEED_DEMO=true y las tres contraseñas DEMO_*_PASSWORD.
+      SEED_DEMO: ${SEED_DEMO:-false}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
+      DEMO_CASHIER_PASSWORD: ${DEMO_CASHIER_PASSWORD:-}
+      DEMO_NORMAL_PASSWORD: ${DEMO_NORMAL_PASSWORD:-}
+    ports:
+      - "3001:3001"
+    volumes:
+      - logos:/app/apps/api/uploads
+    # /health responde 503 si la base no contesta, así Docker marca la API como no sana.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    working_dir: /app/apps/web
+    command: ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "4173"]
+    ports:
+      - "4173:4173"
+
+volumes:
+  pgdata:
+  logos:
