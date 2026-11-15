@@ -13,7 +13,7 @@ type Tx = Prisma.TransactionClient;
  * Los ids se bloquean siempre ordenados para que dos ventas con los mismos
  * productos no se esperen en cruz (deadlock).
  */
-const LOCKABLE = new Set(["Product", "Sale", "Purchase", "Quote", "OrganizationSettings", "DocumentSeries"]);
+const LOCKABLE = new Set(["Product", "Sale", "Purchase", "Quote", "StockTransfer", "OrganizationSettings", "DocumentSeries"]);
 
 export async function lockRows(tx: Tx, table: string, ids: string[]): Promise<void> {
   if (!LOCKABLE.has(table)) throw new Error(`lockRows: tabla no permitida ${table}`);
@@ -166,4 +166,37 @@ export function resolveSaleDate(requested: Date | null, isAdmin: boolean, now = 
 /** Precio unitario resultante: nunca negativo ni no-numerico. */
 export function assertValidUnitPrice(unitPrice: number): void {
   if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error("INVALID_PRICE");
+}
+
+/**
+ * Correlativo atomico para documentos internos (cotizaciones, pedidos,
+ * traslados, ajustes). Antes se usaba `count + 1`: dos peticiones simultaneas
+ * leian el mismo conteo y quedaban dos documentos con el mismo numero.
+ * Reusa DocumentSeries (unico por empresa + tipo + prefijo). La primera vez
+ * arranca en `existingCount + 1` para continuar la numeracion que ya habia.
+ */
+export async function allocateDocumentNumber(
+  tx: Tx,
+  orgId: string,
+  documentType: "QUOTE" | "SUPPLIER_ORDER" | "STOCK_TRANSFER" | "STOCK_ADJUSTMENT",
+  prefix: string,
+  padding: number,
+  existingCount: () => Promise<number>,
+): Promise<string> {
+  let series = await tx.documentSeries.findUnique({
+    where: { organizationId_documentType_prefix: { organizationId: orgId, documentType, prefix } },
+  });
+  if (!series) {
+    const start = (await existingCount()) + 1;
+    series = await tx.documentSeries.upsert({
+      where: { organizationId_documentType_prefix: { organizationId: orgId, documentType, prefix } },
+      update: {},
+      create: { organizationId: orgId, documentType, prefix, nextNumber: start, padding },
+    });
+  }
+  const bumped = await tx.documentSeries.update({
+    where: { id: series.id },
+    data: { nextNumber: { increment: 1 } },
+  });
+  return `${bumped.prefix}${String(bumped.nextNumber - 1).padStart(bumped.padding, "0")}`;
 }
