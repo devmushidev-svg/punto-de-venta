@@ -8,10 +8,10 @@ describe("resolveSaleDate", () => {
   it("sin fecha usa la del servidor", () => {
     expect(resolveSaleDate(null, false, now)).toBe(now);
   });
-  it("rechaza fechas futuras para todos", () => {
+  it("una fecha futura (reloj de la caja adelantado) se recorta a la hora del servidor", () => {
     const future = new Date(now.getTime() + 60 * 60 * 1000);
-    expect(() => resolveSaleDate(future, true, now)).toThrow("SALE_DATE_FUTURE");
-    expect(() => resolveSaleDate(future, false, now)).toThrow("SALE_DATE_FUTURE");
+    expect(resolveSaleDate(future, true, now)).toBe(now);
+    expect(resolveSaleDate(future, false, now)).toBe(now);
   });
   it("un cajero puede reenviar ventas offline de hasta 7 días", () => {
     const d = new Date(now.getTime() - MAX_BACKDATE_NON_ADMIN_MS + 1000);

@@ -150,13 +150,18 @@ export async function allocateSaleInvoiceNumber(
   return `${bumped.prefix}${String(assigned).padStart(bumped.padding, "0")}`;
 }
 
-/** Fecha de venta enviada por el cliente: nunca en el futuro; los no-admin solo hasta 7 dias atras (ventas offline). */
+/**
+ * Fecha de venta enviada por el cliente. El front manda siempre la hora de la
+ * computadora: una futura (reloj adelantado) se recorta a la hora del servidor
+ * en vez de rechazar la venta. Los no-admin solo pueden ir hasta 7 dias atras
+ * (suficiente para reenviar ventas hechas sin internet).
+ */
 export const MAX_BACKDATE_NON_ADMIN_MS = 7 * 24 * 60 * 60 * 1000;
 const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 
 export function resolveSaleDate(requested: Date | null, isAdmin: boolean, now = new Date()): Date {
   if (!requested) return now;
-  if (requested.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) throw new Error("SALE_DATE_FUTURE");
+  if (requested.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) return now;
   if (!isAdmin && now.getTime() - requested.getTime() > MAX_BACKDATE_NON_ADMIN_MS) {
     throw new Error("SALE_DATE_TOO_OLD");
   }
