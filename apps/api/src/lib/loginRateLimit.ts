@@ -16,12 +16,22 @@ function prune(key: string): number[] {
   return arr;
 }
 
-/** Usar con `c.req.header`; detrás de reverse proxy configurar X-Forwarded-For / X-Real-IP. */
+/**
+ * IP del cliente para el limite de intentos.
+ *
+ * `X-Forwarded-For` es una lista: cada proxy AGREGA al final la IP de quien le
+ * hablo. Lo que viene al principio lo escribe el propio cliente. Antes se usaba
+ * la primera entrada, asi que rotar la cabecera daba intentos ilimitados.
+ * Ahora se toma la ultima, que es la que puso el proxy de confianza mas cercano
+ * (Railway/Vercel). `TRUST_PROXY_HOPS` permite ajustar si hay mas de un proxy.
+ */
 export function clientIpFromHeaders(getHeader: (name: string) => string | undefined): string {
   const xf = getHeader("x-forwarded-for");
   if (xf) {
-    const first = xf.split(",")[0]?.trim();
-    if (first) return first;
+    const parts = xf.split(",").map((p) => p.trim()).filter(Boolean);
+    const hops = Math.max(1, Math.trunc(Number(process.env.TRUST_PROXY_HOPS) || 1));
+    const ip = parts[Math.max(0, parts.length - hops)];
+    if (ip) return ip;
   }
   const realIp = getHeader("x-real-ip")?.trim();
   if (realIp) return realIp;
@@ -32,8 +42,8 @@ export function isLoginBlocked(ip: string): boolean {
   return prune(ip).length >= maxFails();
 }
 
-export function isLoginKeyBlocked(key: string): boolean {
-  return prune(key).length >= maxFails();
+export function isLoginKeyBlocked(key: string, limit = maxFails()): boolean {
+  return prune(key).length >= limit;
 }
 
 /** Tras credenciales inválidas; devuelve true si ya está bloqueado para esta petición. */
@@ -44,11 +54,16 @@ export function registerLoginFailure(ip: string): boolean {
   return arr.length >= maxFails();
 }
 
-export function registerLoginKeyFailure(key: string): boolean {
+export function registerLoginKeyFailure(key: string, limit = maxFails()): boolean {
   const arr = prune(key);
   arr.push(Date.now());
   failureTimestamps.set(key, arr);
-  return arr.length >= maxFails();
+  return arr.length >= limit;
+}
+
+/** Limite por cuenta (empresa + usuario) sin importar la IP: frena ataques repartidos entre muchas IPs. */
+export function accountLoginLimit(): number {
+  return maxFails() * 3;
 }
 
 export function clearLoginFailures(ip: string): void {

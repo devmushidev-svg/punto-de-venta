@@ -270,10 +270,10 @@ pero el contenido sigue siendo legible en la historia de GitHub:
 
 ```
 DATABASE_URL="file:./dev.db"
-JWT_SECRET="cambiar-en-produccion-usa-openssl-rand-hex-32"
+JWT_SECRET="cambiar-en-produccion-…"   # valor completo: lista de rechazados en apps/api/src/lib/auth.ts
 ```
 
-Y `.env.example` repartía un segundo valor conocido, `dev-secret-local-change-me`.
+Y `.env.example` repartía un segundo valor conocido, que empezaba con `dev-secret-local-`.
 El guardia de producción solo comprobaba que la variable **existiera**, no que no fuera
 uno de esos valores. Un despliegue hecho copiando el ejemplo —el camino que el propio
 archivo sugiere— arrancaba con un secreto que cualquiera puede leer en GitHub, y con él
@@ -304,8 +304,9 @@ un valor de ejemplo suelto en el código.
   lo detectan y nombran el archivo. Al quitarlo, vuelven a pasar.
 
 ### Pendiente del usuario (operativo, no de código)
-Si hay algún despliegue en línea corriendo con `cambiar-en-produccion-usa-openssl-rand-hex-32`
-o con `dev-secret-local-change-me`, hay que generar un secreto nuevo
+Si hay algún despliegue en línea corriendo con alguno de esos dos secretos publicados
+(los que empiezan con `cambiar-en-produccion-` o `dev-secret-local-`; la lista exacta está
+en `apps/api/src/lib/auth.ts`), hay que generar un secreto nuevo
 (`openssl rand -base64 48`) y ponerlo en las variables de entorno del servidor. Al
 cambiarlo, todas las sesiones abiertas se cierran y hay que volver a iniciar sesión —
 que es justo lo que se quiere si el secreto viejo era público.

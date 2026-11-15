@@ -6,6 +6,7 @@ describe("demoSeedCredentials", () => {
     expect(demoSeedCredentials({ NODE_ENV: "development" })).toEqual({
       adminPassword: "admin",
       cashierPassword: "cajero",
+      normalPassword: "usuario",
     });
   });
 
@@ -19,10 +20,22 @@ describe("demoSeedCredentials", () => {
         NODE_ENV: "production",
         DEMO_ADMIN_PASSWORD: "admin-demo-no-publica-123",
         DEMO_CASHIER_PASSWORD: "cajero-demo-no-publica-123",
+        DEMO_NORMAL_PASSWORD: "usuario-demo-no-publica-123",
       })
     ).toEqual({
       adminPassword: "admin-demo-no-publica-123",
       cashierPassword: "cajero-demo-no-publica-123",
+      normalPassword: "usuario-demo-no-publica-123",
     });
+  });
+
+  it("exige también la contraseña del usuario normal en producción", () => {
+    expect(() =>
+      demoSeedCredentials({
+        NODE_ENV: "production",
+        DEMO_ADMIN_PASSWORD: "a-demo-no-publica-123",
+        DEMO_CASHIER_PASSWORD: "c-demo-no-publica-123",
+      })
+    ).toThrow(/DEMO_NORMAL_PASSWORD/);
   });
 });

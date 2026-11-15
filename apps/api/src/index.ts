@@ -3,6 +3,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { Prisma } from "@prisma/client";
+import {
+  allocateDocumentNumber,
+  allocateSaleInvoiceNumber,
+  assertValidUnitPrice,
+  lockAndAssertSaleStock,
+  lockRows,
+  resolveSaleDate,
+} from "./lib/saleIntegrity.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
@@ -14,6 +22,7 @@ import {
   clientIpFromHeaders,
   isLoginBlocked,
   isLoginKeyBlocked,
+  accountLoginLimit,
   registerLoginFailure,
   registerLoginKeyFailure,
 } from "./lib/loginRateLimit.js";
@@ -200,7 +209,57 @@ app.use("*", async (c, next) => {
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 });
 
-app.get("/health", (c) => c.json({ ok: true }));
+/**
+ * Cuerpo JSON malformado o que no es un objeto → 400. Antes `c.req.json()`
+ * lanzaba dentro de cada ruta y el cliente recibia un 500 generico.
+ * Un cuerpo vacio se deja pasar: varias acciones (enviar traslado, etc.) no mandan cuerpo.
+ */
+app.use("*", async (c, next) => {
+  const method = c.req.method;
+  const ct = c.req.header("content-type") ?? "";
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(method) && ct.includes("application/json")) {
+    const text = await c.req.text();
+    if (text.trim()) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        return c.json({ error: "El cuerpo de la solicitud no es JSON válido" }, 400);
+      }
+      if (parsed === null || typeof parsed !== "object") {
+        return c.json({ error: "El cuerpo de la solicitud debe ser un objeto JSON" }, 400);
+      }
+    }
+  }
+  await next();
+});
+
+/** Errores conocidos → respuesta clara; el resto se registra y responde 500. */
+app.onError((err, c) => {
+  if (err instanceof HttpInputError) return c.json({ error: err.message }, 400);
+  if (err instanceof SyntaxError) return c.json({ error: "El cuerpo de la solicitud no es JSON válido" }, 400);
+  const code = (err as { code?: string }).code;
+  if (code === "P2002") return c.json({ error: "Ya existe un registro con esos datos" }, 409);
+  if (code === "P2025") return c.json({ error: "No encontrado" }, 404);
+  if (code === "P2003") return c.json({ error: "El registro está en uso o hace referencia a datos inexistentes" }, 409);
+  if (err.name === "PrismaClientValidationError") return c.json({ error: "Datos inválidos en la solicitud" }, 400);
+  if ("getResponse" in err && typeof (err as { getResponse?: unknown }).getResponse === "function") {
+    return (err as unknown as { getResponse: () => Response }).getResponse();
+  }
+  console.error("[api] error no controlado", c.req.method, c.req.path, err);
+  return c.json({ error: "Error interno del servidor" }, 500);
+});
+
+// Railway y Docker usan esta ruta para decidir si el servicio esta sano. Antes
+// respondia ok aunque la base estuviera caida y todo el sistema daba 500.
+app.get("/health", async (c) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return c.json({ ok: true, db: "ok" });
+  } catch {
+    return c.json({ ok: false, db: "unreachable" }, 503);
+  }
+});
 
 let demoSeedPromise: Promise<void> | null = null;
 
@@ -273,13 +332,13 @@ app.post("/admin/bootstrap-org", async (c) => {
     return c.json({ error: "Secreto inválido" }, 401);
   }
   const body = await c.req.json<{ name?: string; slug?: string; adminUsername?: string; adminPassword?: string }>();
-  const name = body.name?.trim();
-  const adminUsername = body.adminUsername?.trim().toUpperCase();
+  const name = strOrEmpty(body.name);
+  const adminUsername = strOrEmpty(body.adminUsername).toUpperCase();
   const adminPassword = body.adminPassword ?? "";
   if (!name || !adminUsername || adminPassword.length < 6) {
     return c.json({ error: "name, adminUsername y adminPassword (mín. 6 caracteres) requeridos" }, 400);
   }
-  const slug = (body.slug?.trim().toLowerCase() || slugifyOrgName(name)).slice(0, 48) || "org";
+  const slug = (strOrEmpty(body.slug).toLowerCase() || slugifyOrgName(name)).slice(0, 48) || "org";
   const taken = await prisma.organization.findUnique({ where: { slug } });
   if (taken) return c.json({ error: "El slug ya existe" }, 409);
   const passwordHash = await hashPassword(adminPassword);
@@ -370,7 +429,8 @@ app.post("/auth/login", async (c) => {
   }
 
   const subjectKey = loginSubjectKey(loginIp, orgId, username);
-  if (isLoginKeyBlocked(subjectKey)) {
+  const accountKey = `account:${orgId}:${username}`;
+  if (isLoginKeyBlocked(subjectKey) || isLoginKeyBlocked(accountKey, accountLoginLimit())) {
     return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
   }
 
@@ -382,7 +442,8 @@ app.post("/auth/login", async (c) => {
   if (!user || !passwordOk) {
     const ipLocked = registerLoginFailure(loginIp);
     const subjectLocked = registerLoginKeyFailure(subjectKey);
-    if (ipLocked || subjectLocked) {
+    const accountLocked = registerLoginKeyFailure(accountKey, accountLoginLimit());
+    if (ipLocked || subjectLocked || accountLocked) {
       return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
     }
     return c.json({ error: LOGIN_GENERIC_ERROR }, 401);
@@ -390,6 +451,7 @@ app.post("/auth/login", async (c) => {
 
   clearLoginFailures(loginIp);
   clearLoginKeyFailures(subjectKey);
+  clearLoginKeyFailures(accountKey);
 
   const localContext = await ensureDefaultBranchDevice(user.organizationId);
   const effectivePermissions = effectivePermissionList(user.role, user.permissionsJson);
@@ -434,13 +496,20 @@ const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, next) =
   const h = c.req.header("Authorization");
   const m = h?.match(/^Bearer\s+(.+)$/i);
   if (!m) return c.json({ error: "No autorizado" }, 401);
+  let jwt: JwtPayload;
   try {
-    const jwt = verifyToken(m[1]);
-    c.set("jwt", jwt);
-    await next();
+    jwt = verifyToken(m[1]);
   } catch {
     return c.json({ error: "Token inválido" }, 401);
   }
+  // Un token dura 7 dias: sin esto, desactivar a un usuario no le cerraba la sesion.
+  const active = await prisma.user.findFirst({
+    where: { id: jwt.sub, organizationId: jwt.orgId, active: true },
+    select: { id: true },
+  });
+  if (!active) return c.json({ error: "Sesión no válida: el usuario fue desactivado o eliminado." }, 401);
+  c.set("jwt", jwt);
+  await next();
 });
 
 const PERM_STALE_BODY = {
@@ -632,8 +701,8 @@ api.post("/devices/register", async (c) => {
     invoiceSeries?: string;
   }>();
   const fallback = await ensureDefaultBranchDevice(jwt.orgId);
-  const code = (body.code || process.env.DEVICE_CODE || "CAJA-01").trim().toUpperCase();
-  const name = (body.name || body.code || process.env.DEVICE_NAME || "Caja principal").trim();
+  const code = (strOrEmpty(body.code) || process.env.DEVICE_CODE || "CAJA-01").trim().toUpperCase();
+  const name = (strOrEmpty(body.name) || strOrEmpty(body.code) || process.env.DEVICE_NAME || "Caja principal").trim();
   if (!code || !name) return c.json({ error: "code y name requeridos" }, 400);
   const branchId = body.branchId || fallback.branch.id;
   const branch = await prisma.branch.findFirst({ where: { id: branchId, organizationId: jwt.orgId } });
@@ -643,8 +712,8 @@ api.post("/devices/register", async (c) => {
   const data = {
     branchId: branch.id,
     name,
-    mode: body.mode?.trim().toUpperCase() || "LOCAL",
-    invoiceSeries: (body.invoiceSeries || code.replace(/[^A-Z0-9]/g, "").slice(-4) || "A").trim().toUpperCase(),
+    mode: strOrEmpty(body.mode).toUpperCase() || "LOCAL",
+    invoiceSeries: (strOrEmpty(body.invoiceSeries) || code.replace(/[^A-Z0-9]/g, "").slice(-4) || "A").trim().toUpperCase(),
     active: true,
     lastSeenAt: new Date(),
   };
@@ -772,8 +841,13 @@ api.patch("/organizations/current", requireAdmin, async (c) => {
   ] as const;
   const data: Record<string, string> = {};
   for (const k of allowed) {
-    if (body[k] !== undefined) data[k] = String(body[k]);
+    if (body[k] === undefined) continue;
+    // Antes String(valor): un null quedaba guardado como el texto "null" y un 5 como "5".
+    if (body[k] !== null && typeof body[k] !== "string") return c.json({ error: `${k} debe ser texto` }, 400);
+    data[k] = typeof body[k] === "string" ? (body[k] as string).trim() : "";
   }
+  if (data.name !== undefined && !data.name) return c.json({ error: "El nombre de la empresa es obligatorio" }, 400);
+  if (data.currencySymbol !== undefined && !data.currencySymbol) return c.json({ error: "El símbolo de moneda es obligatorio" }, 400);
   const org = await prisma.organization.update({ where: { id: jwt.orgId }, data });
   return c.json(org);
 });
@@ -830,12 +904,17 @@ api.post("/users", requireAdmin, async (c) => {
     active?: boolean;
     permissionsJson?: string | Record<string, unknown>;
   }>();
-  const username = body.username?.trim().toUpperCase();
-  const password = body.password ?? "";
-  const displayName = body.displayName?.trim();
+  const username = strOrEmpty(body.username).toUpperCase();
+  const password = typeof body.password === "string" ? body.password : "";
+  const displayName = strOrEmpty(body.displayName);
   if (!username || !password || !displayName) {
     return c.json({ error: "Usuario, contraseña y nombre requeridos" }, 400);
   }
+  // El login solo acepta este formato: un usuario creado con otro no podria entrar nunca.
+  if (!LOGIN_USERNAME_RE.test(username)) {
+    return c.json({ error: "Usuario inválido: use letras, números y . _ @ - (sin espacios)" }, 400);
+  }
+  if (password.length < 6) return c.json({ error: "La contraseña debe tener al menos 6 caracteres" }, 400);
   const role = (body.role ?? "cajero").toLowerCase();
   if (!["admin", "cajero", "vendedor"].includes(role)) {
     return c.json({ error: "Rol inválido" }, 400);
@@ -895,7 +974,21 @@ api.patch("/users/:id", requireAdmin, async (c) => {
   }
   if (body.active !== undefined) data.active = Boolean(body.active);
   if (body.password && String(body.password).length > 0) {
+    if (String(body.password).length < 6) return c.json({ error: "La contraseña debe tener al menos 6 caracteres" }, 400);
     data.passwordHash = await hashPassword(String(body.password));
+  }
+  // Nunca dejar la empresa sin un administrador activo (antes el unico admin
+  // podia quitarse el rol o desactivarse y nadie podia volver a administrar).
+  const losesAdmin =
+    existing.role === "admin" && existing.active && ((data.role !== undefined && data.role !== "admin") || data.active === false);
+  if (losesAdmin) {
+    const otherAdmins = await prisma.user.count({
+      where: { organizationId: jwt.orgId, role: "admin", active: true, id: { not: existing.id } },
+    });
+    if (otherAdmins === 0) return c.json({ error: "Debe quedar al menos un administrador activo en la empresa." }, 400);
+  }
+  if (existing.id === jwt.sub && data.active === false) {
+    return c.json({ error: "No puede desactivar su propio usuario." }, 400);
   }
   if (body.permissionsJson !== undefined) {
     const raw =
@@ -1118,8 +1211,8 @@ api.post("/products", requireAdmin, async (c) => {
     lotCode?: string | null;
     expiresAt?: string | null;
   }>();
-  const sku = body.sku?.trim();
-  if (!sku || !body.name?.trim()) return c.json({ error: "SKU y nombre requeridos" }, 400);
+  const sku = strOrEmpty(body.sku);
+  if (!sku || !strOrEmpty(body.name)) return c.json({ error: "SKU y nombre requeridos" }, 400);
   const productType = (body.productType ?? "PRODUCTO").toUpperCase();
   if (!isValidProductType(productType)) {
     return c.json({ error: "Tipo de producto inválido" }, 400);
@@ -1127,6 +1220,16 @@ api.post("/products", requireAdmin, async (c) => {
   if (productType === "KIT" && (!body.kitLines || body.kitLines.length === 0)) {
     return c.json({ error: "Un kit debe incluir al menos un producto (tipo PRODUCTO)" }, 400);
   }
+  // Antes `Number(body.price) || 0`: un precio "abc" o negativo se guardaba como 0 o negativo sin avisar.
+  const priceIn = optionalNonNegative(body.price, "El precio");
+  const price2In = optionalNonNegative(body.price2, "El precio 2");
+  const price3In = optionalNonNegative(body.price3, "El precio 3");
+  const price4In = optionalNonNegative(body.price4, "El precio 4");
+  const costIn = optionalNonNegative(body.cost, "El costo");
+  const stockIn = optionalNonNegative(body.stock, "El stock");
+  const minStockIn = optionalNonNegative(body.minStock, "El stock mínimo");
+  const taxIn = optionalNonNegative(body.taxPercent, "El impuesto");
+  if (taxIn != null && taxIn > 100) return c.json({ error: "El impuesto debe estar entre 0 y 100" }, 400);
   const localContext = await ensureDefaultBranchDevice(jwt.orgId);
   const productSettings = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId }, select: { generalJson: true } });
   const productGeneral = JSON.parse(productSettings?.generalJson || "{}") as Record<string, unknown>;
@@ -1144,15 +1247,15 @@ api.post("/products", requireAdmin, async (c) => {
           name: body.name.trim(),
           description: body.description,
           unit: body.unit ?? "UND",
-          price: Number(body.price) || 0,
-          price2: body.price2,
-          price3: body.price3,
-          price4: body.price4,
-          cost: body.cost ?? 0,
-          taxPercent: body.taxPercent ?? defaultTaxPercent,
+          price: priceIn ?? 0,
+          price2: price2In ?? null,
+          price3: price3In ?? null,
+          price4: price4In ?? null,
+          cost: costIn ?? 0,
+          taxPercent: taxIn ?? defaultTaxPercent,
           taxName: body.taxName ?? "ISV",
-          stock: productType === "KIT" ? 0 : body.stock ?? 0,
-          minStock: body.minStock ?? 0,
+          stock: productType === "KIT" ? 0 : stockIn ?? 0,
+          minStock: minStockIn ?? 0,
           category: body.category,
           barcode: body.barcode ?? undefined,
           quickCode: body.quickCode ?? undefined,
@@ -1166,7 +1269,7 @@ api.post("/products", requireAdmin, async (c) => {
           volumePricesJson: normalizeVolumePricesPayload(body.volumePricesJson ?? []),
           syncStatus: "PENDING",
           originDeviceId: localContext.device.id,
-          lotCode: body.lotCode?.trim() ? String(body.lotCode).trim() : null,
+          lotCode: strOrEmpty(body.lotCode) ? String(body.lotCode).trim() : null,
           expiresAt:
             body.expiresAt && String(body.expiresAt).trim()
               ? new Date(String(body.expiresAt).trim() + "T12:00:00")
@@ -1232,7 +1335,14 @@ api.patch("/products/:id", requireAdmin, async (c) => {
     "productType",
     "lotCode",
   ];
-  for (const k of num) if (body[k] !== undefined) data[k] = Number(body[k]);
+  // Antes Number(null) = 0: borrar el "precio 2" lo dejaba en L 0 (venta gratis con esa lista).
+  for (const k of num) {
+    const v = optionalNonNegative(body[k], k);
+    if (v === undefined) continue;
+    if (v === null && !["price2", "price3", "price4"].includes(k)) throw new HttpInputError(`${k} es obligatorio`);
+    data[k] = v;
+  }
+  if (typeof data.taxPercent === "number" && data.taxPercent > 100) return c.json({ error: "El impuesto debe estar entre 0 y 100" }, 400);
   for (const k of str) if (body[k] !== undefined) data[k] = body[k];
   if (body.expiresAt !== undefined) {
     const raw = body.expiresAt;
@@ -1313,8 +1423,20 @@ api.patch("/products/:id", requireAdmin, async (c) => {
 api.delete("/products/:id", requireAdmin, async (c) => {
   const jwt = c.get("jwt");
   const id = c.req.param("id");
-  await prisma.product.deleteMany({ where: { id, organizationId: jwt.orgId } });
-  return c.json({ ok: true });
+  const product = await prisma.product.findFirst({ where: { id, organizationId: jwt.orgId }, select: { id: true } });
+  if (!product) return c.json({ error: "No encontrado" }, 404);
+  try {
+    await prisma.product.delete({ where: { id } });
+    return c.json({ ok: true });
+  } catch (e) {
+    // Con ventas, compras o traslados la base no deja borrarlo (antes: 500).
+    // Se desactiva para que salga del catalogo sin perder el historial.
+    if ((e as { code?: string })?.code === "P2003") {
+      await prisma.product.update({ where: { id }, data: { active: false } });
+      return c.json({ ok: true, deactivated: true, message: "El producto tiene historial; se desactivó en lugar de eliminarse." });
+    }
+    throw e;
+  }
 });
 
 api.get("/customers", async (c) => {
@@ -1348,7 +1470,7 @@ api.post("/customers", async (c) => {
     notes?: string;
     defaultPriceTier?: number | null;
   }>();
-  if (!body.name?.trim()) return c.json({ error: "Nombre requerido" }, 400);
+  if (!strOrEmpty(body.name)) return c.json({ error: "Nombre requerido" }, 400);
   const tier =
     body.defaultPriceTier == null
       ? null
@@ -1392,10 +1514,14 @@ api.patch("/customers/:id", async (c) => {
   const body = await c.req.json<Record<string, unknown>>();
   const data: Record<string, unknown> = {};
   for (const k of ["code", "name", "address", "phone", "taxId", "notes"]) {
-    if (body[k] !== undefined) data[k] = body[k];
+    if (body[k] === undefined) continue;
+    if (body[k] !== null && typeof body[k] !== "string") return c.json({ error: `${k} debe ser texto` }, 400);
+    data[k] = body[k];
   }
+  if (data.name !== undefined && !strOrEmpty(data.name)) return c.json({ error: "Nombre requerido" }, 400);
   if (body.defaultPriceTier !== undefined) {
     const t = body.defaultPriceTier;
+    if (t !== null && !Number.isFinite(Number(t))) return c.json({ error: "Lista de precios inválida" }, 400);
     data.defaultPriceTier =
       t === null ? null : Math.min(4, Math.max(1, Math.trunc(Number(t))));
   }
@@ -1424,7 +1550,7 @@ api.post("/suppliers", requireAdmin, async (c) => {
     taxId?: string;
     address?: string;
   }>();
-  if (!body.name?.trim()) return c.json({ error: "Nombre requerido" }, 400);
+  if (!strOrEmpty(body.name)) return c.json({ error: "Nombre requerido" }, 400);
   const s = await prisma.supplier.create({
     data: {
       organizationId: jwt.orgId,
@@ -1487,6 +1613,13 @@ async function requireOpenCashSession(
   allowAnyOpenForAdmin = false,
 ) {
   const dayScope = { closedAt: null, openedAt: { gte: currentDayStart() } };
+  // Sin selector explicito, el admin cobra en SU caja si la tiene abierta.
+  // Antes tomaba la primera caja abierta de la empresa: sus ventas caian en la
+  // caja del cajero y el cierre del cajero no cuadraba.
+  if (allowAnyOpenForAdmin && !requestedSessionId) {
+    const own = await db.cashSession.findFirst({ where: { organizationId: orgId, userId, ...dayScope } });
+    if (own) return own;
+  }
   const session = await db.cashSession.findFirst({
     // El administrador puede registrar movimientos en cualquier caja vigente
     // de la empresa. Si la UI todavía no alcanzó a enviar el selector, usamos
@@ -1507,6 +1640,54 @@ function isAdminJwt(jwt: JwtPayload) {
   return jwt.role === "admin";
 }
 
+/** Numero >= 0 opcional: undefined = no viene; null = borrar; otro = validar. */
+function optionalNonNegative(raw: unknown, field: string): number | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === "") return null;
+  const n = Number(raw);
+  if (typeof raw === "boolean" || !Number.isFinite(n) || n < 0) throw new HttpInputError(`${field} debe ser un número mayor o igual a cero`);
+  return n;
+}
+
+/** Fecha opcional enviada por el cliente: invalida → 400 (antes llegaba a Prisma como Invalid Date y daba 500). */
+function optionalDate(raw: unknown, field: string): Date | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === "") return null;
+  const d = new Date(String(raw));
+  if (Number.isNaN(d.getTime())) throw new HttpInputError(`${field}: fecha inválida`);
+  return d;
+}
+
+/** Texto recortado o "" si no es string (un `name: 5` ya no revienta con `.trim is not a function`). */
+function strOrEmpty(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+class HttpInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HttpInputError";
+  }
+}
+
+/** Permiso efectivo leido de la BD (no del token, que puede tener permisos viejos). */
+async function jwtUserHasPermission(jwt: JwtPayload, key: PermissionKey): Promise<boolean> {
+  const row = await prisma.user.findFirst({
+    where: { id: jwt.sub, organizationId: jwt.orgId },
+    select: { role: true, permissionsJson: true },
+  });
+  return !!row && userHasPermission(row.role, row.permissionsJson, key);
+}
+
+function saleDateErrorResponse(c: { json: (b: unknown, s: 400) => Response }, e: unknown): Response {
+  const msg = e instanceof Error ? e.message : "";
+  if (msg === "SALE_DATE_FUTURE") return c.json({ error: "La fecha de la venta no puede estar en el futuro" }, 400);
+  if (msg === "SALE_DATE_TOO_OLD") {
+    return c.json({ error: "Solo un administrador puede registrar ventas con más de 7 días de antigüedad" }, 400);
+  }
+  throw e;
+}
+
 api.post("/sales", async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{
@@ -1523,7 +1704,7 @@ api.post("/sales", async (c) => {
     cashSessionId?: string | null;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
-  if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue líneas" }, 400);
   if (body.lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) {
     return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
   }
@@ -1544,8 +1725,18 @@ api.post("/sales", async (c) => {
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
-  /** Apartarse del precio de catalogo o aplicar descuento exige permiso; admin siempre puede. */
-  const canOverride = jwt.role === "admin";
+  /** Apartarse del precio de catalogo o aplicar descuento exige `sales.price_override`; admin siempre puede. */
+  const canOverride = await jwtUserHasPermission(jwt, PERMISSION_KEYS.SALES_PRICE_OVERRIDE);
+  let saleDateResolved: Date;
+  try {
+    saleDateResolved = resolveSaleDate(parseClientSaleDate(body.saleDate), isAdminJwt(jwt));
+  } catch (e) {
+    return saleDateErrorResponse(c, e);
+  }
+  const bodyCustomerId = typeof body.customerId === "string" && body.customerId.trim() ? body.customerId.trim() : null;
+  if (bodyCustomerId && !(await prisma.customer.findFirst({ where: { id: bodyCustomerId, organizationId: jwt.orgId }, select: { id: true } }))) {
+    return c.json({ error: "Cliente no encontrado" }, 400);
+  }
   const localContext = await ensureDefaultBranchDevice(jwt.orgId);
   const stPos = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
   const genPos = JSON.parse(stPos?.generalJson || "{}") as Record<string, unknown>;
@@ -1582,20 +1773,13 @@ api.post("/sales", async (c) => {
     let tax = 0;
     const saleLines: { productId: string; qty: number; unitPrice: number; discountPercent: number; taxPercent: number; lineTotal: number }[] = [];
 
-    for (const line of body.lines) {
-      if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new Error("INVALID_QTY");
-      const product = await tx.product.findFirst({
-        where: { id: line.productId, organizationId: jwt.orgId },
-      });
+    const normalizedLines = body.lines.map((line) => ({ ...line, qty: Number(line.qty) }));
+    if (normalizedLines.some((line) => !Number.isFinite(line.qty) || line.qty <= 0)) throw new Error("INVALID_QTY");
+    const lockedProducts = await lockAndAssertSaleStock(tx, jwt.orgId, normalizedLines, allowOversell);
+
+    for (const line of normalizedLines) {
+      const product = lockedProducts.get(line.productId);
       if (!product) throw new Error("PRODUCT_NOT_FOUND");
-      if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
-      const isService = product.productType === "SERVICIO";
-      const isKit = product.productType === "KIT";
-      if (isKit) {
-        if (!allowOversell) await assertKitSaleStock(tx, product.id, line.qty);
-      } else if (!isService && product.stock < line.qty && !allowOversell) {
-        throw new Error("INSUFFICIENT_STOCK");
-      }
       const { unitPrice, discountPercent } = authorizedLinePrice({
         product,
         qty: line.qty,
@@ -1604,6 +1788,7 @@ api.post("/sales", async (c) => {
         requestedDiscountPercent: line.discountPercent,
         canOverride,
       });
+      assertValidUnitPrice(unitPrice);
       const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
       const taxPercent = product.taxPercent;
       const split = splitTaxIncluded(lineTotal, taxPercent);
@@ -1634,60 +1819,8 @@ api.post("/sales", async (c) => {
     }
 
     const stSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
-    const invParsed = JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>;
-    const saleDateResolved = parseClientSaleDate(body.saleDate) ?? new Date();
-    assertSarRangeValidUntil(invParsed, saleDateResolved);
-
-    let invoiceNumber: string;
-    const sar = invParsed.sar as Record<string, unknown> | undefined;
-    if (sar && sar.autoNumber === true) {
-      const next = Number(sar.nextNum ?? 1);
-      const end = Number(sar.rangeEnd ?? 99999999);
-      if (next > end) throw new Error("SAR_RANGE_EXHAUSTED");
-      const ser = String(sar.series ?? "").trim();
-      invoiceNumber = ser ? `${ser}-${String(next).padStart(8, "0")}` : String(next).padStart(8, "0");
-      sar.nextNum = next + 1;
-      if (stSet) {
-        await tx.organizationSettings.update({
-          where: { organizationId: jwt.orgId },
-          data: { invoiceJson: JSON.stringify({ ...invParsed, sar }) },
-        });
-      } else {
-        await tx.organizationSettings.create({
-          data: {
-            organizationId: jwt.orgId,
-            invoiceJson: JSON.stringify({ ...invParsed, sar }),
-          },
-        });
-      }
-    } else {
-      let series = await tx.documentSeries.findFirst({
-        where: {
-          organizationId: jwt.orgId,
-          documentType: "SALE",
-          deviceId: localContext.device.id,
-          active: true,
-        },
-      });
-      if (!series) {
-        series = await tx.documentSeries.create({
-          data: {
-            organizationId: jwt.orgId,
-            branchId: localContext.branch.id,
-            deviceId: localContext.device.id,
-            documentType: "SALE",
-            prefix: `${localContext.device.invoiceSeries}-`,
-            nextNumber: 1,
-            padding: 6,
-          },
-        });
-      }
-      invoiceNumber = `${series.prefix}${String(series.nextNumber).padStart(series.padding, "0")}`;
-      await tx.documentSeries.update({
-        where: { id: series.id },
-        data: { nextNumber: { increment: 1 } },
-      });
-    }
+    assertSarRangeValidUntil(JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>, saleDateResolved);
+    const invoiceNumber = await allocateSaleInvoiceNumber(tx, jwt.orgId, localContext);
 
     const sale = await tx.sale.create({
       data: {
@@ -1696,7 +1829,7 @@ api.post("/sales", async (c) => {
         deviceId: localContext.device.id,
         originDeviceId: localContext.device.id,
         userId: jwt.sub,
-        customerId: body.customerId || null,
+        customerId: bodyCustomerId,
         invoiceNumber,
         terms,
         notes: body.notes,
@@ -1754,6 +1887,7 @@ api.post("/sales", async (c) => {
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se venden en POS" }, 400);
+    if (msg === "INVALID_PRICE") return c.json({ error: "El precio de cada línea debe ser un número mayor o igual a cero" }, 400);
     if (msg === "SAR_RANGE_EXHAUSTED") {
       return c.json({ error: "Rango de facturación SAR agotado; actualice configuración" }, 400);
     }
@@ -1919,14 +2053,23 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
     adminPassword?: string;
     lines: { productId: string; qty: number; unitPrice?: number; discountPercent?: number }[];
   }>();
-  if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue líneas" }, 400);
   if (body.lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) {
     return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
   }
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
-  const saleDatePatch = parseClientSaleDate(body.saleDate);
+  let saleDatePatch: Date | null = parseClientSaleDate(body.saleDate);
+  try {
+    if (saleDatePatch) saleDatePatch = resolveSaleDate(saleDatePatch, true);
+  } catch (e) {
+    return saleDateErrorResponse(c, e);
+  }
+  const patchCustomerId = typeof body.customerId === "string" && body.customerId.trim() ? body.customerId.trim() : null;
+  if (patchCustomerId && !(await prisma.customer.findFirst({ where: { id: patchCustomerId, organizationId: jwt.orgId }, select: { id: true } }))) {
+    return c.json({ error: "Cliente no encontrado" }, 400);
+  }
   const stPosPatch = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
   const genPosPatch = JSON.parse(stPosPatch?.generalJson || "{}") as Record<string, unknown>;
   const posBehPatch = genPosPatch.posBehavior as Record<string, unknown> | undefined;
@@ -1971,12 +2114,15 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      await lockRows(tx, "Sale", [saleId]);
       const existing = await tx.sale.findFirst({
         where: { id: saleId, organizationId: jwt.orgId },
         include: { lines: true, receivableSurcharges: true },
       });
       if (!existing) throw new Error("SALE_NOT_FOUND");
       if (existing.receivableSurcharges.length > 0) throw new Error("SALE_HAS_SURCHARGES");
+      // Productos viejos y nuevos bloqueados antes de devolver y volver a descontar.
+      await lockRows(tx, "Product", [...existing.lines.map((l) => l.productId), ...body.lines.map((l) => l.productId)]);
 
       const stRetainSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
       const genRetain = JSON.parse(stRetainSet?.generalJson || "{}") as Record<string, unknown>;
@@ -2001,22 +2147,16 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
         lineTotal: number;
       }[] = [];
 
-      for (const line of body.lines) {
-        if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new Error("INVALID_QTY");
-        const product = await tx.product.findFirst({
-          where: { id: line.productId, organizationId: jwt.orgId },
-        });
+      const patchLines = body.lines.map((line) => ({ ...line, qty: Number(line.qty) }));
+      if (patchLines.some((line) => !Number.isFinite(line.qty) || line.qty <= 0)) throw new Error("INVALID_QTY");
+      // Stock validado con la cantidad sumada por producto (despues de devolver las lineas viejas).
+      const patchProducts = await lockAndAssertSaleStock(tx, jwt.orgId, patchLines, allowOversell || retainInventoryOnSaleEdit);
+      for (const line of patchLines) {
+        const product = patchProducts.get(line.productId);
         if (!product) throw new Error("PRODUCT_NOT_FOUND");
-        if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
-        const isService = product.productType === "SERVICIO";
-        const isKit = product.productType === "KIT";
-        if (isKit) {
-          if (!allowOversell) await assertKitSaleStock(tx, product.id, line.qty);
-        } else if (!isService && product.stock < line.qty && !allowOversell) {
-          throw new Error("INSUFFICIENT_STOCK");
-        }
         const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, priceTier);
-        const discountPercent = line.discountPercent ?? 0;
+        assertValidUnitPrice(unitPrice);
+        const discountPercent = Math.min(100, Math.max(0, Number(line.discountPercent ?? 0) || 0));
         const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
         const taxPercent = product.taxPercent;
         const split = splitTaxIncluded(lineTotal, taxPercent);
@@ -2035,6 +2175,18 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       const total = subtotal + tax;
       const paidSeed = body.paid ?? existing.paid;
       const paid = resolveSalePaid(total, terms, paidSeed);
+      // El cobro de una venta vive en una caja. Si esa caja ya se cerro, cambiar
+      // lo cobrado reescribe un cierre ya contado; si no tenia caja (credito que
+      // pasa a contado) el efectivo nuevo debe entrar en una caja abierta.
+      let cashSessionPatch: string | undefined;
+      if (Math.abs(paid - existing.paid) > 0.005) {
+        if (existing.cashSessionId) {
+          const sess = await tx.cashSession.findUnique({ where: { id: existing.cashSessionId }, select: { closedAt: true } });
+          if (sess?.closedAt) throw new Error("CASH_SESSION_CLOSED");
+        } else if (paid > existing.paid) {
+          cashSessionPatch = (await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt))).id;
+        }
+      }
 
       const stSetPatch = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
       const invParsedPatch = JSON.parse(stSetPatch?.invoiceJson || "{}") as Record<string, unknown>;
@@ -2052,9 +2204,10 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
       await tx.sale.update({
         where: { id: existing.id },
         data: {
-          customerId: body.customerId || null,
+          customerId: patchCustomerId,
           terms,
           notes: body.notes,
+          ...(cashSessionPatch ? { cashSessionId: cashSessionPatch } : {}),
           ...(sellerPatch !== undefined ? { sellerName: sellerPatch } : {}),
           priceTier,
           subtotal,
@@ -2095,6 +2248,11 @@ api.patch("/sales/:id", requireAdmin, async (c) => {
     if (msg === "SALE_HAS_SURCHARGES") {
       return c.json({ error: "No se puede editar una venta con recargos en cuentas por cobrar" }, 400);
     }
+    if (msg === "CASH_SESSION_CLOSED") {
+      return c.json({ error: "La caja de esta venta ya fue cerrada: no se puede cambiar el monto cobrado." }, 400);
+    }
+    if (msg === "CASH_SESSION_REQUIRED") return c.json({ error: "Abra una caja para registrar el cobro." }, 400);
+    if (msg === "INVALID_PRICE") return c.json({ error: "El precio de cada línea debe ser un número mayor o igual a cero" }, 400);
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
     if (msg === "INVALID_QTY") return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
     if (msg === "INSUFFICIENT_STOCK") return c.json({ error: "Stock insuficiente" }, 400);
@@ -2139,6 +2297,8 @@ api.delete("/sales/:id", requirePermission(PERMISSION_KEYS.SALES_DELETE), async 
 
   try {
     const resultado = await prisma.$transaction(async (tx) => {
+      // Dos eliminaciones simultaneas devolvian el inventario dos veces.
+      await lockRows(tx, "Sale", [saleId]);
       const venta = await tx.sale.findFirst({
         where: { id: saleId, organizationId: jwt.orgId },
         include: { lines: true, receivableSurcharges: true },
@@ -2219,9 +2379,26 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
     paid?: number;
     lines: { productId: string; qty: number; unitCost: number; taxPercent?: number }[];
   }>();
-  if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue líneas" }, 400);
+  // Antes una cantidad negativa bajaba el inventario y un costo invalido quedaba como costo del producto.
+  for (const line of body.lines) {
+    const qty = Number(line.qty);
+    const unitCost = Number(line.unitCost);
+    const taxPct = line.taxPercent === undefined || line.taxPercent === null ? 0 : Number(line.taxPercent);
+    if (!Number.isFinite(qty) || qty <= 0) return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
+    if (!Number.isFinite(unitCost) || unitCost < 0) return c.json({ error: "El costo de cada línea debe ser mayor o igual a cero" }, 400);
+    if (!Number.isFinite(taxPct) || taxPct < 0 || taxPct > 100) return c.json({ error: "Impuesto inválido" }, 400);
+  }
 
   const terms = (body.terms ?? "CONTADO").toUpperCase();
+  if (terms !== "CONTADO" && terms !== "CREDITO") return c.json({ error: "Términos de compra inválidos (CONTADO o CREDITO)" }, 400);
+  if (body.paid !== undefined && body.paid !== null && (!Number.isFinite(Number(body.paid)) || Number(body.paid) < 0)) {
+    return c.json({ error: "Monto pagado inválido" }, 400);
+  }
+  const purchaseSupplierId = typeof body.supplierId === "string" && body.supplierId.trim() ? body.supplierId.trim() : null;
+  if (purchaseSupplierId && !(await prisma.supplier.findFirst({ where: { id: purchaseSupplierId, organizationId: jwt.orgId }, select: { id: true } }))) {
+    return c.json({ error: "Proveedor no encontrado" }, 400);
+  }
 
   try {
   const purchase = await prisma.$transaction(async (tx) => {
@@ -2237,6 +2414,7 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
       if (product.productType === "KIT") throw new Error("KIT_NOT_PURCHASABLE");
       const unitCost = Number(line.unitCost);
       const taxPercent = line.taxPercent ?? product.taxPercent;
+      line.qty = Number(line.qty);
       const base = unitCost * line.qty;
       const lineTax = base * (taxPercent / 100);
       const lineTotal = base + lineTax;
@@ -2246,7 +2424,7 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
     }
 
     const total = subtotal + tax;
-    let paid = body.paid ?? (terms === "CONTADO" ? total : 0);
+    let paid = body.paid !== undefined && body.paid !== null ? Number(body.paid) : terms === "CONTADO" ? total : 0;
     if (paid > total) paid = total;
     if (terms === "CONTADO" && paid < total) paid = total;
     if (paid > 0) await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
@@ -2255,7 +2433,7 @@ api.post("/purchases", requirePermission(PERMISSION_KEYS.PURCHASES_RECORD), asyn
       data: {
         organizationId: jwt.orgId,
         userId: jwt.sub,
-        supplierId: body.supplierId || null,
+        supplierId: purchaseSupplierId,
         reference: body.reference,
         terms,
         subtotal,
@@ -2330,12 +2508,16 @@ api.post("/cash-sessions/open", async (c) => {
     // ya estuviera abierta.
     return c.json(open);
   }
-  const body = await c.req.json<{ openingCash?: number }>();
+  const body = await c.req.json<{ openingCash?: number }>().catch(() => ({} as { openingCash?: number }));
+  const openingCash = body.openingCash === undefined || body.openingCash === null ? 0 : Number(body.openingCash);
+  if (!Number.isFinite(openingCash) || openingCash < 0) {
+    return c.json({ error: "El fondo inicial debe ser un número mayor o igual a cero" }, 400);
+  }
   const session = await prisma.cashSession.create({
     data: {
       organizationId: jwt.orgId,
       userId: jwt.sub,
-      openingCash: body.openingCash ?? 0,
+      openingCash,
     },
   });
   return c.json(session, 201);
@@ -2374,8 +2556,8 @@ api.post("/cash-sessions/:id/close", async (c) => {
     where: { id, organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
   });
   if (!session) return c.json({ error: "Sesión no encontrada o ya cerrada" }, 404);
-  if (typeof body.closingCash !== "number" || !Number.isFinite(body.closingCash)) {
-    return c.json({ error: "Debe indicar el efectivo contado al cierre" }, 400);
+  if (typeof body.closingCash !== "number" || !Number.isFinite(body.closingCash) || body.closingCash < 0) {
+    return c.json({ error: "Debe indicar el efectivo contado al cierre (mayor o igual a cero)" }, 400);
   }
   const closedAt = new Date();
   const diary = await buildCashDiaryForSession(jwt.orgId, jwt.sub, session, closedAt);
@@ -2745,7 +2927,7 @@ api.post("/admin/migrate-product-stock", requireAdmin, async (c) => {
 api.post("/auth/verify-password", async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{ password: string }>();
-  const pw = body.password ?? "";
+  const pw = typeof body.password === "string" ? body.password : "";
   if (!pw) return c.json({ ok: false }, 400);
   const user = await prisma.user.findFirst({
     where: { id: jwt.sub, organizationId: jwt.orgId },
@@ -2996,17 +3178,24 @@ api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.A
   const saleId = c.req.param("saleId");
   const body = await c.req.json<{ amount: number; registerCashMovement?: boolean }>();
   const amount = Number(body.amount);
-  if (!amount || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
+  if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   const sale = await prisma.sale.findFirst({
     where: { id: saleId, organizationId: jwt.orgId },
     include: { receivableSurcharges: true },
   });
   if (!sale || !isCreditSaleTerm(sale.terms)) return c.json({ error: "Venta no encontrada" }, 404);
-  const surchargesTotal = sale.receivableSurcharges.reduce((a, x) => a + x.amount, 0);
-  const balance = sale.total + surchargesTotal - sale.paid;
-  if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
   try {
   const updated = await prisma.$transaction(async (tx) => {
+    // El saldo se decide con la fila bloqueada: dos abonos simultaneos ya no
+    // leen el mismo saldo (antes 5 abonos del total quedaban en saldo -400).
+    await lockRows(tx, "Sale", [saleId]);
+    const fresh = await tx.sale.findFirst({
+      where: { id: saleId, organizationId: jwt.orgId },
+      include: { receivableSurcharges: true },
+    });
+    if (!fresh) throw new Error("SALE_NOT_FOUND");
+    const balance = fresh.total + fresh.receivableSurcharges.reduce((a, x) => a + x.amount, 0) - fresh.paid;
+    if (amount > balance + 0.005) throw new Error("EXCEEDS_BALANCE");
     const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
     const u = await tx.sale.update({
       where: { id: saleId },
@@ -3029,6 +3218,8 @@ api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.A
     if (e instanceof Error && e.message === "CASH_SESSION_REQUIRED") {
       return c.json({ error: "Abra una caja antes de registrar abonos de cuentas por cobrar." }, 400);
     }
+    if (e instanceof Error && e.message === "EXCEEDS_BALANCE") return c.json({ error: "Excede saldo" }, 400);
+    if (e instanceof Error && e.message === "SALE_NOT_FOUND") return c.json({ error: "Venta no encontrada" }, 404);
     throw e;
   }
 });
@@ -3080,17 +3271,22 @@ api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.
   const purchaseId = c.req.param("purchaseId");
   const body = await c.req.json<{ amount: number; registerCashMovement?: boolean }>();
   const amount = Number(body.amount);
-  if (!amount || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
+  if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   const purchase = await prisma.purchase.findFirst({
     where: { id: purchaseId, organizationId: jwt.orgId, terms: "CREDITO" },
     include: { payableSurcharges: true },
   });
   if (!purchase) return c.json({ error: "Compra no encontrada" }, 404);
-  const surchargesTotal = purchase.payableSurcharges.reduce((a, x) => a + x.amount, 0);
-  const balance = purchase.total + surchargesTotal - purchase.paid;
-  if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
   try {
   const updated = await prisma.$transaction(async (tx) => {
+    await lockRows(tx, "Purchase", [purchaseId]);
+    const fresh = await tx.purchase.findFirst({
+      where: { id: purchaseId, organizationId: jwt.orgId },
+      include: { payableSurcharges: true },
+    });
+    if (!fresh) throw new Error("PURCHASE_NOT_FOUND");
+    const balance = fresh.total + fresh.payableSurcharges.reduce((a, x) => a + x.amount, 0) - fresh.paid;
+    if (amount > balance + 0.005) throw new Error("EXCEEDS_BALANCE");
     const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
     const u = await tx.purchase.update({
       where: { id: purchaseId },
@@ -3113,6 +3309,8 @@ api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.
     if (e instanceof Error && e.message === "CASH_SESSION_REQUIRED") {
       return c.json({ error: "Abra una caja antes de registrar pagos de cuentas por pagar." }, 400);
     }
+    if (e instanceof Error && e.message === "EXCEEDS_BALANCE") return c.json({ error: "Excede saldo" }, 400);
+    if (e instanceof Error && e.message === "PURCHASE_NOT_FOUND") return c.json({ error: "Compra no encontrada" }, 404);
     throw e;
   }
 });
@@ -3148,7 +3346,7 @@ api.post("/quotes", async (c) => {
     serviceLabel?: string | null;
     lines: { productId: string; qty: number; unitPrice?: number }[];
   }>();
-  if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue líneas" }, 400);
   const serviceLabel =
     body.serviceLabel === undefined || body.serviceLabel === null
       ? null
@@ -3162,6 +3360,8 @@ api.post("/quotes", async (c) => {
     const linesData: { productId: string; qty: number; unitPrice: number; taxPercent: number; lineTotal: number }[] = [];
 
     for (const line of body.lines) {
+      line.qty = Number(line.qty);
+      if (!Number.isFinite(line.qty) || line.qty <= 0) throw new Error("INVALID_QTY");
       const product = await tx.product.findFirst({
         where: { id: line.productId, organizationId: jwt.orgId },
       });
@@ -3175,6 +3375,7 @@ api.post("/quotes", async (c) => {
         canOverride:
           jwt.role === "admin" || (jwt.perms?.includes(PERMISSION_KEYS.SALES_PRICE_OVERRIDE) ?? false),
       });
+      assertValidUnitPrice(unitPrice);
       const lineTotal = unitPrice * line.qty;
       const taxPercent = product.taxPercent;
       const split = splitTaxIncluded(lineTotal, taxPercent);
@@ -3184,13 +3385,19 @@ api.post("/quotes", async (c) => {
     }
 
     const total = subtotal + tax;
-    const n = await tx.quote.count({ where: { organizationId: jwt.orgId } });
+    const quoteCustomerId = typeof body.customerId === "string" && body.customerId.trim() ? body.customerId.trim() : null;
+    if (quoteCustomerId && !(await tx.customer.findFirst({ where: { id: quoteCustomerId, organizationId: jwt.orgId }, select: { id: true } }))) {
+      throw new Error("CUSTOMER_NOT_FOUND");
+    }
+    const quoteNumber = await allocateDocumentNumber(tx, jwt.orgId, "QUOTE", "COT-", 5, () =>
+      tx.quote.count({ where: { organizationId: jwt.orgId } })
+    );
     return tx.quote.create({
       data: {
         organizationId: jwt.orgId,
         userId: jwt.sub,
-        customerId: body.customerId || null,
-        quoteNumber: `COT-${String(n + 1).padStart(5, "0")}`,
+        customerId: quoteCustomerId,
+        quoteNumber,
         subtotal,
         tax,
         total,
@@ -3208,6 +3415,9 @@ api.post("/quotes", async (c) => {
       return c.json({ error: "No tiene permiso para cotizar a un precio distinto del catalogo." }, 403);
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se incluyen en cotizaciones" }, 400);
+    if (msg === "INVALID_QTY") return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
+    if (msg === "INVALID_PRICE") return c.json({ error: "El precio de cada línea debe ser mayor o igual a cero" }, 400);
+    if (msg === "CUSTOMER_NOT_FOUND") return c.json({ error: "Cliente no encontrado" }, 400);
     throw e;
   }
 
@@ -3224,7 +3434,7 @@ api.patch("/quotes/:id", async (c) => {
     serviceLabel?: string | null;
     lines: { productId: string; qty: number; unitPrice?: number }[];
   }>();
-  if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue líneas" }, 400);
   const serviceLabelPatch =
     body.serviceLabel === undefined
       ? undefined
@@ -3246,13 +3456,25 @@ api.patch("/quotes/:id", async (c) => {
       const linesData: { productId: string; qty: number; unitPrice: number; taxPercent: number; lineTotal: number }[] =
         [];
 
+      // Editar una cotizacion aplica la misma regla de precio que crearla:
+      // antes cualquier usuario la editaba a L 0.01 y la convertia en venta.
+      const quoteCanOverride = await jwtUserHasPermission(jwt, PERMISSION_KEYS.SALES_PRICE_OVERRIDE);
       for (const line of body.lines) {
+        line.qty = Number(line.qty);
+        if (!Number.isFinite(line.qty) || line.qty <= 0) throw new Error("INVALID_QTY");
         const product = await tx.product.findFirst({
           where: { id: line.productId, organizationId: jwt.orgId },
         });
         if (!product) throw new Error("PRODUCT_NOT_FOUND");
         if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
-        const unitPrice = line.unitPrice ?? resolveProductUnitPrice(product, line.qty, 1);
+        const { unitPrice } = authorizedLinePrice({
+          product,
+          qty: line.qty,
+          priceTier: 1,
+          requestedUnitPrice: line.unitPrice,
+          canOverride: quoteCanOverride,
+        });
+        assertValidUnitPrice(unitPrice);
         const lineTotal = unitPrice * line.qty;
         const taxPercent = product.taxPercent;
         const split = splitTaxIncluded(lineTotal, taxPercent);
@@ -3284,7 +3506,10 @@ api.patch("/quotes/:id", async (c) => {
         data.validUntil = body.validUntil ? new Date(body.validUntil) : null;
       }
       if (body.customerId !== undefined) {
-        data.customerId = body.customerId?.trim() ? body.customerId.trim() : null;
+        data.customerId = strOrEmpty(body.customerId) || null;
+        if (data.customerId && !(await tx.customer.findFirst({ where: { id: data.customerId, organizationId: jwt.orgId }, select: { id: true } }))) {
+          throw new Error("CUSTOMER_NOT_FOUND");
+        }
       }
       if (serviceLabelPatch !== undefined) {
         data.serviceLabel = serviceLabelPatch;
@@ -3307,6 +3532,11 @@ api.patch("/quotes/:id", async (c) => {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PRODUCT_NOT_FOUND") return c.json({ error: "Producto no encontrado" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se incluyen en cotizaciones" }, 400);
+    if (msg === "INVALID_QTY") return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
+    if (msg === "INVALID_PRICE") return c.json({ error: "El precio de cada línea debe ser mayor o igual a cero" }, 400);
+    if (msg === "PRICE_OVERRIDE_FORBIDDEN")
+      return c.json({ error: "No tiene permiso para cotizar a un precio distinto del catalogo." }, 403);
+    if (msg === "CUSTOMER_NOT_FOUND") return c.json({ error: "Cliente no encontrado" }, 400);
     throw e;
   }
 
@@ -3334,37 +3564,36 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
       ? convertBody.customerId.trim()
       : null;
   const resolvedCustomerId = bodyCust ?? quote.customerId;
-  if (isCreditSaleTerm(terms)) {
-    if (!resolvedCustomerId) {
-      return c.json(
-        { error: "Las ventas a crédito requieren un cliente (asígnelo a la cotización o envíe customerId)" },
-        400
-      );
-    }
+  if (resolvedCustomerId) {
     const cust = await prisma.customer.findFirst({
       where: { id: resolvedCustomerId, organizationId: jwt.orgId },
+      select: { id: true },
     });
     if (!cust) return c.json({ error: "Cliente no encontrado" }, 400);
   }
+  if (isCreditSaleTerm(terms) && !resolvedCustomerId) {
+    return c.json(
+      { error: "Las ventas a crédito requieren un cliente (asígnelo a la cotización o envíe customerId)" },
+      400
+    );
+  }
 
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  try {
   const sale = await prisma.$transaction(async (tx) => {
+    // Bloquear la cotizacion: dos clics en "convertir" ya no crean dos ventas
+    // ni descuentan el inventario dos veces.
+    await lockRows(tx, "Quote", [quote.id]);
+    const fresh = await tx.quote.findFirst({ where: { id: quote.id, organizationId: jwt.orgId }, include: { lines: true } });
+    if (!fresh) throw new Error("QUOTE_NOT_FOUND");
+    if (fresh.status === "CONVERTIDA") throw new Error("QUOTE_ALREADY_CONVERTED");
+    if (fresh.lines.length === 0 || fresh.lines.some((l) => !(l.qty > 0) || !(l.unitPrice >= 0))) throw new Error("PRODUCT_NOT_FOUND");
+
+    await lockAndAssertSaleStock(tx, jwt.orgId, fresh.lines, false);
     let subtotal = 0;
     let tax = 0;
     const saleLines: { productId: string; qty: number; unitPrice: number; discountPercent: number; taxPercent: number; lineTotal: number }[] = [];
-
-    for (const l of quote.lines) {
-      const product = await tx.product.findFirst({
-        where: { id: l.productId, organizationId: jwt.orgId },
-      });
-      if (!product) throw new Error("STOCK");
-      if (product.productType === "INSUMO") throw new Error("STOCK");
-      const isService = product.productType === "SERVICIO";
-      const isKit = product.productType === "KIT";
-      if (isKit) {
-        await assertKitSaleStock(tx, product.id, l.qty);
-      } else if (!isService && product.stock < l.qty) {
-        throw new Error("STOCK");
-      }
+    for (const l of fresh.lines) {
       const lineTotal = l.unitPrice * l.qty;
       const split = splitTaxIncluded(lineTotal, l.taxPercent);
       subtotal += split.net;
@@ -3380,21 +3609,34 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
     }
     const total = subtotal + tax;
     const paid = resolveSalePaid(total, terms, convertBody.paid);
-    const count = await tx.sale.count({ where: { organizationId: jwt.orgId } });
-    const invoiceNumber = String(count + 1).padStart(6, "0");
+    // Antes la venta convertida no quedaba en ninguna caja: el efectivo no
+    // aparecia en el cierre. Ahora exige caja abierta igual que /sales.
+    const cashSessionId =
+      paid > 0 ? (await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt))).id : null;
+    const saleDate = new Date();
+    const stSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+    assertSarRangeValidUntil(JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>, saleDate);
+    // Antes: `count + 1`, que repetia numeros y chocaba con la serie normal.
+    const invoiceNumber = await allocateSaleInvoiceNumber(tx, jwt.orgId, localContext);
     const s = await tx.sale.create({
       data: {
         organizationId: jwt.orgId,
+        branchId: localContext.branch.id,
+        deviceId: localContext.device.id,
+        originDeviceId: localContext.device.id,
         userId: jwt.sub,
         customerId: resolvedCustomerId,
         invoiceNumber,
         terms,
-        notes: `Desde cotización ${quote.quoteNumber}`,
+        notes: `Desde cotización ${fresh.quoteNumber}`,
         priceTier: 1,
         subtotal,
         tax,
         total,
         paid,
+        cashSessionId,
+        saleDate,
+        syncStatus: "PENDING",
         lines: { create: saleLines },
       },
     });
@@ -3407,7 +3649,7 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
       }
       await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
     }
-    await tx.quote.update({ where: { id: quote.id }, data: { status: "CONVERTIDA" } });
+    await tx.quote.update({ where: { id: fresh.id }, data: { status: "CONVERTIDA" } });
     return tx.sale.findUnique({
       where: { id: s.id },
       include: {
@@ -3416,10 +3658,21 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
         user: { select: { id: true, displayName: true, username: true } },
       },
     });
-  }).catch(() => null);
-
-  if (!sale) return c.json({ error: "No se pudo convertir (stock o datos)" }, 400);
+  });
   return c.json(sale);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "QUOTE_ALREADY_CONVERTED") return c.json({ error: "Ya convertida" }, 400);
+    if (msg === "QUOTE_NOT_FOUND") return c.json({ error: "No encontrado" }, 404);
+    if (msg === "INSUFFICIENT_STOCK") return c.json({ error: "Stock insuficiente" }, 400);
+    if (msg === "CASH_SESSION_REQUIRED") return c.json({ error: "Abra una caja antes de convertir con pago." }, 400);
+    if (msg === "SAR_RANGE_EXHAUSTED") return c.json({ error: "Rango de facturación SAR agotado; actualice configuración" }, 400);
+    if (msg === "SAR_AUTH_EXPIRED") return c.json({ error: "Autorización SAR vencida; revise configuración" }, 400);
+    if (["PRODUCT_NOT_FOUND", "INSUMO_NOT_SALEABLE", "KIT_EMPTY", "KIT_BAD_COMPONENT"].includes(msg)) {
+      return c.json({ error: "No se pudo convertir (stock o datos)" }, 400);
+    }
+    throw e;
+  }
 });
 
 api.get("/orders", async (c) => {
@@ -3442,27 +3695,42 @@ api.post("/orders", async (c) => {
     notes?: string;
     lines: { productId: string; qty: number; unitPrice?: number | null; notes?: string }[];
   }>();
-  if (!body.lines?.length) return c.json({ error: "Agregue líneas" }, 400);
-  const n = await prisma.supplierOrder.count({ where: { organizationId: jwt.orgId } });
-  const order = await prisma.supplierOrder.create({
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue líneas" }, 400);
+  // Antes se guardaban productos y proveedores de cualquier empresa (y se devolvian al listar).
+  const orderProductIds = [...new Set(body.lines.map((l) => l.productId))];
+  const ownProducts = await prisma.product.count({ where: { id: { in: orderProductIds }, organizationId: jwt.orgId } });
+  if (ownProducts !== orderProductIds.length) return c.json({ error: "Producto no encontrado" }, 400);
+  if (body.lines.some((l) => !Number.isFinite(Number(l.qty)) || Number(l.qty) <= 0)) {
+    return c.json({ error: "Todas las líneas deben tener una cantidad mayor que cero" }, 400);
+  }
+  if (body.lines.some((l) => l.unitPrice != null && (!Number.isFinite(Number(l.unitPrice)) || Number(l.unitPrice) < 0))) {
+    return c.json({ error: "Precio inválido" }, 400);
+  }
+  const orderSupplierId = typeof body.supplierId === "string" && body.supplierId.trim() ? body.supplierId.trim() : null;
+  if (orderSupplierId && !(await prisma.supplier.findFirst({ where: { id: orderSupplierId, organizationId: jwt.orgId }, select: { id: true } }))) {
+    return c.json({ error: "Proveedor no encontrado" }, 400);
+  }
+  const order = await prisma.$transaction(async (tx) => tx.supplierOrder.create({
     data: {
       organizationId: jwt.orgId,
       userId: jwt.sub,
-      supplierId: body.supplierId || null,
-      orderNumber: `PED-${String(n + 1).padStart(5, "0")}`,
+      supplierId: orderSupplierId,
+      orderNumber: await allocateDocumentNumber(tx, jwt.orgId, "SUPPLIER_ORDER", "PED-", 5, () =>
+        tx.supplierOrder.count({ where: { organizationId: jwt.orgId } })
+      ),
       expectedDate: body.expectedDate ? new Date(body.expectedDate) : null,
       notes: body.notes,
       lines: {
         create: body.lines.map((l) => ({
           productId: l.productId,
-          qty: l.qty,
+          qty: Number(l.qty),
           unitPrice: l.unitPrice ?? null,
           notes: l.notes,
         })),
       },
     },
     include: { lines: { include: { product: true } }, supplier: true },
-  });
+  }));
   return c.json(order, 201);
 });
 
@@ -3470,6 +3738,8 @@ api.patch("/orders/:id/status", async (c) => {
   const jwt = c.get("jwt");
   const id = c.req.param("id");
   const body = await c.req.json<{ status: string }>();
+  const ORDER_STATUSES = ["PENDIENTE", "ENVIADO", "RECIBIDO", "CANCELADO"];
+  if (!ORDER_STATUSES.includes(String(body.status))) return c.json({ error: "Estado inválido" }, 400);
   const r = await prisma.supplierOrder.updateMany({
     where: { id, organizationId: jwt.orgId },
     data: { status: body.status },
@@ -3507,8 +3777,8 @@ api.get("/stock-locations", async (c) => {
 api.post("/stock-locations", requireAdmin, async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{ code: string; name: string; sortOrder?: number }>();
-  const code = body.code?.trim().toUpperCase();
-  if (!code || !body.name?.trim()) return c.json({ error: "Código y nombre requeridos" }, 400);
+  const code = strOrEmpty(body.code).toUpperCase();
+  if (!code || !strOrEmpty(body.name)) return c.json({ error: "Código y nombre requeridos" }, 400);
   try {
     const row = await prisma.stockLocation.create({
       data: {
@@ -3592,7 +3862,7 @@ api.post("/stock-transfers", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFE
     notes?: string;
     lines: { productId: string; qty: number }[];
   }>();
-  if (!body.lines?.length) return c.json({ error: "Agregue líneas al traslado" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue líneas al traslado" }, 400);
   if (body.fromLocationId === body.toLocationId) {
     return c.json({ error: "Origen y destino deben ser distintos" }, 400);
   }
@@ -3607,8 +3877,9 @@ api.post("/stock-transfers", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFE
       });
       if (!fromLoc || !toLoc) throw new Error("TRANSFER_LOC_NOT_FOUND");
       await validateTransferLineProducts(tx, jwt.orgId, merged);
-      const n = await tx.stockTransfer.count({ where: { organizationId: jwt.orgId } });
-      const transferNumber = `TR-${String(n + 1).padStart(5, "0")}`;
+      const transferNumber = await allocateDocumentNumber(tx, jwt.orgId, "STOCK_TRANSFER", "TR-", 5, () =>
+        tx.stockTransfer.count({ where: { organizationId: jwt.orgId } })
+      );
       return tx.stockTransfer.create({
         data: {
           organizationId: jwt.orgId,
@@ -3616,7 +3887,7 @@ api.post("/stock-transfers", requirePermission(PERMISSION_KEYS.INVENTORY_TRANSFE
           transferNumber,
           fromLocationId: body.fromLocationId,
           toLocationId: body.toLocationId,
-          notes: body.notes?.trim() || null,
+          notes: strOrEmpty(body.notes) || null,
           status: "BORRADOR",
           lines: { create: merged.map((l) => ({ productId: l.productId, qty: l.qty })) },
         },
@@ -3642,6 +3913,9 @@ api.post("/stock-transfers/:id/send", requirePermission(PERMISSION_KEYS.INVENTOR
   const id = c.req.param("id");
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      // Estado decidido con la fila bloqueada: dos "recibir" o "recibir"+"anular"
+      // simultaneos duplicaban el inventario.
+      await lockRows(tx, "StockTransfer", [id]);
       const tr = await tx.stockTransfer.findFirst({
         where: { id, organizationId: jwt.orgId },
         include: { lines: true },
@@ -3682,6 +3956,9 @@ api.post("/stock-transfers/:id/receive", requirePermission(PERMISSION_KEYS.INVEN
   const id = c.req.param("id");
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      // Estado decidido con la fila bloqueada: dos "recibir" o "recibir"+"anular"
+      // simultaneos duplicaban el inventario.
+      await lockRows(tx, "StockTransfer", [id]);
       const tr = await tx.stockTransfer.findFirst({
         where: { id, organizationId: jwt.orgId },
         include: { lines: true },
@@ -3716,6 +3993,9 @@ api.post("/stock-transfers/:id/cancel", requirePermission(PERMISSION_KEYS.INVENT
   const id = c.req.param("id");
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      // Estado decidido con la fila bloqueada: dos "recibir" o "recibir"+"anular"
+      // simultaneos duplicaban el inventario.
+      await lockRows(tx, "StockTransfer", [id]);
       const tr = await tx.stockTransfer.findFirst({
         where: { id, organizationId: jwt.orgId },
         include: { lines: true },
@@ -3786,9 +4066,9 @@ api.post("/stock-transfers/import-file", requirePermission(PERMISSION_KEYS.INVEN
   if (body.exportType !== "punto-flow-stock-transfer" || body.version !== 1) {
     return c.json({ error: "Formato de archivo no reconocido" }, 400);
   }
-  if (!body.lines?.length) return c.json({ error: "Sin líneas" }, 400);
-  const fromCode = body.fromLocationCode?.trim();
-  const toCode = body.toLocationCode?.trim();
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Sin líneas" }, 400);
+  const fromCode = strOrEmpty(body.fromLocationCode);
+  const toCode = strOrEmpty(body.toLocationCode);
   if (!fromCode || !toCode || fromCode === toCode) {
     return c.json({ error: "Códigos de ubicación inválidos" }, 400);
   }
@@ -3814,8 +4094,9 @@ api.post("/stock-transfers/import-file", requirePermission(PERMISSION_KEYS.INVEN
       }
       const linesNorm = mergeTransferLines(merged);
       await validateTransferLineProducts(tx, jwt.orgId, linesNorm);
-      const n = await tx.stockTransfer.count({ where: { organizationId: jwt.orgId } });
-      const transferNumber = `TR-${String(n + 1).padStart(5, "0")}`;
+      const transferNumber = await allocateDocumentNumber(tx, jwt.orgId, "STOCK_TRANSFER", "TR-", 5, () =>
+        tx.stockTransfer.count({ where: { organizationId: jwt.orgId } })
+      );
       return tx.stockTransfer.create({
         data: {
           organizationId: jwt.orgId,
@@ -3866,28 +4147,36 @@ api.post("/stock-adjustments", requireAdmin, async (c) => {
     notes?: string;
     lines: { productId: string; qtyDelta: number }[];
   }>();
-  if (!body.reason?.trim()) return c.json({ error: "Indique el motivo del ajuste" }, 400);
-  if (!body.lines?.length) return c.json({ error: "Agregue al menos una línea" }, 400);
+  if (!strOrEmpty(body.reason)) return c.json({ error: "Indique el motivo del ajuste" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue al menos una línea" }, 400);
   try {
     const adj = await prisma.$transaction(async (tx) => {
+      // Cambio sumado por producto y filas bloqueadas: dos lineas de -5 con
+      // stock 6 dejaban el producto en -4.
+      await lockRows(tx, "Product", body.lines.map((l) => l.productId));
+      const deltas = new Map<string, number>();
       for (const line of body.lines) {
         const d = Number(line.qtyDelta);
         if (!Number.isFinite(d) || d === 0) throw new Error("ADJ_BAD_QTY");
+        deltas.set(line.productId, (deltas.get(line.productId) ?? 0) + d);
+      }
+      for (const [productId, d] of deltas) {
         const p = await tx.product.findFirst({
-          where: { id: line.productId, organizationId: jwt.orgId },
+          where: { id: productId, organizationId: jwt.orgId },
         });
         if (!p) throw new Error("PRODUCT_NOT_FOUND");
         if (p.stock + d < -0.00001) throw new Error("INSUFFICIENT_STOCK");
       }
-      const n = await tx.stockAdjustment.count({ where: { organizationId: jwt.orgId } });
-      const adjustmentNumber = `ADJ-${String(n + 1).padStart(5, "0")}`;
+      const adjustmentNumber = await allocateDocumentNumber(tx, jwt.orgId, "STOCK_ADJUSTMENT", "ADJ-", 5, () =>
+        tx.stockAdjustment.count({ where: { organizationId: jwt.orgId } })
+      );
       const created = await tx.stockAdjustment.create({
         data: {
           organizationId: jwt.orgId,
           userId: jwt.sub,
           adjustmentNumber,
           reason: body.reason.trim(),
-          notes: body.notes?.trim() || null,
+          notes: strOrEmpty(body.notes) || null,
           lines: {
             create: body.lines.map((l) => ({
               productId: l.productId,
@@ -3956,8 +4245,8 @@ api.post("/employees", requireAdmin, async (c) => {
     notes?: string | null;
     active?: boolean;
   }>();
-  if (!body.name?.trim()) return c.json({ error: "Indique el nombre" }, 400);
-  const code = body.employeeCode?.trim() || null;
+  if (!strOrEmpty(body.name)) return c.json({ error: "Indique el nombre" }, 400);
+  const code = strOrEmpty(body.employeeCode) || null;
   if (code) {
     const dup = await prisma.employee.findFirst({
       where: { organizationId: jwt.orgId, employeeCode: code },
@@ -3969,12 +4258,12 @@ api.post("/employees", requireAdmin, async (c) => {
       organizationId: jwt.orgId,
       name: body.name.trim(),
       employeeCode: code,
-      idDocument: body.idDocument?.trim() || null,
-      phone: body.phone?.trim() || null,
-      email: body.email?.trim() || null,
-      position: body.position?.trim() || null,
-      hireDate: body.hireDate ? new Date(body.hireDate) : null,
-      notes: body.notes?.trim() || null,
+      idDocument: strOrEmpty(body.idDocument) || null,
+      phone: strOrEmpty(body.phone) || null,
+      email: strOrEmpty(body.email) || null,
+      position: strOrEmpty(body.position) || null,
+      hireDate: optionalDate(body.hireDate, "Fecha de ingreso") ?? null,
+      notes: strOrEmpty(body.notes) || null,
       active: body.active !== false,
     },
     select: employeeSelect,
@@ -3998,7 +4287,7 @@ api.patch("/employees/:id", requireAdmin, async (c) => {
   }>();
   const cur = await prisma.employee.findFirst({ where: { id, organizationId: jwt.orgId } });
   if (!cur) return c.json({ error: "No encontrado" }, 404);
-  const code = body.employeeCode !== undefined ? (body.employeeCode?.trim() || null) : undefined;
+  const code = body.employeeCode !== undefined ? (strOrEmpty(body.employeeCode) || null) : undefined;
   if (code) {
     const dup = await prisma.employee.findFirst({
       where: { organizationId: jwt.orgId, employeeCode: code, NOT: { id } },
@@ -4008,16 +4297,16 @@ api.patch("/employees/:id", requireAdmin, async (c) => {
   const row = await prisma.employee.update({
     where: { id },
     data: {
-      ...(body.name !== undefined ? { name: body.name.trim() || cur.name } : {}),
+      ...(body.name !== undefined ? { name: strOrEmpty(body.name) || cur.name } : {}),
       ...(code !== undefined ? { employeeCode: code } : {}),
-      ...(body.idDocument !== undefined ? { idDocument: body.idDocument?.trim() || null } : {}),
-      ...(body.phone !== undefined ? { phone: body.phone?.trim() || null } : {}),
-      ...(body.email !== undefined ? { email: body.email?.trim() || null } : {}),
-      ...(body.position !== undefined ? { position: body.position?.trim() || null } : {}),
+      ...(body.idDocument !== undefined ? { idDocument: strOrEmpty(body.idDocument) || null } : {}),
+      ...(body.phone !== undefined ? { phone: strOrEmpty(body.phone) || null } : {}),
+      ...(body.email !== undefined ? { email: strOrEmpty(body.email) || null } : {}),
+      ...(body.position !== undefined ? { position: strOrEmpty(body.position) || null } : {}),
       ...(body.hireDate !== undefined
-        ? { hireDate: body.hireDate ? new Date(body.hireDate) : null }
+        ? { hireDate: optionalDate(body.hireDate, "Fecha de ingreso") ?? null }
         : {}),
-      ...(body.notes !== undefined ? { notes: body.notes?.trim() || null } : {}),
+      ...(body.notes !== undefined ? { notes: strOrEmpty(body.notes) || null } : {}),
       ...(body.active !== undefined ? { active: body.active } : {}),
     },
     select: employeeSelect,
@@ -4044,7 +4333,7 @@ api.get("/expense-books", requirePermission(PERMISSION_KEYS.EXPENSES_VIEW), asyn
 api.post("/expense-books", requireAdmin, async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{ name: string; sortOrder?: number }>();
-  const name = body.name?.trim();
+  const name = strOrEmpty(body.name);
   if (!name) return c.json({ error: "Nombre requerido" }, 400);
   const row = await prisma.expenseBook.create({
     data: {
@@ -4066,7 +4355,7 @@ api.patch("/expense-books/:id", requireAdmin, async (c) => {
   const row = await prisma.expenseBook.update({
     where: { id },
     data: {
-      ...(body.name !== undefined ? { name: body.name.trim() || cur.name } : {}),
+      ...(body.name !== undefined ? { name: strOrEmpty(body.name) || cur.name } : {}),
       ...(body.sortOrder !== undefined ? { sortOrder: Math.trunc(Number(body.sortOrder)) } : {}),
     },
     include: { categories: true },
@@ -4080,7 +4369,7 @@ api.post("/expense-books/:bookId/categories", requireAdmin, async (c) => {
   const book = await prisma.expenseBook.findFirst({ where: { id: bookId, organizationId: jwt.orgId } });
   if (!book) return c.json({ error: "Libro no encontrado" }, 404);
   const body = await c.req.json<{ name: string; sortOrder?: number }>();
-  const name = body.name?.trim();
+  const name = strOrEmpty(body.name);
   if (!name) return c.json({ error: "Nombre requerido" }, 400);
   const row = await prisma.expenseCategory.create({
     data: {
@@ -4130,9 +4419,9 @@ api.post("/expenses", requireAdmin, async (c) => {
     bookId?: string | null;
     categoryId?: string | null;
   }>();
-  let categoryName = body.category?.trim() ?? "";
-  let bookId: string | null = body.bookId?.trim() || null;
-  let categoryId: string | null = body.categoryId?.trim() || null;
+  let categoryName = strOrEmpty(body.category) ?? "";
+  let bookId: string | null = strOrEmpty(body.bookId) || null;
+  let categoryId: string | null = strOrEmpty(body.categoryId) || null;
   if (categoryId) {
     const ec = await prisma.expenseCategory.findFirst({
       where: { id: categoryId, book: { organizationId: jwt.orgId } },
@@ -4157,8 +4446,8 @@ api.post("/expenses", requireAdmin, async (c) => {
           userId: jwt.sub,
           category: categoryName,
           amount,
-          expenseDate: body.expenseDate ? new Date(body.expenseDate) : new Date(),
-          notes: body.notes?.trim() || null,
+          expenseDate: optionalDate(body.expenseDate, "Fecha del gasto") ?? new Date(),
+          notes: strOrEmpty(body.notes) || null,
           bookId,
           categoryId,
         },
@@ -4206,7 +4495,7 @@ function resolvePayrollLineBody(L: PayrollLineBody): ResolvedPayrollLine {
   if (deductionCreates.length > 0) {
     const d = deductionCreates.reduce((s, x) => s + x.amount, 0);
     const n = g - d;
-    if (!Number.isFinite(g) || !Number.isFinite(n) || n < -0.0001) throw new Error("PAYROLL_BAD_NUM");
+    if (!Number.isFinite(g) || g < 0 || !Number.isFinite(n) || n < -0.0001) throw new Error("PAYROLL_BAD_NUM");
     return {
       employeeId: L.employeeId,
       gross: g,
@@ -4220,6 +4509,8 @@ function resolvePayrollLineBody(L: PayrollLineBody): ResolvedPayrollLine {
   const d = Number(L.deductions ?? 0);
   const n = Number(L.net);
   if (!Number.isFinite(g) || !Number.isFinite(d) || !Number.isFinite(n)) throw new Error("PAYROLL_BAD_NUM");
+  // Antes se aceptaba bruto negativo o un neto que no cuadra (bruto 1000, deducciones 100, neto 5000).
+  if (g < 0 || d < 0 || n < -0.0001 || Math.abs(g - d - n) > 0.01) throw new Error("PAYROLL_BAD_NUM");
   return {
     employeeId: L.employeeId,
     gross: g,
@@ -4278,7 +4569,7 @@ api.post("/payroll-periods", requireAdmin, async (c) => {
   if (year < 2000 || year > 2100 || month < 1 || month > 12) {
     return c.json({ error: "Año o mes inválido" }, 400);
   }
-  if (!body.lines?.length) return c.json({ error: "Agregue al menos una línea de planilla" }, 400);
+  if (!Array.isArray(body.lines) || !body.lines.length) return c.json({ error: "Agregue al menos una línea de planilla" }, 400);
   try {
     const created = await prisma.$transaction(async (tx) => {
       const exists = await tx.payrollPeriod.findUnique({
@@ -4300,7 +4591,7 @@ api.post("/payroll-periods", requireAdmin, async (c) => {
           userId: jwt.sub,
           year,
           month,
-          notes: body.notes?.trim() || null,
+          notes: strOrEmpty(body.notes) || null,
           lines: {
             create: body.lines.map((L) => {
               const r = resolvePayrollLineBody(L);
@@ -4333,7 +4624,9 @@ api.post("/payroll-periods", requireAdmin, async (c) => {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PAYROLL_DUP") return c.json({ error: "Ya existe planilla para ese mes" }, 409);
     if (msg === "EMP_NOT_FOUND") return c.json({ error: "Empleado no encontrado o inactivo" }, 400);
-    if (msg === "PAYROLL_BAD_NUM") return c.json({ error: "Montos inválidos en líneas" }, 400);
+    if (msg === "PAYROLL_BAD_NUM") {
+      return c.json({ error: "Montos inválidos: bruto y deducciones no pueden ser negativos y el neto debe ser bruto − deducciones" }, 400);
+    }
     throw e;
   }
 });
@@ -4391,7 +4684,7 @@ api.patch("/payroll-periods/:id", requireAdmin, async (c) => {
         where: { id },
         data: {
           ...(body.status === "CERRADA" || body.status === "BORRADOR" ? { status: body.status } : {}),
-          ...(body.notes !== undefined ? { notes: body.notes?.trim() || null } : {}),
+          ...(body.notes !== undefined ? { notes: strOrEmpty(body.notes) || null } : {}),
         },
         include: payrollPeriodInclude,
       });
@@ -4400,7 +4693,9 @@ api.patch("/payroll-periods/:id", requireAdmin, async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "EMP_NOT_FOUND") return c.json({ error: "Empleado no encontrado o inactivo" }, 400);
-    if (msg === "PAYROLL_BAD_NUM") return c.json({ error: "Montos inválidos en líneas" }, 400);
+    if (msg === "PAYROLL_BAD_NUM") {
+      return c.json({ error: "Montos inválidos: bruto y deducciones no pueden ser negativos y el neto debe ser bruto − deducciones" }, 400);
+    }
     throw e;
   }
 });

@@ -17,6 +17,10 @@ export async function mergeMasterFromBackup(
   expenseBooks: number;
 }> {
   if (!isRecord(payload)) throw new Error("INVALID_BACKUP");
+  // Un archivo sin ninguna coleccion conocida no es un respaldo: antes respondia
+  // "ok" con todo en cero y el usuario creia que la importacion habia funcionado.
+  const known = ["products", "customers", "suppliers", "stockLocations", "expenseBooks"];
+  if (!known.some((k) => Array.isArray(payload[k]))) throw new Error("INVALID_BACKUP");
 
   let products = 0;
   let customers = 0;
