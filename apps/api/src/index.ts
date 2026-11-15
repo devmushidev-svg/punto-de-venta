@@ -3,6 +3,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { Prisma } from "@prisma/client";
+import {
+  allocateSaleInvoiceNumber,
+  assertValidUnitPrice,
+  lockAndAssertSaleStock,
+  lockRows,
+  resolveSaleDate,
+} from "./lib/saleIntegrity.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
@@ -14,6 +21,7 @@ import {
   clientIpFromHeaders,
   isLoginBlocked,
   isLoginKeyBlocked,
+  accountLoginLimit,
   registerLoginFailure,
   registerLoginKeyFailure,
 } from "./lib/loginRateLimit.js";
@@ -200,7 +208,16 @@ app.use("*", async (c, next) => {
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 });
 
-app.get("/health", (c) => c.json({ ok: true }));
+// Railway y Docker usan esta ruta para decidir si el servicio esta sano. Antes
+// respondia ok aunque la base estuviera caida y todo el sistema daba 500.
+app.get("/health", async (c) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return c.json({ ok: true, db: "ok" });
+  } catch {
+    return c.json({ ok: false, db: "unreachable" }, 503);
+  }
+});
 
 let demoSeedPromise: Promise<void> | null = null;
 
@@ -370,7 +387,8 @@ app.post("/auth/login", async (c) => {
   }
 
   const subjectKey = loginSubjectKey(loginIp, orgId, username);
-  if (isLoginKeyBlocked(subjectKey)) {
+  const accountKey = `account:${orgId}:${username}`;
+  if (isLoginKeyBlocked(subjectKey) || isLoginKeyBlocked(accountKey, accountLoginLimit())) {
     return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
   }
 
@@ -382,7 +400,8 @@ app.post("/auth/login", async (c) => {
   if (!user || !passwordOk) {
     const ipLocked = registerLoginFailure(loginIp);
     const subjectLocked = registerLoginKeyFailure(subjectKey);
-    if (ipLocked || subjectLocked) {
+    const accountLocked = registerLoginKeyFailure(accountKey, accountLoginLimit());
+    if (ipLocked || subjectLocked || accountLocked) {
       return c.json({ error: "Demasiados intentos fallidos. Intente de nuevo más tarde." }, 429);
     }
     return c.json({ error: LOGIN_GENERIC_ERROR }, 401);
@@ -390,6 +409,7 @@ app.post("/auth/login", async (c) => {
 
   clearLoginFailures(loginIp);
   clearLoginKeyFailures(subjectKey);
+  clearLoginKeyFailures(accountKey);
 
   const localContext = await ensureDefaultBranchDevice(user.organizationId);
   const effectivePermissions = effectivePermissionList(user.role, user.permissionsJson);
@@ -434,13 +454,20 @@ const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, next) =
   const h = c.req.header("Authorization");
   const m = h?.match(/^Bearer\s+(.+)$/i);
   if (!m) return c.json({ error: "No autorizado" }, 401);
+  let jwt: JwtPayload;
   try {
-    const jwt = verifyToken(m[1]);
-    c.set("jwt", jwt);
-    await next();
+    jwt = verifyToken(m[1]);
   } catch {
     return c.json({ error: "Token inválido" }, 401);
   }
+  // Un token dura 7 dias: sin esto, desactivar a un usuario no le cerraba la sesion.
+  const active = await prisma.user.findFirst({
+    where: { id: jwt.sub, organizationId: jwt.orgId, active: true },
+    select: { id: true },
+  });
+  if (!active) return c.json({ error: "Sesión no válida: el usuario fue desactivado o eliminado." }, 401);
+  c.set("jwt", jwt);
+  await next();
 });
 
 const PERM_STALE_BODY = {
@@ -1507,6 +1534,24 @@ function isAdminJwt(jwt: JwtPayload) {
   return jwt.role === "admin";
 }
 
+/** Permiso efectivo leido de la BD (no del token, que puede tener permisos viejos). */
+async function jwtUserHasPermission(jwt: JwtPayload, key: PermissionKey): Promise<boolean> {
+  const row = await prisma.user.findFirst({
+    where: { id: jwt.sub, organizationId: jwt.orgId },
+    select: { role: true, permissionsJson: true },
+  });
+  return !!row && userHasPermission(row.role, row.permissionsJson, key);
+}
+
+function saleDateErrorResponse(c: { json: (b: unknown, s: 400) => Response }, e: unknown): Response {
+  const msg = e instanceof Error ? e.message : "";
+  if (msg === "SALE_DATE_FUTURE") return c.json({ error: "La fecha de la venta no puede estar en el futuro" }, 400);
+  if (msg === "SALE_DATE_TOO_OLD") {
+    return c.json({ error: "Solo un administrador puede registrar ventas con más de 7 días de antigüedad" }, 400);
+  }
+  throw e;
+}
+
 api.post("/sales", async (c) => {
   const jwt = c.get("jwt");
   const body = await c.req.json<{
@@ -1544,8 +1589,18 @@ api.post("/sales", async (c) => {
 
   const terms = normalizeSaleTerms(body.terms ?? "CONTADO");
   const priceTier = Math.min(4, Math.max(1, body.priceTier ?? 1));
-  /** Apartarse del precio de catalogo o aplicar descuento exige permiso; admin siempre puede. */
-  const canOverride = jwt.role === "admin";
+  /** Apartarse del precio de catalogo o aplicar descuento exige `sales.price_override`; admin siempre puede. */
+  const canOverride = await jwtUserHasPermission(jwt, PERMISSION_KEYS.SALES_PRICE_OVERRIDE);
+  let saleDateResolved: Date;
+  try {
+    saleDateResolved = resolveSaleDate(parseClientSaleDate(body.saleDate), isAdminJwt(jwt));
+  } catch (e) {
+    return saleDateErrorResponse(c, e);
+  }
+  const bodyCustomerId = typeof body.customerId === "string" && body.customerId.trim() ? body.customerId.trim() : null;
+  if (bodyCustomerId && !(await prisma.customer.findFirst({ where: { id: bodyCustomerId, organizationId: jwt.orgId }, select: { id: true } }))) {
+    return c.json({ error: "Cliente no encontrado" }, 400);
+  }
   const localContext = await ensureDefaultBranchDevice(jwt.orgId);
   const stPos = await prisma.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
   const genPos = JSON.parse(stPos?.generalJson || "{}") as Record<string, unknown>;
@@ -1582,20 +1637,13 @@ api.post("/sales", async (c) => {
     let tax = 0;
     const saleLines: { productId: string; qty: number; unitPrice: number; discountPercent: number; taxPercent: number; lineTotal: number }[] = [];
 
-    for (const line of body.lines) {
-      if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new Error("INVALID_QTY");
-      const product = await tx.product.findFirst({
-        where: { id: line.productId, organizationId: jwt.orgId },
-      });
+    const normalizedLines = body.lines.map((line) => ({ ...line, qty: Number(line.qty) }));
+    if (normalizedLines.some((line) => !Number.isFinite(line.qty) || line.qty <= 0)) throw new Error("INVALID_QTY");
+    const lockedProducts = await lockAndAssertSaleStock(tx, jwt.orgId, normalizedLines, allowOversell);
+
+    for (const line of normalizedLines) {
+      const product = lockedProducts.get(line.productId);
       if (!product) throw new Error("PRODUCT_NOT_FOUND");
-      if (product.productType === "INSUMO") throw new Error("INSUMO_NOT_SALEABLE");
-      const isService = product.productType === "SERVICIO";
-      const isKit = product.productType === "KIT";
-      if (isKit) {
-        if (!allowOversell) await assertKitSaleStock(tx, product.id, line.qty);
-      } else if (!isService && product.stock < line.qty && !allowOversell) {
-        throw new Error("INSUFFICIENT_STOCK");
-      }
       const { unitPrice, discountPercent } = authorizedLinePrice({
         product,
         qty: line.qty,
@@ -1604,6 +1652,7 @@ api.post("/sales", async (c) => {
         requestedDiscountPercent: line.discountPercent,
         canOverride,
       });
+      assertValidUnitPrice(unitPrice);
       const lineTotal = unitPrice * line.qty * (1 - discountPercent / 100);
       const taxPercent = product.taxPercent;
       const split = splitTaxIncluded(lineTotal, taxPercent);
@@ -1634,60 +1683,8 @@ api.post("/sales", async (c) => {
     }
 
     const stSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
-    const invParsed = JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>;
-    const saleDateResolved = parseClientSaleDate(body.saleDate) ?? new Date();
-    assertSarRangeValidUntil(invParsed, saleDateResolved);
-
-    let invoiceNumber: string;
-    const sar = invParsed.sar as Record<string, unknown> | undefined;
-    if (sar && sar.autoNumber === true) {
-      const next = Number(sar.nextNum ?? 1);
-      const end = Number(sar.rangeEnd ?? 99999999);
-      if (next > end) throw new Error("SAR_RANGE_EXHAUSTED");
-      const ser = String(sar.series ?? "").trim();
-      invoiceNumber = ser ? `${ser}-${String(next).padStart(8, "0")}` : String(next).padStart(8, "0");
-      sar.nextNum = next + 1;
-      if (stSet) {
-        await tx.organizationSettings.update({
-          where: { organizationId: jwt.orgId },
-          data: { invoiceJson: JSON.stringify({ ...invParsed, sar }) },
-        });
-      } else {
-        await tx.organizationSettings.create({
-          data: {
-            organizationId: jwt.orgId,
-            invoiceJson: JSON.stringify({ ...invParsed, sar }),
-          },
-        });
-      }
-    } else {
-      let series = await tx.documentSeries.findFirst({
-        where: {
-          organizationId: jwt.orgId,
-          documentType: "SALE",
-          deviceId: localContext.device.id,
-          active: true,
-        },
-      });
-      if (!series) {
-        series = await tx.documentSeries.create({
-          data: {
-            organizationId: jwt.orgId,
-            branchId: localContext.branch.id,
-            deviceId: localContext.device.id,
-            documentType: "SALE",
-            prefix: `${localContext.device.invoiceSeries}-`,
-            nextNumber: 1,
-            padding: 6,
-          },
-        });
-      }
-      invoiceNumber = `${series.prefix}${String(series.nextNumber).padStart(series.padding, "0")}`;
-      await tx.documentSeries.update({
-        where: { id: series.id },
-        data: { nextNumber: { increment: 1 } },
-      });
-    }
+    assertSarRangeValidUntil(JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>, saleDateResolved);
+    const invoiceNumber = await allocateSaleInvoiceNumber(tx, jwt.orgId, localContext);
 
     const sale = await tx.sale.create({
       data: {
@@ -1696,7 +1693,7 @@ api.post("/sales", async (c) => {
         deviceId: localContext.device.id,
         originDeviceId: localContext.device.id,
         userId: jwt.sub,
-        customerId: body.customerId || null,
+        customerId: bodyCustomerId,
         invoiceNumber,
         terms,
         notes: body.notes,
@@ -1754,6 +1751,7 @@ api.post("/sales", async (c) => {
     if (msg === "KIT_EMPTY") return c.json({ error: "El kit no tiene componentes configurados" }, 400);
     if (msg === "KIT_BAD_COMPONENT") return c.json({ error: "Error en componentes del kit" }, 400);
     if (msg === "INSUMO_NOT_SALEABLE") return c.json({ error: "Los insumos no se venden en POS" }, 400);
+    if (msg === "INVALID_PRICE") return c.json({ error: "El precio de cada línea debe ser un número mayor o igual a cero" }, 400);
     if (msg === "SAR_RANGE_EXHAUSTED") {
       return c.json({ error: "Rango de facturación SAR agotado; actualice configuración" }, 400);
     }
@@ -2330,12 +2328,16 @@ api.post("/cash-sessions/open", async (c) => {
     // ya estuviera abierta.
     return c.json(open);
   }
-  const body = await c.req.json<{ openingCash?: number }>();
+  const body = await c.req.json<{ openingCash?: number }>().catch(() => ({} as { openingCash?: number }));
+  const openingCash = body.openingCash === undefined || body.openingCash === null ? 0 : Number(body.openingCash);
+  if (!Number.isFinite(openingCash) || openingCash < 0) {
+    return c.json({ error: "El fondo inicial debe ser un número mayor o igual a cero" }, 400);
+  }
   const session = await prisma.cashSession.create({
     data: {
       organizationId: jwt.orgId,
       userId: jwt.sub,
-      openingCash: body.openingCash ?? 0,
+      openingCash,
     },
   });
   return c.json(session, 201);
@@ -2374,8 +2376,8 @@ api.post("/cash-sessions/:id/close", async (c) => {
     where: { id, organizationId: jwt.orgId, userId: jwt.sub, closedAt: null },
   });
   if (!session) return c.json({ error: "Sesión no encontrada o ya cerrada" }, 404);
-  if (typeof body.closingCash !== "number" || !Number.isFinite(body.closingCash)) {
-    return c.json({ error: "Debe indicar el efectivo contado al cierre" }, 400);
+  if (typeof body.closingCash !== "number" || !Number.isFinite(body.closingCash) || body.closingCash < 0) {
+    return c.json({ error: "Debe indicar el efectivo contado al cierre (mayor o igual a cero)" }, 400);
   }
   const closedAt = new Date();
   const diary = await buildCashDiaryForSession(jwt.orgId, jwt.sub, session, closedAt);
@@ -2996,17 +2998,24 @@ api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.A
   const saleId = c.req.param("saleId");
   const body = await c.req.json<{ amount: number; registerCashMovement?: boolean }>();
   const amount = Number(body.amount);
-  if (!amount || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
+  if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   const sale = await prisma.sale.findFirst({
     where: { id: saleId, organizationId: jwt.orgId },
     include: { receivableSurcharges: true },
   });
   if (!sale || !isCreditSaleTerm(sale.terms)) return c.json({ error: "Venta no encontrada" }, 404);
-  const surchargesTotal = sale.receivableSurcharges.reduce((a, x) => a + x.amount, 0);
-  const balance = sale.total + surchargesTotal - sale.paid;
-  if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
   try {
   const updated = await prisma.$transaction(async (tx) => {
+    // El saldo se decide con la fila bloqueada: dos abonos simultaneos ya no
+    // leen el mismo saldo (antes 5 abonos del total quedaban en saldo -400).
+    await lockRows(tx, "Sale", [saleId]);
+    const fresh = await tx.sale.findFirst({
+      where: { id: saleId, organizationId: jwt.orgId },
+      include: { receivableSurcharges: true },
+    });
+    if (!fresh) throw new Error("SALE_NOT_FOUND");
+    const balance = fresh.total + fresh.receivableSurcharges.reduce((a, x) => a + x.amount, 0) - fresh.paid;
+    if (amount > balance + 0.005) throw new Error("EXCEEDS_BALANCE");
     const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
     const u = await tx.sale.update({
       where: { id: saleId },
@@ -3029,6 +3038,8 @@ api.post("/accounts/receivable/:saleId/pay", requirePermission(PERMISSION_KEYS.A
     if (e instanceof Error && e.message === "CASH_SESSION_REQUIRED") {
       return c.json({ error: "Abra una caja antes de registrar abonos de cuentas por cobrar." }, 400);
     }
+    if (e instanceof Error && e.message === "EXCEEDS_BALANCE") return c.json({ error: "Excede saldo" }, 400);
+    if (e instanceof Error && e.message === "SALE_NOT_FOUND") return c.json({ error: "Venta no encontrada" }, 404);
     throw e;
   }
 });
@@ -3080,17 +3091,22 @@ api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.
   const purchaseId = c.req.param("purchaseId");
   const body = await c.req.json<{ amount: number; registerCashMovement?: boolean }>();
   const amount = Number(body.amount);
-  if (!amount || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
+  if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: "Monto inválido" }, 400);
   const purchase = await prisma.purchase.findFirst({
     where: { id: purchaseId, organizationId: jwt.orgId, terms: "CREDITO" },
     include: { payableSurcharges: true },
   });
   if (!purchase) return c.json({ error: "Compra no encontrada" }, 404);
-  const surchargesTotal = purchase.payableSurcharges.reduce((a, x) => a + x.amount, 0);
-  const balance = purchase.total + surchargesTotal - purchase.paid;
-  if (amount > balance) return c.json({ error: "Excede saldo" }, 400);
   try {
   const updated = await prisma.$transaction(async (tx) => {
+    await lockRows(tx, "Purchase", [purchaseId]);
+    const fresh = await tx.purchase.findFirst({
+      where: { id: purchaseId, organizationId: jwt.orgId },
+      include: { payableSurcharges: true },
+    });
+    if (!fresh) throw new Error("PURCHASE_NOT_FOUND");
+    const balance = fresh.total + fresh.payableSurcharges.reduce((a, x) => a + x.amount, 0) - fresh.paid;
+    if (amount > balance + 0.005) throw new Error("EXCEEDS_BALANCE");
     const sess = await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt));
     const u = await tx.purchase.update({
       where: { id: purchaseId },
@@ -3113,6 +3129,8 @@ api.post("/accounts/payable/:purchaseId/pay", requirePermission(PERMISSION_KEYS.
     if (e instanceof Error && e.message === "CASH_SESSION_REQUIRED") {
       return c.json({ error: "Abra una caja antes de registrar pagos de cuentas por pagar." }, 400);
     }
+    if (e instanceof Error && e.message === "EXCEEDS_BALANCE") return c.json({ error: "Excede saldo" }, 400);
+    if (e instanceof Error && e.message === "PURCHASE_NOT_FOUND") return c.json({ error: "Compra no encontrada" }, 404);
     throw e;
   }
 });
@@ -3334,37 +3352,35 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
       ? convertBody.customerId.trim()
       : null;
   const resolvedCustomerId = bodyCust ?? quote.customerId;
-  if (isCreditSaleTerm(terms)) {
-    if (!resolvedCustomerId) {
-      return c.json(
-        { error: "Las ventas a crédito requieren un cliente (asígnelo a la cotización o envíe customerId)" },
-        400
-      );
-    }
+  if (resolvedCustomerId) {
     const cust = await prisma.customer.findFirst({
       where: { id: resolvedCustomerId, organizationId: jwt.orgId },
+      select: { id: true },
     });
     if (!cust) return c.json({ error: "Cliente no encontrado" }, 400);
   }
+  if (isCreditSaleTerm(terms) && !resolvedCustomerId) {
+    return c.json(
+      { error: "Las ventas a crédito requieren un cliente (asígnelo a la cotización o envíe customerId)" },
+      400
+    );
+  }
 
+  const localContext = await ensureDefaultBranchDevice(jwt.orgId);
+  try {
   const sale = await prisma.$transaction(async (tx) => {
+    // Bloquear la cotizacion: dos clics en "convertir" ya no crean dos ventas
+    // ni descuentan el inventario dos veces.
+    await lockRows(tx, "Quote", [quote.id]);
+    const fresh = await tx.quote.findFirst({ where: { id: quote.id, organizationId: jwt.orgId }, include: { lines: true } });
+    if (!fresh) throw new Error("QUOTE_NOT_FOUND");
+    if (fresh.status === "CONVERTIDA") throw new Error("QUOTE_ALREADY_CONVERTED");
+
+    await lockAndAssertSaleStock(tx, jwt.orgId, fresh.lines, false);
     let subtotal = 0;
     let tax = 0;
     const saleLines: { productId: string; qty: number; unitPrice: number; discountPercent: number; taxPercent: number; lineTotal: number }[] = [];
-
-    for (const l of quote.lines) {
-      const product = await tx.product.findFirst({
-        where: { id: l.productId, organizationId: jwt.orgId },
-      });
-      if (!product) throw new Error("STOCK");
-      if (product.productType === "INSUMO") throw new Error("STOCK");
-      const isService = product.productType === "SERVICIO";
-      const isKit = product.productType === "KIT";
-      if (isKit) {
-        await assertKitSaleStock(tx, product.id, l.qty);
-      } else if (!isService && product.stock < l.qty) {
-        throw new Error("STOCK");
-      }
+    for (const l of fresh.lines) {
       const lineTotal = l.unitPrice * l.qty;
       const split = splitTaxIncluded(lineTotal, l.taxPercent);
       subtotal += split.net;
@@ -3380,21 +3396,34 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
     }
     const total = subtotal + tax;
     const paid = resolveSalePaid(total, terms, convertBody.paid);
-    const count = await tx.sale.count({ where: { organizationId: jwt.orgId } });
-    const invoiceNumber = String(count + 1).padStart(6, "0");
+    // Antes la venta convertida no quedaba en ninguna caja: el efectivo no
+    // aparecia en el cierre. Ahora exige caja abierta igual que /sales.
+    const cashSessionId =
+      paid > 0 ? (await requireOpenCashSession(tx, jwt.orgId, jwt.sub, undefined, isAdminJwt(jwt))).id : null;
+    const saleDate = new Date();
+    const stSet = await tx.organizationSettings.findUnique({ where: { organizationId: jwt.orgId } });
+    assertSarRangeValidUntil(JSON.parse(stSet?.invoiceJson || "{}") as Record<string, unknown>, saleDate);
+    // Antes: `count + 1`, que repetia numeros y chocaba con la serie normal.
+    const invoiceNumber = await allocateSaleInvoiceNumber(tx, jwt.orgId, localContext);
     const s = await tx.sale.create({
       data: {
         organizationId: jwt.orgId,
+        branchId: localContext.branch.id,
+        deviceId: localContext.device.id,
+        originDeviceId: localContext.device.id,
         userId: jwt.sub,
         customerId: resolvedCustomerId,
         invoiceNumber,
         terms,
-        notes: `Desde cotización ${quote.quoteNumber}`,
+        notes: `Desde cotización ${fresh.quoteNumber}`,
         priceTier: 1,
         subtotal,
         tax,
         total,
         paid,
+        cashSessionId,
+        saleDate,
+        syncStatus: "PENDING",
         lines: { create: saleLines },
       },
     });
@@ -3407,7 +3436,7 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
       }
       await adjustProductStock(tx, jwt.orgId, line.productId, -line.qty);
     }
-    await tx.quote.update({ where: { id: quote.id }, data: { status: "CONVERTIDA" } });
+    await tx.quote.update({ where: { id: fresh.id }, data: { status: "CONVERTIDA" } });
     return tx.sale.findUnique({
       where: { id: s.id },
       include: {
@@ -3416,10 +3445,21 @@ api.post("/quotes/:id/convert-to-sale", async (c) => {
         user: { select: { id: true, displayName: true, username: true } },
       },
     });
-  }).catch(() => null);
-
-  if (!sale) return c.json({ error: "No se pudo convertir (stock o datos)" }, 400);
+  });
   return c.json(sale);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "QUOTE_ALREADY_CONVERTED") return c.json({ error: "Ya convertida" }, 400);
+    if (msg === "QUOTE_NOT_FOUND") return c.json({ error: "No encontrado" }, 404);
+    if (msg === "INSUFFICIENT_STOCK") return c.json({ error: "Stock insuficiente" }, 400);
+    if (msg === "CASH_SESSION_REQUIRED") return c.json({ error: "Abra una caja antes de convertir con pago." }, 400);
+    if (msg === "SAR_RANGE_EXHAUSTED") return c.json({ error: "Rango de facturación SAR agotado; actualice configuración" }, 400);
+    if (msg === "SAR_AUTH_EXPIRED") return c.json({ error: "Autorización SAR vencida; revise configuración" }, 400);
+    if (["PRODUCT_NOT_FOUND", "INSUMO_NOT_SALEABLE", "KIT_EMPTY", "KIT_BAD_COMPONENT"].includes(msg)) {
+      return c.json({ error: "No se pudo convertir (stock o datos)" }, 400);
+    }
+    throw e;
+  }
 });
 
 api.get("/orders", async (c) => {
